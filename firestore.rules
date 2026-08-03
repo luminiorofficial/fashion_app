@@ -1,0 +1,99 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owns(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function validProfile(data) {
+      return data.keys().hasOnly([
+               'bodyType', 'skinTone', 'preferredStyles', 'updatedAt'
+             ])
+             && data.bodyType is string
+             && data.bodyType.size() > 0
+             && data.bodyType.size() <= 160
+             && data.skinTone is string
+             && data.skinTone.size() > 0
+             && data.skinTone.size() <= 240
+             && data.preferredStyles is list
+             && data.preferredStyles.size() <= 20
+             && data.updatedAt == request.time;
+    }
+
+    function validWardrobeItem(data) {
+      return data.keys().hasOnly([
+               'name', 'category', 'imageUrl', 'imagePath', 'tags', 'createdAt'
+             ])
+             && data.name is string
+             && data.name.size() > 0
+             && data.name.size() <= 160
+             && data.category in [
+               'Top', 'Bottom', 'Outerwear', 'Shoes', 'Accessory', 'Dress'
+             ]
+             && data.imageUrl is string
+             && data.imageUrl.size() <= 4096
+             && data.imagePath is string
+             && data.imagePath.size() <= 1024
+             && data.tags is list
+             && data.tags.size() <= 8
+             && data.createdAt is timestamp;
+    }
+
+    function validOutfit(data) {
+      return data.keys().hasOnly([
+               'eventType', 'wardrobeItemIds', 'rationale',
+               'suggestedPurchaseItem', 'createdAt'
+             ])
+             && data.eventType in ['Wedding', 'Brunch', 'Work Meeting', 'Daily']
+             && data.wardrobeItemIds is list
+             && data.wardrobeItemIds.size() >= 1
+             && data.wardrobeItemIds.size() <= 4
+             && data.rationale is string
+             && data.rationale.size() > 0
+             && data.rationale.size() <= 2000
+             && (data.suggestedPurchaseItem == null
+                 || validSuggestion(data.suggestedPurchaseItem))
+             && data.createdAt == request.time;
+    }
+
+    function validSuggestion(data) {
+      return data is map
+             && data.keys().hasAll(['name', 'type'])
+             && data.keys().hasOnly(['name', 'type', 'buyUrl'])
+             && data.name is string
+             && data.name.size() > 0
+             && data.name.size() <= 160
+             && data.type is string
+             && data.type.size() > 0
+             && data.type.size() <= 80
+             && (!('buyUrl' in data)
+                 || (data.buyUrl is string && data.buyUrl.size() <= 4096));
+    }
+
+    match /artifacts/nera-mobile/users/{userId}/profile/style {
+      allow read: if owns(userId);
+      allow create, update: if owns(userId)
+                            && validProfile(request.resource.data);
+      allow delete: if owns(userId);
+    }
+
+    match /artifacts/nera-mobile/users/{userId}/wardrobe/{itemId} {
+      allow read: if owns(userId);
+      allow create: if owns(userId)
+                    && validWardrobeItem(request.resource.data)
+                    && request.resource.data.createdAt == request.time;
+      allow update: if owns(userId)
+                    && validWardrobeItem(request.resource.data)
+                    && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if owns(userId);
+    }
+
+    match /artifacts/nera-mobile/users/{userId}/outfit_history/{outfitId} {
+      allow read: if owns(userId);
+      allow create: if owns(userId)
+                    && validOutfit(request.resource.data);
+      allow update, delete: if false;
+    }
+  }
+}

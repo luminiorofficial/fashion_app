@@ -1,21 +1,28 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'dart:typed_data';
+
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import 'firebase_options.dart';
+import 'models/nera_models.dart';
+import 'services/firebase_nera_backend.dart';
+import 'services/image_service.dart';
+import 'services/memory_nera_backend.dart';
+import 'services/nera_backend.dart';
 
-
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const NeraApp());
 }
 
 class NeraApp extends StatelessWidget {
-  const NeraApp({super.key});
+  const NeraApp({super.key, this.backend, this.imageService});
+
+  final NeraBackend? backend;
+  final NeraImageService? imageService;
 
   @override
   Widget build(BuildContext context) {
@@ -23,12 +30,11 @@ class NeraApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'NERA — Personal Stylist AI',
       theme: NeraTheme.dark,
-      home: const NeraHomeScreen(),
+      home: _NeraBootstrap(backend: backend, imageService: imageService),
     );
   }
 }
 
-// Kept as a compatibility alias for integrations that already reference MyApp.
 class MyApp extends NeraApp {
   const MyApp({super.key});
 }
@@ -46,8 +52,6 @@ class NeraColors {
 }
 
 abstract final class NeraTheme {
-  // ThemeData is relatively expensive to construct. Cache it once instead of
-  // recreating it if the app root is rebuilt by the platform.
   static final ThemeData dark = ThemeData(
     useMaterial3: true,
     brightness: Brightness.dark,
@@ -55,10 +59,134 @@ abstract final class NeraTheme {
     colorScheme: const ColorScheme.dark(
       primary: NeraColors.gold,
       surface: NeraColors.surface,
+      error: Color(0xFFFF6B6B),
     ),
     textTheme: ThemeData.dark().textTheme.apply(
       bodyColor: NeraColors.textPrimary,
       displayColor: NeraColors.textPrimary,
+    ),
+    snackBarTheme: const SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: NeraColors.button,
+    ),
+  );
+}
+
+class _NeraBootstrap extends StatefulWidget {
+  const _NeraBootstrap({this.backend, this.imageService});
+
+  final NeraBackend? backend;
+  final NeraImageService? imageService;
+
+  @override
+  State<_NeraBootstrap> createState() => _NeraBootstrapState();
+}
+
+class _NeraBootstrapState extends State<_NeraBootstrap> {
+  late final NeraBackend _backend;
+  late Future<void> _initialization;
+
+  @override
+  void initState() {
+    super.initState();
+    _backend =
+        widget.backend ??
+        (Firebase.apps.isEmpty ? MemoryNeraBackend() : FirebaseNeraBackend());
+    _initialization = _backend.initialize();
+  }
+
+  @override
+  void dispose() {
+    _backend.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _initialization,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const _LaunchScreen();
+        }
+        if (snapshot.hasError) {
+          return _StartupError(
+            message: _friendlyError(snapshot.error),
+            onRetry: () => setState(() {
+              _initialization = _backend.initialize();
+            }),
+          );
+        }
+        return NeraHomeScreen(
+          backend: _backend,
+          imageService: widget.imageService ?? NeraImageService(),
+        );
+      },
+    );
+  }
+}
+
+class _LaunchScreen extends StatelessWidget {
+  const _LaunchScreen();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'NERA',
+            style: TextStyle(
+              color: NeraColors.gold,
+              fontFamily: 'serif',
+              fontSize: 48,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          SizedBox(height: 20),
+          SizedBox.square(
+            dimension: 22,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _StartupError extends StatelessWidget {
+  const _StartupError({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off_rounded,
+                size: 52,
+                color: NeraColors.muted,
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'NERA could not connect',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              Text(message, textAlign: TextAlign.center),
+              const SizedBox(height: 22),
+              FilledButton(onPressed: onRetry, child: const Text('Try again')),
+            ],
+          ),
+        ),
+      ),
     ),
   );
 }
@@ -66,52 +194,125 @@ abstract final class NeraTheme {
 enum StylingEvent {
   wedding('Wedding', Icons.favorite_rounded, Color(0xFFFF477E)),
   brunch('Brunch', Icons.local_bar_rounded, Color(0xFFC9F2DE)),
-  workMeeting(
-    'Work\nMeeting',
-    Icons.business_center_rounded,
-    Color(0xFF9A5663),
-  );
+  workMeeting('Work Meeting', Icons.business_center_rounded, Color(0xFF9A5663)),
+  daily('Daily', Icons.wb_sunny_rounded, Color(0xFFFFD166));
 
   const StylingEvent(this.label, this.icon, this.iconColor);
-
   final String label;
   final IconData icon;
   final Color iconColor;
-
-  String get requestLabel => label.replaceAll('\n', ' ');
 }
 
-enum _ProfileAnalysisState { idle, analyzing, analyzed }
-
 class NeraHomeScreen extends StatefulWidget {
-  const NeraHomeScreen({super.key});
+  const NeraHomeScreen({
+    super.key,
+    required this.backend,
+    required this.imageService,
+  });
+
+  final NeraBackend backend;
+  final NeraImageService imageService;
 
   @override
   State<NeraHomeScreen> createState() => _NeraHomeScreenState();
 }
 
 class _NeraHomeScreenState extends State<NeraHomeScreen> {
-  late final ValueNotifier<StylingEvent?> _selectedEvent;
-  late final ValueNotifier<_ProfileAnalysisState> _profileAnalysis;
+  late final Stream<List<WardrobeItem>> _wardrobeStream;
+  late final Stream<StyleProfile> _profileStream;
+  List<WardrobeItem> _wardrobe = const [];
+  StyleProfile _profile = const StyleProfile();
+  StylingEvent? _selectedEvent;
+  OutfitPlan? _outfit;
+  bool _wardrobeLoading = true;
+  bool _profileLoading = true;
+  bool _processingImage = false;
+  bool _analyzingProfile = false;
+  bool _generatingOutfit = false;
 
   @override
   void initState() {
     super.initState();
-    _selectedEvent = ValueNotifier<StylingEvent?>(null);
-    _profileAnalysis = ValueNotifier<_ProfileAnalysisState>(
-      _ProfileAnalysisState.idle,
-    );
+    _wardrobeStream = widget.backend.watchWardrobe();
+    _profileStream = widget.backend.watchProfile();
   }
 
   @override
-  void dispose() {
-    _selectedEvent.dispose();
-    _profileAnalysis.dispose();
-    super.dispose();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: StreamBuilder<List<WardrobeItem>>(
+              stream: _wardrobeStream,
+              builder: (context, wardrobeSnapshot) {
+                if (wardrobeSnapshot.hasData) {
+                  _wardrobe = wardrobeSnapshot.data!;
+                  _wardrobeLoading = false;
+                }
+                return StreamBuilder<StyleProfile>(
+                  stream: _profileStream,
+                  builder: (context, profileSnapshot) {
+                    if (profileSnapshot.hasData) {
+                      _profile = profileSnapshot.data!;
+                      _profileLoading = false;
+                    }
+                    return _buildContent();
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
-  void _showUploadOptions() {
-    showModalBottomSheet<void>(
+  Widget _buildContent() => ListView(
+    physics: const BouncingScrollPhysics(),
+    padding: const EdgeInsets.fromLTRB(20, 18, 20, 36),
+    children: [
+      _NeraHeader(backend: widget.backend, onAccountTap: _showAccountSheet),
+      const SizedBox(height: 28),
+      _UploadWardrobeCard(
+        busy: _processingImage,
+        onTap: _processingImage ? null : _showWardrobeSources,
+      ),
+      const SizedBox(height: 22),
+      _StylingSuggestionsCard(
+        selectedEvent: _selectedEvent,
+        generating: _generatingOutfit,
+        outfit: _outfit,
+        wardrobe: _wardrobe,
+      ),
+      const SizedBox(height: 22),
+      _EventStylingCard(
+        selected: _selectedEvent,
+        enabled: !_generatingOutfit,
+        onSelected: _generateOutfit,
+      ),
+      const SizedBox(height: 22),
+      _ShopTheLookCard(suggestion: _outfit?.suggestedPurchaseItem),
+      const SizedBox(height: 22),
+      _WardrobeCard(
+        loading: _wardrobeLoading,
+        items: _wardrobe,
+        onAdd: _showWardrobeSources,
+        onDelete: _deleteWardrobeItem,
+      ),
+      const SizedBox(height: 22),
+      _StyleProfileCard(
+        loading: _profileLoading,
+        analyzing: _analyzingProfile,
+        profile: _profile,
+        onAnalyze: _showProfileSources,
+      ),
+    ],
+  );
+
+  Future<ImageSource?> _chooseImageSource(String title) {
+    return showModalBottomSheet<ImageSource>(
       context: context,
       backgroundColor: NeraColors.surface,
       shape: const RoundedRectangleBorder(
@@ -136,21 +337,23 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
                 ),
               ),
               const SizedBox(height: 22),
-              const Text(
-                'Add to your wardrobe',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 10),
               _UploadOption(
                 icon: Icons.camera_alt_rounded,
                 label: 'Take a photo',
-                onTap: () => _closeUploadAndNotify(sheetContext, 'Camera'),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
               ),
               _UploadOption(
                 icon: Icons.photo_library_rounded,
                 label: 'Choose from gallery',
-                onTap: () =>
-                    _closeUploadAndNotify(sheetContext, 'Photo gallery'),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
               ),
             ],
           ),
@@ -159,305 +362,535 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
     );
   }
 
-  void _closeUploadAndNotify(BuildContext sheetContext, String feature) {
-    Navigator.of(sheetContext).pop();
-    _showComingSoon(feature);
-  }
-
-  void _showComingSoon(String feature) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text('$feature will be connected in the Firebase phase.'),
-          backgroundColor: NeraColors.button,
-          behavior: SnackBarBehavior.floating,
-        ),
+  Future<void> _showWardrobeSources() async {
+    final source = await _chooseImageSource('Add to your wardrobe');
+    if (source == null || !mounted) return;
+    setState(() => _processingImage = true);
+    WardrobeDraft? draft;
+    try {
+      final picked = await widget.imageService.pick(source);
+      if (picked == null) return;
+      draft = await widget.backend.analyzeWardrobeImage(
+        Uint8List.fromList(picked.bytes),
+        picked.fileName,
       );
-  }
-
-  Future<void> _analyzeProfile() async {
-    if (_profileAnalysis.value == _ProfileAnalysisState.analyzing) return;
-    _profileAnalysis.value = _ProfileAnalysisState.analyzing;
-    await Future<void>.delayed(const Duration(milliseconds: 850));
-    if (mounted) {
-      _profileAnalysis.value = _ProfileAnalysisState.analyzed;
+      if (!mounted) return;
+      final reviewed = await _reviewWardrobeDraft(draft);
+      if (reviewed == null) {
+        await widget.backend.discardWardrobeDraft(draft);
+      } else {
+        await widget.backend.saveWardrobeDraft(reviewed);
+        if (mounted) {
+          _showMessage('${reviewed.name} was added to your wardrobe.');
+        }
+      }
+    } catch (error) {
+      if (draft != null) await widget.backend.discardWardrobeDraft(draft);
+      if (mounted) _showMessage(_friendlyError(error), error: true);
+    } finally {
+      if (mounted) setState(() => _processingImage = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 430),
-            child: CustomScrollView(
-              scrollCacheExtent: const ScrollCacheExtent.pixels(180),
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      _buildHomeItem,
-                      childCount: 13,
-                      addAutomaticKeepAlives: false,
-                      addRepaintBoundaries: true,
-                      addSemanticIndexes: false,
-                    ),
-                  ),
+  Future<WardrobeDraft?> _reviewWardrobeDraft(WardrobeDraft draft) async {
+    final nameController = TextEditingController(text: draft.name);
+    var category = draft.category;
+    final result = await showDialog<WardrobeDraft>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Review AI details'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'NERA identified this item. Correct anything before saving.',
+                style: TextStyle(color: NeraColors.muted),
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: nameController,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Item name',
+                  border: OutlineInputBorder(),
                 ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHomeItem(BuildContext context, int index) {
-    return switch (index) {
-      0 => const _NeraHeader(),
-      1 => const SizedBox(height: 28),
-      2 => _UploadWardrobeCard(onTap: _showUploadOptions),
-      3 || 5 || 7 || 9 || 11 => const SizedBox(height: 22),
-      4 => _StylingSuggestionsCard(selection: _selectedEvent),
-      6 => _EventStylingCard(selection: _selectedEvent),
-      8 => _ShopTheLookCard(onTap: () => _showComingSoon('Luxury brand links')),
-      10 => const _WardrobeCard(),
-      12 => _StyleProfileCard(
-        analysis: _profileAnalysis,
-        onAnalyze: _analyzeProfile,
-      ),
-      _ => const SizedBox.shrink(),
-    };
-  }
-}
-
-class _NeraHeader extends StatelessWidget {
-  const _NeraHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Column(
-      children: [
-        Text(
-          'NERA',
-          style: TextStyle(
-            color: NeraColors.gold,
-            fontFamily: 'serif',
-            fontSize: 44,
-            height: 1,
-            letterSpacing: -1.5,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        SizedBox(height: 5),
-        Text(
-          'PERSONAL STYLIST AI',
-          style: TextStyle(
-            color: NeraColors.blue,
-            fontSize: 15,
-            letterSpacing: .15,
-            fontWeight: FontWeight.w400,
-          ),
-        ),
-        SizedBox(height: 8),
-        Text(
-          'UserID: IDNrJiuO...',
-          style: TextStyle(
-            color: Color(0xFF455776),
-            fontSize: 11,
-            letterSpacing: .2,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.child,
-    this.padding = const EdgeInsets.all(19),
-    this.onTap,
-  });
-
-  final Widget child;
-  final EdgeInsets padding;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: NeraColors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: NeraColors.surfaceBorder),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(padding: padding, child: child),
-      ),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        fontSize: 18,
-        height: 1.15,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -.35,
-      ),
-    );
-  }
-}
-
-class _UploadWardrobeCard extends StatelessWidget {
-  const _UploadWardrobeCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 19),
-      child: Row(
-        children: [
-          Container(
-            width: 53,
-            height: 53,
-            decoration: const BoxDecoration(
-              color: NeraColors.tile,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.dry_cleaning_outlined,
-              color: NeraColors.gold,
-              size: 31,
-            ),
-          ),
-          const SizedBox(width: 15),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SectionTitle('Upload Wardrobe'),
-                SizedBox(height: 3),
-                Text(
-                  'Add your clothing items',
-                  style: TextStyle(color: NeraColors.blue, fontSize: 14),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: category,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  border: OutlineInputBorder(),
                 ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StylingSuggestionsCard extends StatelessWidget {
-  const _StylingSuggestionsCard({required this.selection});
-
-  final ValueListenable<StylingEvent?> selection;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      padding: const EdgeInsets.fromLTRB(19, 22, 19, 22),
-      child: SizedBox(
-        height: 117,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _SectionTitle('AI Styling Suggestions'),
-            Expanded(
-              child: ValueListenableBuilder<StylingEvent?>(
-                valueListenable: selection,
-                builder: (context, selectedEvent, child) {
-                  final hasSelection = selectedEvent != null;
-                  return Center(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 250),
-                      child: Text(
-                        hasSelection
-                            ? 'Creating your ${selectedEvent.requestLabel.toLowerCase()} look'
-                            : 'Click an event below to get started!',
-                        key: ValueKey(selectedEvent),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: hasSelection
-                              ? NeraColors.blue
-                              : NeraColors.muted,
-                          fontSize: 15.5,
-                          height: 1.3,
-                        ),
-                      ),
-                    ),
-                  );
+                items: [
+                  for (final value in wardrobeCategories)
+                    DropdownMenuItem(value: value, child: Text(value)),
+                ],
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => category = value);
                 },
               ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Discard'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+                Navigator.pop(
+                  dialogContext,
+                  draft.copyWith(name: name, category: category),
+                );
+              },
+              child: const Text('Save item'),
             ),
           ],
         ),
       ),
     );
+    nameController.dispose();
+    return result;
   }
-}
 
-class _EventStylingCard extends StatelessWidget {
-  const _EventStylingCard({required this.selection});
+  Future<void> _showProfileSources() async {
+    final source = await _chooseImageSource('Analyze your style profile');
+    if (source == null || !mounted) return;
+    setState(() => _analyzingProfile = true);
+    try {
+      final picked = await widget.imageService.pick(source);
+      if (picked == null) return;
+      await widget.backend.analyzeProfileImage(
+        Uint8List.fromList(picked.bytes),
+        picked.fileName,
+      );
+      if (mounted) _showMessage('Your style profile is ready.');
+    } catch (error) {
+      if (mounted) _showMessage(_friendlyError(error), error: true);
+    } finally {
+      if (mounted) setState(() => _analyzingProfile = false);
+    }
+  }
 
-  final ValueNotifier<StylingEvent?> selection;
+  Future<void> _generateOutfit(StylingEvent event) async {
+    setState(() {
+      _selectedEvent = event;
+      _generatingOutfit = true;
+      _outfit = null;
+    });
+    try {
+      final result = await widget.backend.generateOutfit(
+        event.label,
+        _wardrobe,
+        _profile,
+      );
+      if (mounted) setState(() => _outfit = result);
+    } catch (error) {
+      if (mounted) _showMessage(_friendlyError(error), error: true);
+    } finally {
+      if (mounted) setState(() => _generatingOutfit = false);
+    }
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      padding: const EdgeInsets.fromLTRB(19, 21, 19, 19),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SectionTitle('Event Styling'),
-          const SizedBox(height: 18),
-          ValueListenableBuilder<StylingEvent?>(
-            valueListenable: selection,
-            builder: (context, selectedEvent, child) => Row(
-              children: [
-                for (
-                  var index = 0;
-                  index < StylingEvent.values.length;
-                  index++
-                ) ...[
-                  Expanded(
-                    child: _EventTile(
-                      event: StylingEvent.values[index],
-                      selected: selectedEvent == StylingEvent.values[index],
-                      onTap: () => selection.value = StylingEvent.values[index],
-                    ),
-                  ),
-                  if (index != StylingEvent.values.length - 1)
-                    const SizedBox(width: 14),
-                ],
-              ],
-            ),
+  Future<void> _deleteWardrobeItem(WardrobeItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove item?'),
+        content: Text('${item.name} will be removed from your wardrobe.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
           ),
         ],
       ),
     );
+    if (confirmed != true) return;
+    try {
+      await widget.backend.deleteWardrobeItem(item);
+      if (mounted) _showMessage('${item.name} was removed.');
+    } catch (error) {
+      if (mounted) _showMessage(_friendlyError(error), error: true);
+    }
   }
+
+  void _showAccountSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: NeraColors.surface,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: widget.backend.isAnonymous,
+            builder: (context, anonymous, child) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  anonymous ? 'Secure your wardrobe' : 'Your NERA account',
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  anonymous
+                      ? 'You are trying NERA anonymously. Link an account so your wardrobe stays with you.'
+                      : 'Your wardrobe is linked and syncs securely across devices.',
+                  style: const TextStyle(color: NeraColors.muted),
+                ),
+                if (anonymous) ...[
+                  const SizedBox(height: 20),
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        _runAccountAction(widget.backend.signInWithGoogle),
+                    icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
+                    label: const Text('Continue with Google'),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        _runAccountAction(widget.backend.signInWithApple),
+                    icon: const Icon(Icons.apple_rounded),
+                    label: const Text('Continue with Apple'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _runAccountAction(Future<Object?> Function() action) async {
+    Navigator.pop(context);
+    try {
+      await action();
+      if (mounted) _showMessage('Your NERA account is now linked.');
+    } catch (error) {
+      if (mounted) _showMessage(_friendlyError(error), error: true);
+    }
+  }
+
+  void _showMessage(String message, {bool error = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: error ? const Color(0xFF7C2930) : NeraColors.button,
+        ),
+      );
+  }
+}
+
+String _friendlyError(Object? error) {
+  if (error is NeraException) return error.message;
+  if (error is NeraImageException) return error.message;
+  final text = error.toString();
+  if (text.contains('operation-not-allowed')) {
+    return 'Enable Anonymous Authentication in the Firebase console first.';
+  }
+  if (text.contains('network-request-failed')) {
+    return 'No network connection. Please reconnect and try again.';
+  }
+  if (text.contains('permission-denied') || text.contains('unauthorized')) {
+    return 'Firebase denied this action. Deploy the included security rules.';
+  }
+  return text.replaceFirst(RegExp(r'^Exception:\s*'), '');
+}
+
+class _NeraHeader extends StatelessWidget {
+  const _NeraHeader({required this.backend, required this.onAccountTap});
+  final NeraBackend backend;
+  final VoidCallback onAccountTap;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      const Text(
+        'NERA',
+        style: TextStyle(
+          color: NeraColors.gold,
+          fontFamily: 'serif',
+          fontSize: 44,
+          height: 1,
+          letterSpacing: -1.5,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(height: 5),
+      const Text(
+        'PERSONAL STYLIST AI',
+        style: TextStyle(color: NeraColors.blue, fontSize: 15),
+      ),
+      const SizedBox(height: 8),
+      ValueListenableBuilder<String?>(
+        valueListenable: backend.userId,
+        builder: (context, uid, child) => TextButton.icon(
+          onPressed: onAccountTap,
+          icon: const Icon(Icons.person_outline_rounded, size: 15),
+          label: Text('UserID: ${_shortId(uid)}'),
+          style: TextButton.styleFrom(
+            foregroundColor: const Color(0xFF60779D),
+            textStyle: const TextStyle(fontSize: 11),
+            minimumSize: Size.zero,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+String _shortId(String? value) {
+  if (value == null || value.isEmpty) return 'Connecting…';
+  return value.length <= 9 ? value : '${value.substring(0, 9)}…';
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({required this.child, this.onTap});
+  final Widget child;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: NeraColors.surface,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(20),
+      side: const BorderSide(color: NeraColors.surfaceBorder),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: onTap,
+      child: Padding(padding: const EdgeInsets.all(19), child: child),
+    ),
+  );
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    style: const TextStyle(
+      fontSize: 18,
+      height: 1.15,
+      fontWeight: FontWeight.w700,
+    ),
+  );
+}
+
+class _UploadWardrobeCard extends StatelessWidget {
+  const _UploadWardrobeCard({required this.busy, required this.onTap});
+  final bool busy;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => _SectionCard(
+    onTap: onTap,
+    child: Row(
+      children: [
+        Container(
+          width: 53,
+          height: 53,
+          decoration: const BoxDecoration(
+            color: NeraColors.tile,
+            shape: BoxShape.circle,
+          ),
+          child: busy
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(
+                  Icons.add_a_photo_outlined,
+                  color: NeraColors.gold,
+                  size: 28,
+                ),
+        ),
+        const SizedBox(width: 15),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionTitle(busy ? 'Analyzing Item…' : 'Upload Wardrobe'),
+              const SizedBox(height: 3),
+              Text(
+                busy
+                    ? 'NERA is identifying your piece'
+                    : 'Camera or photo library',
+                style: const TextStyle(color: NeraColors.blue, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _StylingSuggestionsCard extends StatelessWidget {
+  const _StylingSuggestionsCard({
+    required this.selectedEvent,
+    required this.generating,
+    required this.outfit,
+    required this.wardrobe,
+  });
+  final StylingEvent? selectedEvent;
+  final bool generating;
+  final OutfitPlan? outfit;
+  final List<WardrobeItem> wardrobe;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedItems = outfit == null
+        ? const <WardrobeItem>[]
+        : wardrobe
+              .where((item) => outfit!.wardrobeItemIds.contains(item.id))
+              .toList();
+    return _SectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionTitle('AI Styling Suggestions'),
+          const SizedBox(height: 18),
+          if (generating)
+            const SizedBox(
+              height: 88,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(strokeWidth: 2),
+                    SizedBox(height: 12),
+                    Text(
+                      'Building your look…',
+                      style: TextStyle(color: NeraColors.blue),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (outfit == null)
+            const SizedBox(
+              height: 72,
+              child: Center(
+                child: Text(
+                  'Choose an event below to create a look.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: NeraColors.muted, fontSize: 15),
+                ),
+              ),
+            )
+          else ...[
+            Text(
+              '${selectedEvent?.label ?? outfit!.eventType} edit',
+              style: const TextStyle(
+                color: NeraColors.gold,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (selectedItems.isNotEmpty)
+              SizedBox(
+                height: 92,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: selectedItems.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
+                  itemBuilder: (context, index) =>
+                      _OutfitItem(item: selectedItems[index]),
+                ),
+              ),
+            const SizedBox(height: 13),
+            Text(
+              outfit!.rationale,
+              style: const TextStyle(color: NeraColors.blue, height: 1.4),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OutfitItem extends StatelessWidget {
+  const _OutfitItem({required this.item});
+  final WardrobeItem item;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 76,
+    child: Column(
+      children: [
+        _WardrobeImage(item: item, size: 62),
+        const SizedBox(height: 5),
+        Text(
+          item.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 11),
+        ),
+      ],
+    ),
+  );
+}
+
+class _EventStylingCard extends StatelessWidget {
+  const _EventStylingCard({
+    required this.selected,
+    required this.enabled,
+    required this.onSelected,
+  });
+  final StylingEvent? selected;
+  final bool enabled;
+  final ValueChanged<StylingEvent> onSelected;
+
+  @override
+  Widget build(BuildContext context) => _SectionCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle('Event Styling'),
+        const SizedBox(height: 18),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: 2.15,
+          children: [
+            for (final event in StylingEvent.values)
+              _EventTile(
+                event: event,
+                selected: selected == event,
+                onTap: enabled ? () => onSelected(event) : null,
+              ),
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 class _EventTile extends StatelessWidget {
@@ -466,207 +899,346 @@ class _EventTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
   });
-
   final StylingEvent event;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      height: 100,
-      decoration: BoxDecoration(
-        color: NeraColors.tile,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: selected ? NeraColors.gold : Colors.transparent,
-          width: 1.4,
-        ),
+  Widget build(BuildContext context) => AnimatedContainer(
+    duration: const Duration(milliseconds: 180),
+    decoration: BoxDecoration(
+      color: NeraColors.tile,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(
+        color: selected ? NeraColors.gold : Colors.transparent,
+        width: 1.4,
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(event.icon, color: event.iconColor, size: 21),
-                const SizedBox(height: 6),
-                Text(
-                  event.label,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 14, height: 1.15),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ShopTheLookCard extends StatelessWidget {
-  const _ShopTheLookCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: 19, vertical: 20),
-      child: const Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SectionTitle('Shop the Look'),
-                SizedBox(height: 4),
-                Text(
-                  'Luxury brand links',
-                  style: TextStyle(color: NeraColors.blue, fontSize: 14),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_right_rounded, color: Color(0xFF77808E), size: 27),
-        ],
-      ),
-    );
-  }
-}
-
-class _WardrobeCard extends StatelessWidget {
-  const _WardrobeCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _SectionCard(
-      padding: EdgeInsets.fromLTRB(19, 21, 19, 20),
-      child: SizedBox(
-        height: 120,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    ),
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _SectionTitle('My Wardrobe'),
-            Expanded(
-              child: Center(
-                child: Text(
-                  'Your closet is empty!',
-                  style: TextStyle(color: NeraColors.muted, fontSize: 15.5),
-                ),
-              ),
-            ),
+            Icon(event.icon, color: event.iconColor, size: 21),
+            const SizedBox(width: 8),
+            Flexible(child: Text(event.label, textAlign: TextAlign.center)),
           ],
         ),
       ),
-    );
+    ),
+  );
+}
+
+class _ShopTheLookCard extends StatelessWidget {
+  const _ShopTheLookCard({required this.suggestion});
+  final SuggestedPurchase? suggestion;
+
+  @override
+  Widget build(BuildContext context) => _SectionCard(
+    onTap: suggestion == null
+        ? null
+        : () async {
+            final uri = suggestion!.buyUrl == null
+                ? Uri.https('www.google.com', '/search', {
+                    'tbm': 'shop',
+                    'q': suggestion!.name,
+                  })
+                : Uri.parse(suggestion!.buyUrl!);
+            if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+                context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Could not open the shopping link.'),
+                ),
+              );
+            }
+          },
+    child: Row(
+      children: [
+        const Icon(
+          Icons.shopping_bag_outlined,
+          color: NeraColors.gold,
+          size: 30,
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SectionTitle('Shop the Look'),
+              const SizedBox(height: 4),
+              Text(
+                suggestion == null
+                    ? 'Generate a look for one smart addition'
+                    : '${suggestion!.name} · ${suggestion!.type}',
+                style: const TextStyle(color: NeraColors.blue, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _WardrobeCard extends StatelessWidget {
+  const _WardrobeCard({
+    required this.loading,
+    required this.items,
+    required this.onAdd,
+    required this.onDelete,
+  });
+  final bool loading;
+  final List<WardrobeItem> items;
+  final VoidCallback onAdd;
+  final ValueChanged<WardrobeItem> onDelete;
+
+  @override
+  Widget build(BuildContext context) => _SectionCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(child: _SectionTitle('My Wardrobe')),
+            TextButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (loading)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          )
+        else if (items.isEmpty)
+          const SizedBox(
+            height: 82,
+            child: Center(
+              child: Text(
+                'Your closet is empty!',
+                style: TextStyle(color: NeraColors.muted),
+              ),
+            ),
+          )
+        else
+          SizedBox(
+            height: 150,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return SizedBox(
+                  width: 104,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Stack(
+                        children: [
+                          _WardrobeImage(item: item, size: 104),
+                          Positioned(
+                            right: 2,
+                            top: 2,
+                            child: IconButton.filledTonal(
+                              tooltip: 'Remove ${item.name}',
+                              visualDensity: VisualDensity.compact,
+                              iconSize: 16,
+                              onPressed: () => onDelete(item),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        item.category,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: NeraColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+class _WardrobeImage extends StatefulWidget {
+  const _WardrobeImage({required this.item, required this.size});
+  final WardrobeItem item;
+  final double size;
+
+  @override
+  State<_WardrobeImage> createState() => _WardrobeImageState();
+}
+
+class _WardrobeImageState extends State<_WardrobeImage> {
+  Future<Uint8List>? _localBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalImage();
   }
+
+  @override
+  void didUpdateWidget(covariant _WardrobeImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.imagePath != widget.item.imagePath) _loadLocalImage();
+  }
+
+  void _loadLocalImage() {
+    _localBytes = widget.item.imagePath.isEmpty
+        ? null
+        : XFile(widget.item.imagePath).readAsBytes();
+  }
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(10),
+    child: Container(
+      width: widget.size,
+      height: widget.size,
+      color: NeraColors.tile,
+      child: _localBytes != null
+          ? FutureBuilder<Uint8List>(
+              future: _localBytes,
+              builder: (context, snapshot) {
+                if (snapshot.hasData) {
+                  return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                }
+                if (snapshot.hasError) return const _BrokenWardrobeImage();
+                return const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                );
+              },
+            )
+          : widget.item.imageUrl.isNotEmpty
+          ? Image.network(
+              widget.item.imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => const _BrokenWardrobeImage(),
+            )
+          : const Icon(Icons.checkroom_rounded, color: NeraColors.blue),
+    ),
+  );
+}
+
+class _BrokenWardrobeImage extends StatelessWidget {
+  const _BrokenWardrobeImage();
+
+  @override
+  Widget build(BuildContext context) =>
+      const Icon(Icons.broken_image_outlined, color: NeraColors.muted);
 }
 
 class _StyleProfileCard extends StatelessWidget {
-  const _StyleProfileCard({required this.analysis, required this.onAnalyze});
-
-  final ValueListenable<_ProfileAnalysisState> analysis;
+  const _StyleProfileCard({
+    required this.loading,
+    required this.analyzing,
+    required this.profile,
+    required this.onAnalyze,
+  });
+  final bool loading;
+  final bool analyzing;
+  final StyleProfile profile;
   final VoidCallback onAnalyze;
 
   @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      padding: const EdgeInsets.fromLTRB(19, 21, 19, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const _SectionTitle('My Style Profile'),
+  Widget build(BuildContext context) => _SectionCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionTitle('My Style Profile'),
+        const SizedBox(height: 18),
+        if (loading)
+          const Center(child: CircularProgressIndicator(strokeWidth: 2))
+        else ...[
+          _ProfileRow(
+            label: 'Body Type',
+            value: profile.bodyType ?? 'Not Analyzed',
+          ),
+          const SizedBox(height: 14),
+          _ProfileRow(
+            label: 'Skin Tone',
+            value: profile.skinTone ?? 'Not Analyzed',
+          ),
           const SizedBox(height: 18),
-          ValueListenableBuilder<_ProfileAnalysisState>(
-            valueListenable: analysis,
-            builder: (context, state, child) {
-              final isAnalyzing = state == _ProfileAnalysisState.analyzing;
-              final analyzed = state == _ProfileAnalysisState.analyzed;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _ProfileRow(
-                    label: 'Body Type',
-                    value: analyzed ? 'Hourglass' : 'Not Analyzed',
-                  ),
-                  const SizedBox(height: 14),
-                  _ProfileRow(
-                    label: 'Skin Tone',
-                    value: analyzed ? 'Warm' : 'Not Analyzed',
-                  ),
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    height: 34,
-                    child: FilledButton(
-                      onPressed: isAnalyzing ? null : onAnalyze,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: NeraColors.button,
-                        disabledBackgroundColor: NeraColors.button,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(7),
-                        ),
-                        padding: EdgeInsets.zero,
-                      ),
-                      child: isAnalyzing
-                          ? const SizedBox.square(
-                              dimension: 17,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : Text(
-                              analyzed ? 'Analyze Again' : 'Analyze My Photo',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                    ),
-                  ),
-                ],
-              );
-            },
+          FilledButton.icon(
+            onPressed: analyzing ? null : onAnalyze,
+            icon: analyzing
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.face_retouching_natural_rounded, size: 19),
+            label: Text(
+              analyzing
+                  ? 'Analyzing…'
+                  : profile.isAnalyzed
+                  ? 'Analyze Again'
+                  : 'Analyze My Photo',
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: NeraColors.button,
+              foregroundColor: Colors.white,
+            ),
           ),
         ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
 }
 
 class _ProfileRow extends StatelessWidget {
   const _ProfileRow({required this.label, required this.value});
-
   final String label;
   final String value;
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(color: NeraColors.blue, fontSize: 15.5),
-          ),
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        child: Text(
+          label,
+          style: const TextStyle(color: NeraColors.blue, fontSize: 15),
         ),
-        Text(
+      ),
+      const SizedBox(width: 20),
+      Flexible(
+        child: Text(
           value,
           textAlign: TextAlign.right,
-          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
 }
 
 class _UploadOption extends StatelessWidget {
@@ -675,19 +1247,16 @@ class _UploadOption extends StatelessWidget {
     required this.label,
     required this.onTap,
   });
-
   final IconData icon;
   final String label;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: NeraColors.gold),
-      title: Text(label),
-      trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38),
-      onTap: onTap,
-    );
-  }
+  Widget build(BuildContext context) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    leading: Icon(icon, color: NeraColors.gold),
+    title: Text(label),
+    trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38),
+    onTap: onTap,
+  );
 }

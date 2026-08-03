@@ -1,5 +1,5 @@
 name: fashion_app
-description: "A new Flutter project."
+description: "NERA, an AI-powered personal stylist for iOS and Android."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -35,6 +35,15 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   firebase_core: ^4.12.1
+  firebase_auth: ^6.5.6
+  cloud_firestore: ^6.7.1
+  image_picker: ^1.2.3
+  flutter_image_compress: ^2.5.1
+  google_sign_in: ^7.2.0
+  http: ^1.6.0
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
