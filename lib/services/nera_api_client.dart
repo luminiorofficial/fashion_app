@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -62,9 +63,17 @@ class NeraApiClient {
             body: jsonEncode(payload),
           )
           .timeout(const Duration(seconds: 90));
-    } on Exception {
+    } on TimeoutException {
+      throw const NeraException(
+        'The AI stylist took too long to respond. Please try again.',
+      );
+    } on http.ClientException {
       throw const NeraException(
         'The AI stylist could not be reached. Check your connection and try again.',
+      );
+    } on Exception {
+      throw const NeraException(
+        'The AI stylist could not be reached. Check the API address and try again.',
       );
     }
 

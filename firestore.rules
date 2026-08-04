@@ -47,7 +47,7 @@ service cloud.firestore {
              ])
              && data.eventType in ['Wedding', 'Brunch', 'Work Meeting', 'Daily']
              && data.wardrobeItemIds is list
-             && data.wardrobeItemIds.size() >= 1
+             && data.wardrobeItemIds.size() >= 2
              && data.wardrobeItemIds.size() <= 4
              && data.rationale is string
              && data.rationale.size() > 0

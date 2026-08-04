@@ -157,7 +157,7 @@ class FirebaseNeraBackend implements NeraBackend {
     List<WardrobeItem> wardrobe,
     StyleProfile profile,
   ) async {
-    if (wardrobe.isEmpty) {
+    if (wardrobe.length < 2) {
       throw const NeraException('Add at least two wardrobe items first.');
     }
     if (!profile.isAnalyzed) {

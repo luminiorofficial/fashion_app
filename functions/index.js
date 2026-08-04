@@ -11,6 +11,8 @@ const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const APP_ID = "nera-mobile";
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+const GEMINI_ATTEMPTS = 2;
+const GEMINI_TIMEOUT_MS = 40 * 1000;
 const CATEGORIES = ["Top", "Bottom", "Outerwear", "Shoes", "Accessory", "Dress"];
 const EVENTS = ["Wedding", "Brunch", "Work Meeting", "Daily"];
 
@@ -38,7 +40,7 @@ const profileSchema = {
 const outfitSchema = {
   type: "object",
   properties: {
-    outfit_items: {type: "array", items: {type: "string"}, minItems: 1, maxItems: 4},
+    outfit_items: {type: "array", items: {type: "string"}, minItems: 2, maxItems: 4},
     description: {type: "string", maxLength: 2000},
     suggested_item: {
       anyOf: [
@@ -92,7 +94,7 @@ exports.api = onRequest(
         response.status(200).json(result);
       } catch (error) {
         const status = error.status || 500;
-        logger.error("NERA API request failed", {status, message: error.message});
+        logger.error("NERA API request failed", {status, errorMessage: error.message});
         response.status(status).json({
           error: status >= 500 ? "The AI stylist is temporarily unavailable. Please try again." : error.message,
         });
@@ -155,7 +157,7 @@ async function generateOutfit(body, uid) {
     id: document.id,
     ...document.data(),
   }));
-  if (wardrobeItems.length === 0) throw httpError(400, "Wardrobe items are required.");
+  if (wardrobeItems.length < 2) throw httpError(400, "At least two wardrobe items are required.");
 
   const cleanWardrobe = wardrobeItems.map((item) => ({
     id: String(item.id || "").slice(0, 128),
@@ -175,7 +177,7 @@ async function generateOutfit(body, uid) {
   ].join("\n");
   const result = await callGemini(prompt, outfitSchema);
   result.outfit_items = [...new Set(result.outfit_items)].filter((id) => validIds.has(id)).slice(0, 4);
-  if (result.outfit_items.length === 0) throw httpError(502, "The stylist did not return valid wardrobe items.");
+  if (result.outfit_items.length < 2) throw httpError(502, "The stylist did not return enough valid wardrobe items.");
   if (result.suggested_item) {
     result.suggested_item.buyUrl = `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(result.suggested_item.name)}`;
   }
@@ -220,20 +222,38 @@ async function callGemini(prompt, schema, image) {
   const parts = [{text: prompt}];
   if (image) parts.push({inlineData: image});
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-  const geminiResponse = await fetch(endpoint, {
-    method: "POST",
-    headers: {"content-type": "application/json", "x-goog-api-key": GEMINI_API_KEY.value()},
-    body: JSON.stringify({
-      contents: [{role: "user", parts}],
-      generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema},
-    }),
-    signal: AbortSignal.timeout(60000),
+  const requestBody = JSON.stringify({
+    contents: [{role: "user", parts}],
+    generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema},
   });
-  if (!geminiResponse.ok) {
+  let geminiResponse;
+  for (let attempt = 1; attempt <= GEMINI_ATTEMPTS; attempt += 1) {
+    try {
+      geminiResponse = await fetch(endpoint, {
+        method: "POST",
+        headers: {"content-type": "application/json", "x-goog-api-key": GEMINI_API_KEY.value()},
+        body: requestBody,
+        signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+      });
+    } catch (error) {
+      logger.warn("Gemini request failed", {attempt, errorMessage: error.message});
+      if (attempt === GEMINI_ATTEMPTS) {
+        throw httpError(504, "The AI model timed out. Please try again.");
+      }
+      await delay(500);
+      continue;
+    }
+
+    if (geminiResponse.ok) break;
     const details = (await geminiResponse.text()).slice(0, 500);
-    logger.error("Gemini API error", {status: geminiResponse.status, details});
-    throw httpError(502, "The AI model could not complete the request.");
+    const retryable = geminiResponse.status === 429 || geminiResponse.status >= 500;
+    logger.error("Gemini API error", {attempt, status: geminiResponse.status, details});
+    if (!retryable || attempt === GEMINI_ATTEMPTS) {
+      throw httpError(502, "The AI model could not complete the request.");
+    }
+    await delay(500);
   }
+
   const payload = await geminiResponse.json();
   const text = payload.candidates && payload.candidates[0] && payload.candidates[0].content &&
     payload.candidates[0].content.parts && payload.candidates[0].content.parts[0] &&
@@ -244,6 +264,10 @@ async function callGemini(prompt, schema, image) {
   } catch (_) {
     throw httpError(502, "The AI model returned an invalid response.");
   }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function stringValue(value, field) {

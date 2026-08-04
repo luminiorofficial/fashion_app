@@ -230,6 +230,20 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
   bool _analyzingProfile = false;
   bool _generatingOutfit = false;
 
+  String? get _eventReadinessMessage {
+    if (_wardrobeLoading || _profileLoading) {
+      return 'Loading your wardrobe and style profile…';
+    }
+    if (_wardrobe.length < 2) {
+      final remaining = 2 - _wardrobe.length;
+      return 'Add $remaining more wardrobe ${remaining == 1 ? 'item' : 'items'} to unlock event styling.';
+    }
+    if (!_profile.isAnalyzed) {
+      return 'Analyze your style profile to unlock event styling.';
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -289,11 +303,15 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
       const SizedBox(height: 22),
       _EventStylingCard(
         selected: _selectedEvent,
-        enabled: !_generatingOutfit,
+        enabled: !_generatingOutfit && _eventReadinessMessage == null,
+        readinessMessage: _eventReadinessMessage,
         onSelected: _generateOutfit,
       ),
       const SizedBox(height: 22),
-      _ShopTheLookCard(suggestion: _outfit?.suggestedPurchaseItem),
+      _ShopTheLookCard(
+        suggestion: _outfit?.suggestedPurchaseItem,
+        hasOutfit: _outfit != null,
+      ),
       const SizedBox(height: 22),
       _WardrobeCard(
         loading: _wardrobeLoading,
@@ -859,10 +877,12 @@ class _EventStylingCard extends StatelessWidget {
   const _EventStylingCard({
     required this.selected,
     required this.enabled,
+    required this.readinessMessage,
     required this.onSelected,
   });
   final StylingEvent? selected;
   final bool enabled;
+  final String? readinessMessage;
   final ValueChanged<StylingEvent> onSelected;
 
   @override
@@ -871,6 +891,13 @@ class _EventStylingCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle('Event Styling'),
+        if (readinessMessage != null) ...[
+          const SizedBox(height: 7),
+          Text(
+            readinessMessage!,
+            style: const TextStyle(color: NeraColors.muted, height: 1.35),
+          ),
+        ],
         const SizedBox(height: 18),
         GridView.count(
           crossAxisCount: 2,
@@ -933,8 +960,12 @@ class _EventTile extends StatelessWidget {
 }
 
 class _ShopTheLookCard extends StatelessWidget {
-  const _ShopTheLookCard({required this.suggestion});
+  const _ShopTheLookCard({
+    required this.suggestion,
+    required this.hasOutfit,
+  });
   final SuggestedPurchase? suggestion;
+  final bool hasOutfit;
 
   @override
   Widget build(BuildContext context) => _SectionCard(
@@ -972,7 +1003,9 @@ class _ShopTheLookCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 suggestion == null
-                    ? 'Generate a look for one smart addition'
+                    ? hasOutfit
+                          ? 'Your generated look does not need an extra piece'
+                          : 'Generate an outfit to unlock a shopping suggestion'
                     : '${suggestion!.name} · ${suggestion!.type}',
                 style: const TextStyle(color: NeraColors.blue, fontSize: 14),
               ),
@@ -1012,6 +1045,13 @@ class _WardrobeCard extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
+        if (!loading && items.length < 2) ...[
+          Text(
+            '${items.length}/2 items added · Add ${2 - items.length} more to unlock Event Styling',
+            style: const TextStyle(color: NeraColors.gold, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+        ],
         if (loading)
           const Center(
             child: Padding(
