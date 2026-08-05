@@ -235,12 +235,14 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
           dateOfBirth: _birthDate.text.trim(),
           phoneNumber: _phone.text.trim(),
         );
-        if (mounted)
+        if (mounted) {
           setState(() {
             _challenge = challenge;
-            if (challenge.developmentOtp != null)
+            if (challenge.developmentOtp != null) {
               _otp.text = challenge.developmentOtp!;
+            }
           });
+        }
       } else {
         await widget.backend.verifyOtp(
           challengeId: _challenge!.id,
@@ -710,8 +712,9 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
           category: category,
           productUrl: url.text.trim(),
         );
-        if (mounted)
+        if (mounted) {
           _showMessage('${name.text.trim()} was added to your wardrobe.');
+        }
       }
     } catch (error) {
       if (mounted) _showMessage(_friendlyError(error), error: true);

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/nera_models.dart';
@@ -136,6 +135,7 @@ class RemoteNeraBackend implements NeraBackend {
       imageUrl: draft['imageUrl'] as String? ?? '',
       imagePath: '',
       tags: List<String>.from(draft['tags'] as List? ?? const []),
+      analysisJobId: draft['analysisJobId'] as String?,
     );
   }
 
@@ -146,6 +146,7 @@ class RemoteNeraBackend implements NeraBackend {
       'name': draft.name,
       'category': draft.category,
       'tags': draft.tags,
+      'analysisJobId': draft.analysisJobId,
     });
     await _refresh();
   }

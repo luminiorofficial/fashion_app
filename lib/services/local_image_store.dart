@@ -8,8 +8,7 @@ import 'nera_backend.dart';
 
 /// Persists private images inside this app's documents directory.
 ///
-/// These paths are intentionally device-local. Firestore stores the path as
-/// metadata, but another device will not have the corresponding file.
+/// These paths are intentionally device-local and isolated by owning user id.
 class LocalImageStore {
   LocalImageStore({Future<Directory> Function()? documentsDirectory})
     : _documentsDirectory =

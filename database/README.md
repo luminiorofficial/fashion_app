@@ -17,6 +17,31 @@ media storage metadata, repeatable AI-analysis jobs, current style profiles,
 optional user-entered measurements, uploaded or linked wardrobe entries, tags,
 and the existing outfit history flow.
 
+## Main relationships
+
+```text
+users
+  +-- otp_challenges
+  +-- auth_sessions
+  +-- media_assets -- analysis_jobs -- user_style_profiles
+  +-- user_measurements
+  +-- wardrobe_items -- wardrobe_item_media -- media_assets
+  |                 +-- wardrobe_item_tags -- tags
+  +-- outfits -- outfit_items -- wardrobe_items
+  +-- audit_events
+```
+
+Composite foreign keys carry `user_id` through analysis, profile, media, wardrobe,
+and outfit relationships. This makes cross-user references invalid at the database
+layer even if an application bug supplies valid UUIDs. Context triggers also ensure
+profile analysis uses profile media, wardrobe analysis uses wardrobe media, and an
+uploaded wardrobe item has exactly one primary asset at transaction commit.
+
+`schema_migrations` records both checked-in migrations. The `nera_app` role gets
+only the DML privileges needed by the API and cannot read migration history or
+alter schema objects. Grant this group role to the dedicated server's login role;
+do not make the API login a database owner.
+
 Images do not live in PostgreSQL. `media_assets` stores their object/local storage
 key, URL, checksum, dimensions, MIME type, and lifecycle status. This keeps the
 schema compatible with local disk, S3, Cloudflare R2, or another object store.
@@ -24,3 +49,5 @@ schema compatible with local disk, S3, Cloudflare R2, or another object store.
 Exact weight is intentionally stored only in `user_measurements` as a value the
 user provides. Image analysis stores visible body shape and styling attributes;
 it must not pretend to infer an exact or medically meaningful weight.
+
+See `repository-contract.md` before implementing the PostgreSQL adapter.

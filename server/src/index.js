@@ -9,6 +9,7 @@ const repository = new InMemoryRepository();
 const assetStore = new LocalAssetStore(config);
 const analyzer = new FashionAnalyzer(config);
 const smsProvider = {
+  name: "development_console",
   async sendOtp(phoneNumber, otp) {
     if (config.env === "production") throw new Error("Configure a production SMS provider before deployment.");
     console.info(`[development OTP] ${phoneNumber}: ${otp}`);

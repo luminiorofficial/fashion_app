@@ -1,13 +1,14 @@
 const express = require("express");
 const multer = require("multer");
-const path = require("node:path");
 const {ApiError, assert} = require("./errors");
-const {phone, birthDate, text, productUrl} = require("./validation");
-const {createOtp, createToken, hashOtp, safeEqual, sha256} = require("./security");
+const {phone, birthDate, text, productUrl, wardrobeCategory} = require("./validation");
+const {createId, createOtp, createToken, hashOtp, safeEqual, sha256} = require("./security");
+const {assertRepositoryContract} = require("./repository");
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 function createApp({config, repository, assetStore, analyzer, smsProvider}) {
+  assertRepositoryContract(repository);
   const app = express();
   const upload = multer({storage: multer.memoryStorage(), limits: {fileSize: MAX_IMAGE_BYTES, files: 1}});
   app.disable("x-powered-by");
@@ -25,32 +26,35 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
 
   route.post("/auth/otp/request", async (request, response) => {
     const phoneNumber = phone(request.body?.phoneNumber);
+    const challengeCount = await repository.countRecentChallenges(phoneNumber, new Date(Date.now() - config.otpRateLimitWindowMinutes * 60_000).toISOString());
+    assert(challengeCount < config.otpRateLimitMax, 429, "OTP_RATE_LIMITED", "Too many OTP requests. Please wait before trying again.");
     const existingUser = await repository.findUserByPhone(phoneNumber);
     const purpose = existingUser ? "login" : "registration";
     let registration = null;
     if (!existingUser) {
       registration = {name: text(request.body?.name, "name", {min: 2, max: 120}), dateOfBirth: birthDate(request.body?.dateOfBirth)};
     }
-    const placeholder = await repository.createChallenge({phoneNumber, purpose, otpHash: "pending", expiresAt: new Date(Date.now() + config.otpTtlMinutes * 60_000).toISOString(), maxAttempts: config.otpMaxAttempts, registration});
+    const challengeId = createId();
     const otp = createOtp();
-    await repository.updateChallenge(placeholder.id, {otpHash: hashOtp(config.otpHashSecret, placeholder.id, otp)});
+    const challenge = await repository.createChallenge({id: challengeId, phoneNumber, userId: existingUser?.id || null, purpose, otpHash: hashOtp(config.otpHashSecret, challengeId, otp), provider: smsProvider.name || "unconfigured", expiresAt: new Date(Date.now() + config.otpTtlMinutes * 60_000).toISOString(), maxAttempts: config.otpMaxAttempts, registration});
     await smsProvider.sendOtp(phoneNumber, otp);
-    response.status(201).json({challengeId: placeholder.id, purpose, expiresInSeconds: config.otpTtlMinutes * 60, ...(config.env !== "production" ? {developmentOtp: otp} : {})});
+    response.status(201).json({challengeId: challenge.id, purpose, expiresInSeconds: config.otpTtlMinutes * 60, ...(config.env !== "production" ? {developmentOtp: otp} : {})});
   });
 
   route.post("/auth/otp/verify", async (request, response) => {
     const challengeId = text(request.body?.challengeId, "challengeId", {max: 100});
     const otp = text(request.body?.otp, "otp", {min: 6, max: 6});
+    assert(/^\d{6}$/.test(otp), 400, "INVALID_OTP_FORMAT", "otp must contain exactly 6 digits.");
     const challenge = await repository.getChallenge(challengeId);
     assert(challenge, 404, "CHALLENGE_NOT_FOUND", "The OTP challenge was not found.");
     assert(!challenge.consumedAt, 409, "OTP_ALREADY_USED", "This OTP has already been used.");
     assert(new Date(challenge.expiresAt) > new Date(), 410, "OTP_EXPIRED", "The OTP has expired. Request a new one.");
     assert(challenge.attempts < challenge.maxAttempts, 429, "OTP_ATTEMPTS_EXCEEDED", "Too many incorrect attempts. Request a new OTP.");
     const correct = safeEqual(challenge.otpHash, hashOtp(config.otpHashSecret, challenge.id, otp));
-    await repository.updateChallenge(challenge.id, {attempts: challenge.attempts + 1, ...(correct ? {consumedAt: new Date().toISOString()} : {})});
+    const recorded = await repository.recordChallengeAttempt(challenge.id, challenge.attempts, {consumedAt: correct ? new Date().toISOString() : null});
+    assert(recorded, 409, "OTP_CHALLENGE_CHANGED", "This OTP challenge was already updated. Please retry.");
     assert(correct, 401, "INVALID_OTP", "The OTP is incorrect.");
-    let user = await repository.findUserByPhone(challenge.phoneNumber);
-    if (!user) user = await repository.createUser({...challenge.registration, phoneNumber: challenge.phoneNumber});
+    const user = await repository.findOrCreateUser({...challenge.registration, phoneNumber: challenge.phoneNumber});
     const token = createToken();
     const expiresAt = new Date(Date.now() + config.sessionTtlDays * 86_400_000).toISOString();
     await repository.createSession({userId: user.id, tokenHash: sha256(token), expiresAt});
@@ -79,7 +83,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "profile_analysis", ...stored});
     const result = await analyzer.analyzeProfile(request.file);
     const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "style_profile", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
-    const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageUrl: asset.publicUrl, latestAnalysisJobId: job.id});
+    const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageAssetId: asset.id, profileImageUrl: asset.publicUrl, latestAnalysisJobId: job.id});
     response.status(201).json({profile, analysisJobId: job.id});
   });
 
@@ -98,18 +102,23 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const inUse = (await repository.listWardrobe(request.auth.user.id)).some((item) => item.mediaAssetId === asset.id);
     assert(!inUse, 409, "ASSET_IN_USE", "The image already belongs to a wardrobe item.");
     await assetStore.remove(asset.storageKey);
-    await repository.deleteAsset(asset.id);
+    await repository.archiveAsset(asset.id);
     response.sendStatus(204);
   });
   route.post("/wardrobe/items", authenticate, async (request, response) => {
     const assetId = text(request.body?.assetId, "assetId", {max: 100});
+    const analysisJobId = text(request.body?.analysisJobId, "analysisJobId", {max: 100});
     const asset = await repository.getAsset(assetId);
     assert(asset && asset.userId === request.auth.user.id && asset.purpose === "wardrobe_item", 404, "ASSET_NOT_FOUND", "The wardrobe image was not found.");
-    const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "upload", name: text(request.body?.name, "name", {max: 160}), category: text(request.body?.category, "category", {max: 40}), tags: cleanTags(request.body?.tags), mediaAssetId: asset.id, imageUrl: asset.publicUrl, productUrl: null});
+    const analysisJob = await repository.getAnalysisJob(analysisJobId);
+    assert(analysisJob && analysisJob.userId === request.auth.user.id && analysisJob.mediaAssetId === asset.id && analysisJob.analysisType === "wardrobe_item", 404, "ANALYSIS_NOT_FOUND", "The wardrobe analysis was not found.");
+    const inUse = (await repository.listWardrobe(request.auth.user.id)).some((item) => item.mediaAssetId === asset.id);
+    assert(!inUse, 409, "ASSET_IN_USE", "The image already belongs to a wardrobe item.");
+    const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "upload", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags), mediaAssetId: asset.id, analysisJobId: analysisJob.id, imageUrl: asset.publicUrl, productUrl: null});
     response.status(201).json({item: publicWardrobeItem(item)});
   });
   route.post("/wardrobe/links", authenticate, async (request, response) => {
-    const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "product_link", name: text(request.body?.name, "name", {max: 160}), category: text(request.body?.category, "category", {max: 40}), tags: cleanTags(request.body?.tags), mediaAssetId: null, imageUrl: typeof request.body?.imageUrl === "string" ? request.body.imageUrl.slice(0, 2048) : "", productUrl: productUrl(request.body?.productUrl)});
+    const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "product_link", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags), mediaAssetId: null, imageUrl: "", productUrl: productUrl(request.body?.productUrl)});
     response.status(201).json({item: publicWardrobeItem(item)});
   });
   route.delete("/wardrobe/items/:itemId", authenticate, async (request, response) => {

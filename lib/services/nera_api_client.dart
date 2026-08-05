@@ -26,8 +26,9 @@ class NeraApiClient {
     String fileName,
   ) async {
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'));
-    if (accessToken != null)
+    if (accessToken != null) {
       request.headers['authorization'] = 'Bearer $accessToken';
+    }
     request.files.add(
       http.MultipartFile.fromBytes('image', bytes, filename: fileName),
     );

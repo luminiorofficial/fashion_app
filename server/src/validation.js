@@ -1,5 +1,7 @@
 const {assert} = require("./errors");
 
+const wardrobeCategories = ["Top", "Bottom", "Outerwear", "Dress", "Shoes", "Accessory"];
+
 function text(value, field, {min = 1, max = 200} = {}) {
   assert(typeof value === "string", 400, "VALIDATION_ERROR", `${field} is required.`);
   const clean = value.trim();
@@ -15,10 +17,16 @@ function phone(value) {
 
 function birthDate(value) {
   assert(typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value), 400, "INVALID_DATE_OF_BIRTH", "dateOfBirth must use YYYY-MM-DD.");
-  const parsed = new Date(`${value}T00:00:00Z`);
-  const today = new Date();
-  assert(!Number.isNaN(parsed.valueOf()) && parsed < today && parsed.getUTCFullYear() >= 1900, 400, "INVALID_DATE_OF_BIRTH", "Enter a valid date of birth.");
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  const today = new Date().toISOString().slice(0, 10);
+  assert(!Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value && value >= "1900-01-01" && value < today, 400, "INVALID_DATE_OF_BIRTH", "Enter a valid date of birth.");
   return value;
+}
+
+function wardrobeCategory(value) {
+  const clean = text(value, "category", {max: 40});
+  assert(wardrobeCategories.includes(clean), 400, "INVALID_CATEGORY", `category must be one of: ${wardrobeCategories.join(", ")}.`);
+  return clean;
 }
 
 function productUrl(value) {
@@ -29,4 +37,4 @@ function productUrl(value) {
   return clean;
 }
 
-module.exports = {text, phone, birthDate, productUrl};
+module.exports = {text, phone, birthDate, productUrl, wardrobeCategory, wardrobeCategories};

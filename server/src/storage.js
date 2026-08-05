@@ -26,7 +26,7 @@ class LocalAssetStore {
     await fs.mkdir(directory, {recursive: true});
     const key = `${userId}/${crypto.randomUUID()}${extensions[file.mimetype]}`;
     await fs.writeFile(path.join(this.uploadDir, key), file.buffer, {flag: "wx"});
-    return {storageProvider: "local", storageKey: key.replaceAll("\\", "/"), publicUrl: `${this.publicBaseUrl}/uploads/${key.replaceAll("\\", "/")}`, mimeType: file.mimetype, byteSize: file.size, checksumSha256: crypto.createHash("sha256").update(file.buffer).digest("hex")};
+    return {storageProvider: "local", storageKey: key.replaceAll("\\", "/"), publicUrl: `${this.publicBaseUrl}/uploads/${key.replaceAll("\\", "/")}`, originalFilename: path.basename(file.originalname || "image").slice(0, 255), mimeType: file.mimetype, byteSize: file.size, checksumSha256: crypto.createHash("sha256").update(file.buffer).digest("hex")};
   }
 
   async remove(storageKey) {

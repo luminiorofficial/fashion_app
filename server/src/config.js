@@ -10,6 +10,8 @@ function loadConfig(overrides = {}) {
     otpHashSecret: process.env.OTP_HASH_SECRET || "development-only-secret-change-me-now",
     otpTtlMinutes: Number(process.env.OTP_TTL_MINUTES || 5),
     otpMaxAttempts: Number(process.env.OTP_MAX_ATTEMPTS || 5),
+    otpRateLimitWindowMinutes: Number(process.env.OTP_RATE_LIMIT_WINDOW_MINUTES || 15),
+    otpRateLimitMax: Number(process.env.OTP_RATE_LIMIT_MAX || 5),
     sessionTtlDays: Number(process.env.SESSION_TTL_DAYS || 30),
     geminiApiKey: process.env.GEMINI_API_KEY || "",
     geminiModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",

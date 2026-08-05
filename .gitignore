@@ -32,7 +32,11 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
-/server/.env
+**/node_modules/
+**/.env
+**/.env.*
+!**/.env.example
+**/.secret.local
 /server/data/
 
 # Symbolication related

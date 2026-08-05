@@ -1,6 +1,5 @@
 const {ApiError} = require("./errors");
-
-const categories = ["Top", "Bottom", "Outerwear", "Shoes", "Accessory", "Dress"];
+const {wardrobeCategories: categories} = require("./validation");
 
 class FashionAnalyzer {
   constructor(config) { this.config = config; }

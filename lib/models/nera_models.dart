@@ -76,6 +76,7 @@ class WardrobeDraft {
     required this.imageUrl,
     required this.imagePath,
     this.tags = const [],
+    this.analysisJobId,
   });
   final String id;
   final String name;
@@ -83,6 +84,7 @@ class WardrobeDraft {
   final String imageUrl;
   final String imagePath;
   final List<String> tags;
+  final String? analysisJobId;
 
   WardrobeDraft copyWith({String? name, String? category}) => WardrobeDraft(
     id: id,
@@ -91,6 +93,7 @@ class WardrobeDraft {
     imageUrl: imageUrl,
     imagePath: imagePath,
     tags: tags,
+    analysisJobId: analysisJobId,
   );
 }
 
