@@ -37,8 +37,17 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const challengeId = createId();
     const otp = createOtp();
     const challenge = await repository.createChallenge({id: challengeId, phoneNumber, userId: existingUser?.id || null, purpose, otpHash: hashOtp(config.otpHashSecret, challengeId, otp), provider: smsProvider.name || "unconfigured", expiresAt: new Date(Date.now() + config.otpTtlMinutes * 60_000).toISOString(), maxAttempts: config.otpMaxAttempts, registration});
-    await smsProvider.sendOtp(phoneNumber, otp);
-    response.status(201).json({challengeId: challenge.id, purpose, expiresInSeconds: config.otpTtlMinutes * 60, ...(config.env !== "production" ? {developmentOtp: otp} : {})});
+    let delivery;
+    try {
+      delivery = await smsProvider.sendOtp(phoneNumber, otp);
+    } catch (error) {
+      await repository.recordChallengeAttempt(challenge.id, 0, {consumedAt: new Date().toISOString()});
+      throw error;
+    }
+    if (delivery?.messageId) {
+      await repository.markChallengeDelivered(challenge.id, {providerMessageId: delivery.messageId, submittedAt: new Date().toISOString()});
+    }
+    response.status(201).json({challengeId: challenge.id, purpose, expiresInSeconds: config.otpTtlMinutes * 60, ...(smsProvider.exposeOtp ? {developmentOtp: otp} : {})});
   });
 
   route.post("/auth/otp/verify", async (request, response) => {

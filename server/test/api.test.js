@@ -8,12 +8,12 @@ const {loadConfig} = require("../src/config");
 const {InMemoryRepository} = require("../src/repository");
 const {LocalAssetStore} = require("../src/storage");
 
-async function fixture() {
+async function fixture({smsProvider} = {}) {
   const uploadDir = await fs.mkdtemp(path.join(__dirname, ".tmp-"));
   const config = loadConfig({env: "test", uploadDir, publicBaseUrl: "http://test", otpHashSecret: "a-secure-test-secret-that-is-long-enough"});
   const repository = new InMemoryRepository();
-  const app = createApp({config, repository, assetStore: new LocalAssetStore(config), analyzer: {analyzeWardrobe: async () => ({item_name: "Black Blazer", category: "Outerwear", tags: ["black"]}), analyzeProfile: async () => ({body_shape: "Rectangle", skin_tone: "Medium", skin_undertone: "warm", hair_color: "brown", facial_structure: "oval", style_attributes: ["balanced"], styling_notes: "Structured layers work well."})}, smsProvider: {sendOtp: async () => {}}});
-  return {app, uploadDir};
+  const app = createApp({config, repository, assetStore: new LocalAssetStore(config), analyzer: {analyzeWardrobe: async () => ({item_name: "Black Blazer", category: "Outerwear", tags: ["black"]}), analyzeProfile: async () => ({body_shape: "Rectangle", skin_tone: "Medium", skin_undertone: "warm", hair_color: "brown", facial_structure: "oval", style_attributes: ["balanced"], styling_notes: "Structured layers work well."})}, smsProvider: smsProvider || {name: "test_console", exposeOtp: true, sendOtp: async () => ({messageId: null})}});
+  return {app, repository, uploadDir};
 }
 
 async function register(app, phoneNumber = "+919876543210") {
@@ -98,5 +98,17 @@ test("does not allow one user to claim another user's wardrobe analysis", async 
   const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${secondToken}`).attach("image", jpeg, {filename: "bag.jpg", contentType: "image/jpeg"}).expect(201);
   const draft = analyzed.body.draft;
   await request(app).post("/api/v1/wardrobe/items").set("authorization", `Bearer ${firstToken}`).send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: draft.name, category: draft.category, tags: draft.tags}).expect(404);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("does not expose a Twilio-delivered OTP in the API response", async () => {
+  const sent = [];
+  const {app, repository, uploadDir} = await fixture({smsProvider: {name: "twilio", exposeOtp: false, sendOtp: async (phoneNumber, otp) => { sent.push({phoneNumber, otp}); return {messageId: "SM123"}; }}});
+  const response = await request(app).post("/api/v1/auth/otp/request").send({name: "Asha Rao", dateOfBirth: "1996-04-18", phoneNumber: "+919876543210"}).expect(201);
+  assert.equal(response.body.developmentOtp, undefined);
+  assert.equal(sent.length, 1);
+  const challenge = await repository.getChallenge(response.body.challengeId);
+  assert.equal(challenge.providerMessageId, "SM123");
+  assert.ok(challenge.submittedAt);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });

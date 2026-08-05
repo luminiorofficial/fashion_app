@@ -41,10 +41,23 @@ Copy-Item .env.example .env
 npm start
 ```
 
-Environment variables can be set directly; Node does not automatically load the
-example file. In development, the OTP is returned as `developmentOtp` and logged
-by the server. Production deliberately refuses the placeholder SMS provider, so
-a real provider adapter must be supplied before deployment.
+`npm start` automatically loads `server/.env` when it exists. Keep that ignored
+file local and never commit credentials. With `SMS_PROVIDER=console`, the OTP is
+returned as `developmentOtp` and logged for local testing.
+
+For real SMS delivery, create a Twilio Messaging Service with a sender in its
+Sender Pool (or use a Twilio sender number), then configure:
+
+```dotenv
+SMS_PROVIDER=twilio
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_MESSAGING_SERVICE_SID=MG...
+# TWILIO_FROM_NUMBER=+1...  # use instead of Messaging Service SID if needed
+```
+
+Twilio mode never returns the OTP in the API response. Twilio credentials remain
+server-side; the Flutter application must never contain them.
 
 Without `GEMINI_API_KEY`, image endpoints still exercise the upload/storage flow
 and return a clearly marked development fallback. Set the key to enable analysis.

@@ -48,6 +48,7 @@ CREATE TABLE otp_challenges (
   pending_registration jsonb,
   provider varchar(40) NOT NULL,
   provider_message_id varchar(160),
+  submitted_at timestamptz,
   attempt_count smallint NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
   max_attempts smallint NOT NULL DEFAULT 5 CHECK (max_attempts BETWEEN 1 AND 10),
   expires_at timestamptz NOT NULL,
@@ -66,6 +67,7 @@ CREATE TABLE otp_challenges (
   CONSTRAINT otp_expiry_ck CHECK (expires_at > created_at),
   CONSTRAINT otp_attempt_limit_ck CHECK (attempt_count <= max_attempts),
   CONSTRAINT otp_consumed_time_ck CHECK (consumed_at IS NULL OR consumed_at BETWEEN created_at AND expires_at),
+  CONSTRAINT otp_submission_ck CHECK ((provider_message_id IS NULL) = (submitted_at IS NULL) AND (submitted_at IS NULL OR submitted_at >= created_at)),
   CONSTRAINT otp_user_phone_fk FOREIGN KEY (user_id, phone_number) REFERENCES users(id, phone_number) ON DELETE CASCADE
 );
 CREATE INDEX otp_phone_created_idx ON otp_challenges (phone_number, created_at DESC);

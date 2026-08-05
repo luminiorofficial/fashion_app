@@ -4,7 +4,7 @@ const id = () => crypto.randomUUID();
 
 const repositoryMethods = Object.freeze([
   "findUserByPhone", "findOrCreateUser", "findUserById",
-  "createChallenge", "countRecentChallenges", "getChallenge", "recordChallengeAttempt",
+  "createChallenge", "countRecentChallenges", "getChallenge", "recordChallengeAttempt", "markChallengeDelivered",
   "createSession", "findSession", "revokeSession",
   "createAsset", "getAsset", "archiveAsset",
   "createAnalysisJob", "getAnalysisJob", "saveProfile", "getProfile",
@@ -66,6 +66,9 @@ class InMemoryRepository {
     const current = this.challenges.get(challengeId);
     if (!current || current.consumedAt || current.attempts !== expectedAttempts) return null;
     return this.updateChallenge(challengeId, {attempts: expectedAttempts + 1, ...(consumedAt ? {consumedAt} : {})});
+  }
+  async markChallengeDelivered(challengeId, {providerMessageId, submittedAt}) {
+    return this.updateChallenge(challengeId, {providerMessageId, submittedAt});
   }
 
   async createSession({userId, tokenHash, expiresAt}) {

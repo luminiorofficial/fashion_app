@@ -23,6 +23,8 @@ implement every method exported in `repositoryMethods` from
 - `recordChallengeAttempt` must perform a conditional update using challenge id,
   expected attempt count, `consumed_at IS NULL`, and expiry/attempt limits. It
   returns no row when another request has already changed the challenge.
+- `markChallengeDelivered` stores Twilio's message SID and submission timestamp
+  after the Messaging API accepts the OTP SMS.
 - `findOrCreateUser` must use the active-phone unique index so two valid
   registration challenges cannot create duplicate accounts.
 - `createWardrobeItem` must resolve the category, insert the item, attach the

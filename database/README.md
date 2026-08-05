@@ -17,6 +17,9 @@ media storage metadata, repeatable AI-analysis jobs, current style profiles,
 optional user-entered measurements, uploaded or linked wardrobe entries, tags,
 and the existing outfit history flow.
 
+OTP challenges record the delivery provider, Twilio message SID, and submission
+time without storing a plaintext OTP.
+
 ## Main relationships
 
 ```text
