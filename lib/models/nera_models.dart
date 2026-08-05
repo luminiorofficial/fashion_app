@@ -1,7 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-const neraAppId = 'nera-mobile';
-
 const wardrobeCategories = <String>[
   'Top',
   'Bottom',
@@ -11,6 +7,32 @@ const wardrobeCategories = <String>[
   'Dress',
 ];
 
+class NeraUser {
+  const NeraUser({
+    required this.id,
+    required this.name,
+    required this.dateOfBirth,
+    required this.phoneNumber,
+  });
+  final String id;
+  final String name;
+  final String dateOfBirth;
+  final String phoneNumber;
+
+  factory NeraUser.fromJson(Map<String, dynamic> json) => NeraUser(
+    id: json['id'] as String,
+    name: json['name'] as String,
+    dateOfBirth: json['dateOfBirth'] as String,
+    phoneNumber: json['phoneNumber'] as String,
+  );
+}
+
+class OtpChallenge {
+  const OtpChallenge({required this.id, this.developmentOtp});
+  final String id;
+  final String? developmentOtp;
+}
+
 class WardrobeItem {
   const WardrobeItem({
     required this.id,
@@ -18,32 +40,32 @@ class WardrobeItem {
     required this.category,
     required this.imageUrl,
     required this.imagePath,
+    this.productUrl,
+    this.sourceType = 'upload',
     this.tags = const [],
     this.createdAt,
   });
-
   final String id;
   final String name;
   final String category;
   final String imageUrl;
   final String imagePath;
+  final String? productUrl;
+  final String sourceType;
   final List<String> tags;
   final DateTime? createdAt;
 
-  factory WardrobeItem.fromFirestore(
-    DocumentSnapshot<Map<String, dynamic>> snapshot,
-  ) {
-    final data = snapshot.data() ?? const <String, dynamic>{};
-    return WardrobeItem(
-      id: snapshot.id,
-      name: data['name'] as String? ?? 'Wardrobe item',
-      category: data['category'] as String? ?? 'Accessory',
-      imageUrl: data['imageUrl'] as String? ?? '',
-      imagePath: data['imagePath'] as String? ?? '',
-      tags: List<String>.from(data['tags'] as List? ?? const []),
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
-    );
-  }
+  factory WardrobeItem.fromJson(Map<String, dynamic> json) => WardrobeItem(
+    id: json['id'] as String,
+    name: json['name'] as String? ?? 'Wardrobe item',
+    category: json['category'] as String? ?? 'Accessory',
+    imageUrl: json['imageUrl'] as String? ?? '',
+    imagePath: '',
+    productUrl: json['productUrl'] as String?,
+    sourceType: json['sourceType'] as String? ?? 'upload',
+    tags: List<String>.from(json['tags'] as List? ?? const []),
+    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
+  );
 }
 
 class WardrobeDraft {
@@ -55,7 +77,6 @@ class WardrobeDraft {
     required this.imagePath,
     this.tags = const [],
   });
-
   final String id;
   final String name;
   final String category;
@@ -77,12 +98,21 @@ class StyleProfile {
   const StyleProfile({
     this.bodyType,
     this.skinTone,
+    this.skinUndertone,
+    this.hairColor,
+    this.facialStructure,
+    this.styleAttributes = const [],
+    this.stylingNotes,
     this.preferredStyles = const [],
     this.updatedAt,
   });
-
   final String? bodyType;
   final String? skinTone;
+  final String? skinUndertone;
+  final String? hairColor;
+  final String? facialStructure;
+  final List<String> styleAttributes;
+  final String? stylingNotes;
   final List<String> preferredStyles;
   final DateTime? updatedAt;
 
@@ -90,15 +120,22 @@ class StyleProfile {
       bodyType?.trim().isNotEmpty == true &&
       skinTone?.trim().isNotEmpty == true;
 
-  factory StyleProfile.fromMap(Map<String, dynamic>? data) {
-    data ??= const <String, dynamic>{};
+  factory StyleProfile.fromJson(Map<String, dynamic>? json) {
+    json ??= const {};
     return StyleProfile(
-      bodyType: data['bodyType'] as String?,
-      skinTone: data['skinTone'] as String?,
-      preferredStyles: List<String>.from(
-        data['preferredStyles'] as List? ?? const [],
+      bodyType: json['bodyType'] as String?,
+      skinTone: json['skinTone'] as String?,
+      skinUndertone: json['skinUndertone'] as String?,
+      hairColor: json['hairColor'] as String?,
+      facialStructure: json['facialStructure'] as String?,
+      styleAttributes: List<String>.from(
+        json['styleAttributes'] as List? ?? const [],
       ),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+      stylingNotes: json['stylingNotes'] as String?,
+      preferredStyles: List<String>.from(
+        json['preferredStyles'] as List? ?? const [],
+      ),
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
     );
   }
 }
@@ -109,18 +146,15 @@ class SuggestedPurchase {
     required this.type,
     this.buyUrl,
   });
-
   final String name;
   final String type;
   final String? buyUrl;
-
   factory SuggestedPurchase.fromMap(Map<String, dynamic> data) =>
       SuggestedPurchase(
         name: data['name'] as String? ?? 'Complementary piece',
         type: data['type'] as String? ?? 'Accessory',
         buyUrl: data['buyUrl'] as String?,
       );
-
   Map<String, dynamic> toMap() => {
     'name': name,
     'type': type,
@@ -137,7 +171,6 @@ class OutfitPlan {
     this.suggestedPurchaseItem,
     this.createdAt,
   });
-
   final String id;
   final String eventType;
   final List<String> wardrobeItemIds;
@@ -148,7 +181,6 @@ class OutfitPlan {
 
 class PickedImageData {
   const PickedImageData({required this.bytes, required this.fileName});
-
   final List<int> bytes;
   final String fileName;
 }

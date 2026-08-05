@@ -1,121 +1,81 @@
 # NERA mobile AI stylist
 
-Flutter/Firebase implementation of the NERA personal stylist workflow. Firebase
-Authentication and Firestore are used, but Firebase Storage is intentionally not
-used. Wardrobe images are kept in the app's private documents directory until a
-cloud-storage plan is introduced.
+NERA is a Flutter mobile client backed by a dedicated Node.js REST API. Firebase
+has been removed. The target persistence layer is PostgreSQL; the complete schema
+is checked in now, while the API currently uses an in-memory repository adapter
+so development can continue before the database server is available.
 
-## Implemented flow
+## Implemented in this phase
 
-1. The user signs in anonymously; the account can later be linked to Google or
-   Apple.
-2. Camera/gallery images are resized and compressed to JPEG below 2 MB.
-3. The authenticated app sends the JPEG as Base64 to the AI gateway. The Gemini
-   API key exists only as a backend secret.
-4. Wardrobe images are stored under the app-private local path
-   `nera/users/{uid}/wardrobe/{itemId}.jpg`.
-5. Metadata and AI results are written to Firestore. Outfit generation reads the
-   authenticated user's profile and wardrobe directly from Firestore.
+- Registration with full name, date of birth, E.164 phone number, and OTP verification.
+- Opaque, revocable bearer sessions stored by the app in platform secure storage.
+- Full-body image upload and fashion-oriented analysis for body shape, skin tone
+  and undertone, hair color, facial structure, styling attributes, and notes.
+- Wardrobe image upload with AI-assisted name/category/tags and user review.
+- Wardrobe entries created directly from HTTP/HTTPS product links.
+- Owner-scoped profile, asset, analysis, and wardrobe APIs.
+- A complete PostgreSQL schema with constraints, indexes, roles, and relationships.
 
-Because images are local, they do not sync to a second device and disappear if
-the app is uninstalled or its data is cleared. Firestore metadata still syncs;
-the UI shows a missing-image placeholder on devices that do not own the local
-file. `imageUrl` remains an empty string for schema compatibility, while
-`imagePath` contains the private device path. Migrate both fields when Firebase
-Storage or another object store is enabled.
+Image analysis does not claim to detect health, ethnicity, or an exact weight.
+The schema stores exact measurements only when a user explicitly provides them.
 
-## Firestore layout
-
-Firestore creates collections on the first document write. The app uses:
+## Project layout
 
 ```text
-artifacts/nera-mobile/users/{uid}/profile/style
-  bodyType, skinTone, preferredStyles, updatedAt
-
-artifacts/nera-mobile/users/{uid}/wardrobe/{itemId}
-  name, category, imageUrl, imagePath, tags, createdAt
-
-artifacts/nera-mobile/users/{uid}/outfit_history/{outfitId}
-  eventType, wardrobeItemIds, rationale, suggestedPurchaseItem, createdAt
+lib/                         Flutter app and REST backend adapter
+server/src/                  Express API, auth, storage, analysis, repository port
+server/test/                 API integration tests
+database/migrations/         PostgreSQL schema and least-privilege roles
+database/README.md           Schema application notes
 ```
 
-The included `firestore.rules` restricts every path to its authenticated owner
-and validates the allowed fields, categories, events, list sizes, and timestamps.
+## Local API
 
-## AI middleware
-
-The Cloud Function exposes these authenticated `POST` routes:
-
-- `/api/mobile/analyze-item`
-- `/api/mobile/analyze-profile`
-- `/api/mobile/generate-outfit`
-
-Every request requires `Authorization: Bearer <Firebase ID token>`.
-Image-analysis bodies use:
-
-```json
-{
-  "imageBase64": "<base64 JPEG bytes>",
-  "mimeType": "image/jpeg"
-}
-```
-
-Outfit generation accepts only `{ "eventType": "Wedding" }`. The middleware
-loads the profile and wardrobe for the token's UID, so another user's catalog
-cannot be injected from the client.
-
-## Local setup
-
-Prerequisites: Flutter, Node.js 22, Firebase CLI, a configured Firebase project,
-and a Gemini API key.
-
-The gateway defaults to `gemini-3.6-flash`; the `gemini-2.0-flash` model from
-the original handoff has been shut down.
+Prerequisites: Node.js 22+ and Flutter.
 
 ```powershell
-flutter pub get
-Set-Location functions
-npm ci
-Set-Location ..
-firebase functions:secrets:set GEMINI_API_KEY
+Set-Location server
+npm install
+Copy-Item .env.example .env
+npm start
 ```
 
-Enable Anonymous, Google, and Apple providers in Firebase Authentication. Apple
-Sign-In also needs the iOS capability and Apple/Firebase provider configuration.
-The camera and photo-library permissions are already present in the Android and
-iOS project files.
+Environment variables can be set directly; Node does not automatically load the
+example file. In development, the OTP is returned as `developmentOtp` and logged
+by the server. Production deliberately refuses the placeholder SMS provider, so
+a real provider adapter must be supplied before deployment.
 
-Run the app against the deployed API:
+Without `GEMINI_API_KEY`, image endpoints still exercise the upload/storage flow
+and return a clearly marked development fallback. Set the key to enable analysis.
+Uploaded images default to `server/data/uploads`, which is gitignored.
+
+The Android emulator uses the default API URL `http://10.0.2.2:8080/api/v1`.
+Override it for iOS, web, a physical device, or a deployed server:
 
 ```powershell
-flutter run
+flutter run --dart-define=NERA_API_BASE_URL=http://192.168.1.20:8080/api/v1
 ```
 
-Or point it at an emulator/custom gateway:
+## PostgreSQL handoff
+
+The API depends on an asynchronous repository contract in
+`server/src/repository.js`. Its current adapter is in-memory. When the dedicated
+database is available, apply the migrations and implement the same methods with
+a PostgreSQL pool; routes and the Flutter client do not need to change.
 
 ```powershell
-flutter run --dart-define=NERA_API_BASE_URL=http://10.0.2.2:5001/fashion-app-9d056/us-central1/api/mobile
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/001_initial_schema.sql
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/002_database_roles.sql
 ```
 
-`10.0.2.2` is the Android emulator's host-machine address. Use the host's LAN IP
-for a physical device. The Functions emulator reads local secrets from
-`functions/.secret.local`; this file is gitignored. Its contents should be:
+See `database/README.md` for the covered entities and storage model.
 
-```text
-GEMINI_API_KEY=your-private-key
-```
-
-## Verification and deployment
+## Verification
 
 ```powershell
 flutter analyze
 flutter test
-Set-Location functions
+Set-Location server
 npm test
 npm run check
-Set-Location ..
-firebase deploy --only firestore:rules,functions
 ```
-
-Deploying Cloud Functions requires a Firebase project plan that supports
-Functions deployment. This code does not deploy or depend on a Storage bucket.

@@ -1,29 +1,32 @@
 import 'dart:async';
-
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
-
 import '../models/nera_models.dart';
 import 'nera_backend.dart';
 
-/// Used by widget tests and previews where Firebase is intentionally absent.
 class MemoryNeraBackend implements NeraBackend {
   final ValueNotifier<String?> _userId = ValueNotifier('preview-user');
-  final ValueNotifier<bool> _isAnonymous = ValueNotifier(true);
+  final ValueNotifier<bool> _authenticated = ValueNotifier(true);
+  final ValueNotifier<NeraUser?> _currentUser = ValueNotifier(
+    const NeraUser(
+      id: 'preview-user',
+      name: 'Preview User',
+      dateOfBirth: '1995-01-01',
+      phoneNumber: '+919999999999',
+    ),
+  );
   final _wardrobeController = StreamController<List<WardrobeItem>>.broadcast();
   final _profileController = StreamController<StyleProfile>.broadcast();
   final List<WardrobeItem> _items = [];
-  StyleProfile _profile = const StyleProfile();
-
+  StyleProfile _styleProfile = const StyleProfile();
   @override
   ValueListenable<String?> get userId => _userId;
-
   @override
-  ValueListenable<bool> get isAnonymous => _isAnonymous;
-
+  ValueListenable<bool> get isAuthenticated => _authenticated;
+  @override
+  ValueListenable<NeraUser?> get currentUser => _currentUser;
   @override
   Future<void> initialize() async {}
-
   @override
   Stream<List<WardrobeItem>> watchWardrobe() async* {
     yield List.unmodifiable(_items);
@@ -32,23 +35,42 @@ class MemoryNeraBackend implements NeraBackend {
 
   @override
   Stream<StyleProfile> watchProfile() async* {
-    yield _profile;
+    yield _styleProfile;
     yield* _profileController.stream;
+  }
+
+  @override
+  Future<OtpChallenge> requestOtp({
+    required String name,
+    required String dateOfBirth,
+    required String phoneNumber,
+  }) async =>
+      const OtpChallenge(id: 'preview-challenge', developmentOtp: '123456');
+  @override
+  Future<void> verifyOtp({
+    required String challengeId,
+    required String otp,
+  }) async {
+    _authenticated.value = true;
+  }
+
+  @override
+  Future<void> logout() async {
+    _authenticated.value = false;
   }
 
   @override
   Future<WardrobeDraft> analyzeWardrobeImage(
     Uint8List bytes,
     String fileName,
-  ) async => WardrobeDraft(
-    id: DateTime.now().microsecondsSinceEpoch.toString(),
+  ) async => const WardrobeDraft(
+    id: 'preview-draft',
     name: 'Black Silk Blazer',
     category: 'Outerwear',
     imageUrl: '',
     imagePath: '',
-    tags: const ['black', 'silk', 'tailored'],
+    tags: ['black', 'silk', 'tailored'],
   );
-
   @override
   Future<void> saveWardrobeDraft(WardrobeDraft draft) async {
     _items.insert(
@@ -68,6 +90,26 @@ class MemoryNeraBackend implements NeraBackend {
 
   @override
   Future<void> discardWardrobeDraft(WardrobeDraft draft) async {}
+  @override
+  Future<void> addWardrobeLink({
+    required String name,
+    required String category,
+    required String productUrl,
+  }) async {
+    _items.insert(
+      0,
+      WardrobeItem(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: name,
+        category: category,
+        imageUrl: '',
+        imagePath: '',
+        productUrl: productUrl,
+        sourceType: 'product_link',
+      ),
+    );
+    _wardrobeController.add(List.unmodifiable(_items));
+  }
 
   @override
   Future<void> deleteWardrobeItem(WardrobeItem item) async {
@@ -80,12 +122,14 @@ class MemoryNeraBackend implements NeraBackend {
     Uint8List bytes,
     String fileName,
   ) async {
-    _profile = const StyleProfile(
+    _styleProfile = const StyleProfile(
       bodyType: 'Hourglass',
       skinTone: 'Warm golden undertones',
+      hairColor: 'Dark brown',
+      facialStructure: 'Oval',
     );
-    _profileController.add(_profile);
-    return _profile;
+    _profileController.add(_styleProfile);
+    return _styleProfile;
   }
 
   @override
@@ -99,17 +143,11 @@ class MemoryNeraBackend implements NeraBackend {
     wardrobeItemIds: wardrobe.take(3).map((item) => item.id).toList(),
     rationale: 'A polished, balanced look selected from your wardrobe.',
   );
-
-  @override
-  Future<UserCredential?> signInWithApple() async => null;
-
-  @override
-  Future<UserCredential?> signInWithGoogle() async => null;
-
   @override
   void dispose() {
     _userId.dispose();
-    _isAnonymous.dispose();
+    _authenticated.dispose();
+    _currentUser.dispose();
     _wardrobeController.close();
     _profileController.close();
   }

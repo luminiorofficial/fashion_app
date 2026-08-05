@@ -1,0 +1,209 @@
+import 'dart:async';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../models/nera_models.dart';
+import 'nera_api_client.dart';
+import 'nera_backend.dart';
+
+class RemoteNeraBackend implements NeraBackend {
+  RemoteNeraBackend({NeraApiClient? api, FlutterSecureStorage? secureStorage})
+    : _api = api ?? NeraApiClient(),
+      _storage = secureStorage ?? const FlutterSecureStorage();
+
+  static const _tokenKey = 'nera_access_token';
+  final NeraApiClient _api;
+  final FlutterSecureStorage _storage;
+  final ValueNotifier<String?> _userId = ValueNotifier(null);
+  final ValueNotifier<bool> _authenticated = ValueNotifier(false);
+  final ValueNotifier<NeraUser?> _currentUser = ValueNotifier(null);
+  final _wardrobe = StreamController<List<WardrobeItem>>.broadcast();
+  final _profile = StreamController<StyleProfile>.broadcast();
+
+  @override
+  ValueListenable<String?> get userId => _userId;
+  @override
+  ValueListenable<bool> get isAuthenticated => _authenticated;
+  @override
+  ValueListenable<NeraUser?> get currentUser => _currentUser;
+
+  @override
+  Future<void> initialize() async {
+    _api.accessToken = await _storage.read(key: _tokenKey);
+    if (_api.accessToken == null) return;
+    try {
+      final response = await _api.get('/me');
+      _setUser(NeraUser.fromJson(response['user'] as Map<String, dynamic>));
+      await _refresh();
+    } on Object {
+      await _storage.delete(key: _tokenKey);
+      _api.accessToken = null;
+    }
+  }
+
+  @override
+  Stream<List<WardrobeItem>> watchWardrobe() async* {
+    yield const [];
+    yield* _wardrobe.stream;
+  }
+
+  @override
+  Stream<StyleProfile> watchProfile() async* {
+    yield const StyleProfile();
+    yield* _profile.stream;
+  }
+
+  @override
+  Future<OtpChallenge> requestOtp({
+    required String name,
+    required String dateOfBirth,
+    required String phoneNumber,
+  }) async {
+    final response = await _api.post('/auth/otp/request', {
+      'name': name,
+      'dateOfBirth': dateOfBirth,
+      'phoneNumber': phoneNumber,
+    });
+    return OtpChallenge(
+      id: response['challengeId'] as String,
+      developmentOtp: response['developmentOtp'] as String?,
+    );
+  }
+
+  @override
+  Future<void> verifyOtp({
+    required String challengeId,
+    required String otp,
+  }) async {
+    final response = await _api.post('/auth/otp/verify', {
+      'challengeId': challengeId,
+      'otp': otp,
+    });
+    _api.accessToken = response['accessToken'] as String;
+    await _storage.write(key: _tokenKey, value: _api.accessToken);
+    _setUser(NeraUser.fromJson(response['user'] as Map<String, dynamic>));
+    await _refresh();
+  }
+
+  void _setUser(NeraUser user) {
+    _currentUser.value = user;
+    _userId.value = user.id;
+    _authenticated.value = true;
+  }
+
+  Future<void> _refresh() async {
+    final results = await Future.wait([
+      _api.get('/wardrobe/items'),
+      _api.get('/profile'),
+    ]);
+    _wardrobe.add(
+      (results[0]['items'] as List? ?? const [])
+          .map((item) => WardrobeItem.fromJson(item as Map<String, dynamic>))
+          .toList(),
+    );
+    _profile.add(
+      StyleProfile.fromJson(results[1]['profile'] as Map<String, dynamic>?),
+    );
+  }
+
+  @override
+  Future<void> logout() async {
+    try {
+      await _api.post('/auth/logout', const {});
+    } on Object {
+      /* clear the local session regardless */
+    }
+    await _storage.delete(key: _tokenKey);
+    _api.accessToken = null;
+    _userId.value = null;
+    _currentUser.value = null;
+    _authenticated.value = false;
+    _wardrobe.add(const []);
+    _profile.add(const StyleProfile());
+  }
+
+  @override
+  Future<WardrobeDraft> analyzeWardrobeImage(
+    Uint8List bytes,
+    String fileName,
+  ) async {
+    final response = await _api.upload('/wardrobe/analyze', bytes, fileName);
+    final draft = response['draft'] as Map<String, dynamic>;
+    return WardrobeDraft(
+      id: draft['assetId'] as String,
+      name: draft['name'] as String? ?? 'Wardrobe item',
+      category: draft['category'] as String? ?? 'Accessory',
+      imageUrl: draft['imageUrl'] as String? ?? '',
+      imagePath: '',
+      tags: List<String>.from(draft['tags'] as List? ?? const []),
+    );
+  }
+
+  @override
+  Future<void> saveWardrobeDraft(WardrobeDraft draft) async {
+    await _api.post('/wardrobe/items', {
+      'assetId': draft.id,
+      'name': draft.name,
+      'category': draft.category,
+      'tags': draft.tags,
+    });
+    await _refresh();
+  }
+
+  @override
+  Future<void> discardWardrobeDraft(WardrobeDraft draft) =>
+      _api.delete('/wardrobe/drafts/${draft.id}');
+  @override
+  Future<void> addWardrobeLink({
+    required String name,
+    required String category,
+    required String productUrl,
+  }) async {
+    await _api.post('/wardrobe/links', {
+      'name': name,
+      'category': category,
+      'productUrl': productUrl,
+    });
+    await _refresh();
+  }
+
+  @override
+  Future<void> deleteWardrobeItem(WardrobeItem item) async {
+    await _api.delete('/wardrobe/items/${item.id}');
+    await _refresh();
+  }
+
+  @override
+  Future<StyleProfile> analyzeProfileImage(
+    Uint8List bytes,
+    String fileName,
+  ) async {
+    final response = await _api.upload('/profile/analyze', bytes, fileName);
+    final profile = StyleProfile.fromJson(
+      response['profile'] as Map<String, dynamic>,
+    );
+    _profile.add(profile);
+    return profile;
+  }
+
+  @override
+  Future<OutfitPlan> generateOutfit(
+    String eventType,
+    List<WardrobeItem> wardrobe,
+    StyleProfile profile,
+  ) {
+    throw const NeraException(
+      'Outfit generation will be connected in the next implementation phase.',
+    );
+  }
+
+  @override
+  void dispose() {
+    _api.close();
+    _userId.dispose();
+    _authenticated.dispose();
+    _currentUser.dispose();
+    _wardrobe.close();
+    _profile.close();
+  }
+}

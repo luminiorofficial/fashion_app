@@ -1,0 +1,23 @@
+{
+  "name": "nera-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dedicated REST API for the NERA mobile application",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "check": "node --check src/index.js && node --check src/app.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "multer": "^2.0.2"
+  },
+  "devDependencies": {
+    "supertest": "^7.1.4"
+  }
+}

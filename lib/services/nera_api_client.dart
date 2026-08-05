@@ -1,96 +1,92 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
-
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
-
-import 'image_service.dart';
 import 'nera_backend.dart';
 
 class NeraApiClient {
-  NeraApiClient({FirebaseAuth? auth, http.Client? client})
-    : _auth = auth ?? FirebaseAuth.instance,
-      _client = client ?? http.Client();
-
-  static const _defaultBaseUrl =
-      'https://us-central1-fashion-app-9d056.cloudfunctions.net/api/mobile';
+  NeraApiClient({http.Client? client}) : _client = client ?? http.Client();
   static const baseUrl = String.fromEnvironment(
     'NERA_API_BASE_URL',
-    defaultValue: _defaultBaseUrl,
+    defaultValue: 'http://10.0.2.2:8080/api/v1',
   );
-
-  final FirebaseAuth _auth;
   final http.Client _client;
+  String? accessToken;
 
-  Future<Map<String, dynamic>> analyzeItem(Uint8List bytes) =>
-      _postImage('/analyze-item', bytes);
-
-  Future<Map<String, dynamic>> analyzeProfile(Uint8List bytes) =>
-      _postImage('/analyze-profile', bytes);
-
-  Future<Map<String, dynamic>> _postImage(String path, Uint8List bytes) {
-    if (bytes.isEmpty || bytes.lengthInBytes > NeraImageLimits.maxBytes) {
-      throw const NeraException('The image must be smaller than 2 MB.');
-    }
-    return _post(path, {
-      'imageBase64': base64Encode(bytes),
-      'mimeType': 'image/jpeg',
-    });
+  Future<Map<String, dynamic>> get(String path) => _send('GET', path);
+  Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) =>
+      _send('POST', path, body: body);
+  Future<void> delete(String path) async {
+    await _send('DELETE', path);
   }
 
-  Future<Map<String, dynamic>> generateOutfit({required String eventType}) =>
-      _post('/generate-outfit', {'eventType': eventType});
-
-  Future<Map<String, dynamic>> _post(
+  Future<Map<String, dynamic>> upload(
     String path,
-    Map<String, dynamic> payload,
+    Uint8List bytes,
+    String fileName,
   ) async {
-    final token = await _auth.currentUser?.getIdToken();
-    if (token == null) {
-      throw const NeraException('Please sign in before using the AI stylist.');
-    }
-
-    http.Response response;
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'));
+    if (accessToken != null)
+      request.headers['authorization'] = 'Bearer $accessToken';
+    request.files.add(
+      http.MultipartFile.fromBytes('image', bytes, filename: fileName),
+    );
     try {
-      response = await _client
-          .post(
-            Uri.parse('$baseUrl$path'),
-            headers: {
-              'content-type': 'application/json',
-              'authorization': 'Bearer $token',
-            },
-            body: jsonEncode(payload),
-          )
+      final streamed = await _client
+          .send(request)
           .timeout(const Duration(seconds: 90));
+      return _decode(
+        streamed.statusCode,
+        await streamed.stream.bytesToString(),
+      );
     } on TimeoutException {
-      throw const NeraException(
-        'The AI stylist took too long to respond. Please try again.',
-      );
+      throw const NeraException('The server took too long to respond.');
     } on http.ClientException {
-      throw const NeraException(
-        'The AI stylist could not be reached. Check your connection and try again.',
-      );
-    } on Exception {
-      throw const NeraException(
-        'The AI stylist could not be reached. Check the API address and try again.',
-      );
+      throw const NeraException('The NERA server could not be reached.');
     }
+  }
 
-    Map<String, dynamic> decoded;
+  Future<Map<String, dynamic>> _send(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final headers = <String, String>{
+      'content-type': 'application/json',
+      if (accessToken != null) 'authorization': 'Bearer $accessToken',
+    };
     try {
-      decoded = jsonDecode(response.body) as Map<String, dynamic>;
-    } on Object {
-      decoded = const <String, dynamic>{};
+      final request = http.Request(method, Uri.parse('$baseUrl$path'))
+        ..headers.addAll(headers);
+      if (body != null) request.body = jsonEncode(body);
+      final response = await http.Response.fromStream(
+        await _client.send(request).timeout(const Duration(seconds: 30)),
+      );
+      if (response.statusCode == 204) return const {};
+      return _decode(response.statusCode, response.body);
+    } on TimeoutException {
+      throw const NeraException('The server took too long to respond.');
+    } on http.ClientException {
+      throw const NeraException('The NERA server could not be reached.');
     }
+  }
 
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+  Map<String, dynamic> _decode(int statusCode, String body) {
+    Map<String, dynamic> json;
+    try {
+      json = jsonDecode(body) as Map<String, dynamic>;
+    } catch (_) {
+      json = {};
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+      final error = json['error'];
       throw NeraException(
-        decoded['error'] as String? ??
-            'The AI stylist returned an error (${response.statusCode}).',
+        error is Map
+            ? error['message'] as String? ?? 'Request failed ($statusCode).'
+            : 'Request failed ($statusCode).',
       );
     }
-    return decoded;
+    return json;
   }
 
   void close() => _client.close();

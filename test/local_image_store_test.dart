@@ -19,7 +19,7 @@ void main() {
 
   test('saves and deletes a wardrobe image inside the app directory', () async {
     final filePath = await store.saveWardrobeImage(
-      userId: 'firebase-user_1',
+      userId: 'user_1',
       itemId: 'item-1',
       bytes: Uint8List.fromList([1, 2, 3]),
     );

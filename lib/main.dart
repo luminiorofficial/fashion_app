@@ -1,20 +1,16 @@
 import 'dart:typed_data';
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'firebase_options.dart';
 import 'models/nera_models.dart';
-import 'services/firebase_nera_backend.dart';
 import 'services/image_service.dart';
-import 'services/memory_nera_backend.dart';
 import 'services/nera_backend.dart';
+import 'services/remote_nera_backend.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const NeraApp());
 }
 
@@ -89,9 +85,7 @@ class _NeraBootstrapState extends State<_NeraBootstrap> {
   @override
   void initState() {
     super.initState();
-    _backend =
-        widget.backend ??
-        (Firebase.apps.isEmpty ? MemoryNeraBackend() : FirebaseNeraBackend());
+    _backend = widget.backend ?? RemoteNeraBackend();
     _initialization = _backend.initialize();
   }
 
@@ -117,9 +111,14 @@ class _NeraBootstrapState extends State<_NeraBootstrap> {
             }),
           );
         }
-        return NeraHomeScreen(
-          backend: _backend,
-          imageService: widget.imageService ?? NeraImageService(),
+        return ValueListenableBuilder<bool>(
+          valueListenable: _backend.isAuthenticated,
+          builder: (context, authenticated, child) => authenticated
+              ? NeraHomeScreen(
+                  backend: _backend,
+                  imageService: widget.imageService ?? NeraImageService(),
+                )
+              : _PhoneRegistrationScreen(backend: _backend),
         );
       },
     );
@@ -184,6 +183,216 @@ class _StartupError extends StatelessWidget {
               const SizedBox(height: 22),
               FilledButton(onPressed: onRetry, child: const Text('Try again')),
             ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _PhoneRegistrationScreen extends StatefulWidget {
+  const _PhoneRegistrationScreen({required this.backend});
+  final NeraBackend backend;
+
+  @override
+  State<_PhoneRegistrationScreen> createState() =>
+      _PhoneRegistrationScreenState();
+}
+
+class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _name = TextEditingController();
+  final _birthDate = TextEditingController();
+  final _phone = TextEditingController();
+  final _otp = TextEditingController();
+  OtpChallenge? _challenge;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _birthDate.dispose();
+    _phone.dispose();
+    _otp.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_challenge == null && !_formKey.currentState!.validate()) return;
+    if (_challenge != null && _otp.text.trim().length != 6) {
+      setState(() => _error = 'Enter the 6-digit OTP.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      if (_challenge == null) {
+        final challenge = await widget.backend.requestOtp(
+          name: _name.text.trim(),
+          dateOfBirth: _birthDate.text.trim(),
+          phoneNumber: _phone.text.trim(),
+        );
+        if (mounted)
+          setState(() {
+            _challenge = challenge;
+            if (challenge.developmentOtp != null)
+              _otp.text = challenge.developmentOtp!;
+          });
+      } else {
+        await widget.backend.verifyOtp(
+          challengeId: _challenge!.id,
+          otp: _otp.text.trim(),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = _friendlyError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'NERA',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: NeraColors.gold,
+                      fontFamily: 'serif',
+                      fontSize: 48,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _challenge == null
+                        ? 'Create your styling profile'
+                        : 'Verify your phone',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _challenge == null
+                        ? 'Your profile and wardrobe will be secured with phone OTP authentication.'
+                        : 'Enter the code sent to ${_phone.text}.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: NeraColors.muted,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  if (_challenge == null) ...[
+                    TextFormField(
+                      controller: _name,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Full name',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) => (value?.trim().length ?? 0) < 2
+                          ? 'Enter your full name.'
+                          : null,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _birthDate,
+                      keyboardType: TextInputType.datetime,
+                      decoration: const InputDecoration(
+                        labelText: 'Date of birth',
+                        hintText: 'YYYY-MM-DD',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          RegExp(
+                            r'^\d{4}-\d{2}-\d{2}$',
+                          ).hasMatch(value?.trim() ?? '')
+                          ? null
+                          : 'Use YYYY-MM-DD.',
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _phone,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone number',
+                        hintText: '+919876543210',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) =>
+                          RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(
+                            value?.replaceAll(RegExp(r'[\s()-]'), '') ?? '',
+                          )
+                          ? null
+                          : 'Include country code, for example +91.',
+                    ),
+                  ] else
+                    TextField(
+                      controller: _otp,
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 28, letterSpacing: 10),
+                      decoration: const InputDecoration(
+                        labelText: 'One-time password',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: const TextStyle(color: Color(0xFFFF6B6B)),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  FilledButton(
+                    onPressed: _busy ? null : _submit,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      child: _busy
+                          ? const SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(
+                              _challenge == null
+                                  ? 'Send OTP'
+                                  : 'Verify & continue',
+                            ),
+                    ),
+                  ),
+                  if (_challenge != null)
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() {
+                              _challenge = null;
+                              _otp.clear();
+                            }),
+                      child: const Text('Change details'),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -329,7 +538,10 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
     ],
   );
 
-  Future<ImageSource?> _chooseImageSource(String title) {
+  Future<ImageSource?> _chooseImageSource(
+    String title, {
+    bool allowProductLink = false,
+  }) {
     return showModalBottomSheet<ImageSource>(
       context: context,
       backgroundColor: NeraColors.surface,
@@ -373,6 +585,15 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
                 label: 'Choose from gallery',
                 onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
               ),
+              if (allowProductLink)
+                _UploadOption(
+                  icon: Icons.link_rounded,
+                  label: 'Add a product link',
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    Future<void>.microtask(_showProductLinkDialog);
+                  },
+                ),
             ],
           ),
         ),
@@ -381,7 +602,10 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
   }
 
   Future<void> _showWardrobeSources() async {
-    final source = await _chooseImageSource('Add to your wardrobe');
+    final source = await _chooseImageSource(
+      'Add to your wardrobe',
+      allowProductLink: true,
+    );
     if (source == null || !mounted) return;
     setState(() => _processingImage = true);
     WardrobeDraft? draft;
@@ -407,6 +631,93 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
       if (mounted) _showMessage(_friendlyError(error), error: true);
     } finally {
       if (mounted) setState(() => _processingImage = false);
+    }
+  }
+
+  Future<void> _showProductLinkDialog() async {
+    if (!mounted) return;
+    final name = TextEditingController();
+    final url = TextEditingController();
+    var category = 'Accessory';
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add product link'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: name,
+                decoration: const InputDecoration(
+                  labelText: 'Item name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: category,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final value in wardrobeCategories)
+                    DropdownMenuItem(value: value, child: Text(value)),
+                ],
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => category = value);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: url,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'Product URL',
+                  hintText: 'https://…',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Add item'),
+            ),
+          ],
+        ),
+      ),
+    );
+    try {
+      if (shouldSave == true) {
+        final productUri = Uri.tryParse(url.text.trim());
+        if (name.text.trim().isEmpty ||
+            productUri == null ||
+            !productUri.hasScheme ||
+            !productUri.hasAuthority) {
+          throw const NeraException(
+            'Enter an item name and a complete product URL.',
+          );
+        }
+        await widget.backend.addWardrobeLink(
+          name: name.text.trim(),
+          category: category,
+          productUrl: url.text.trim(),
+        );
+        if (mounted)
+          _showMessage('${name.text.trim()} was added to your wardrobe.');
+      }
+    } catch (error) {
+      if (mounted) _showMessage(_friendlyError(error), error: true);
+    } finally {
+      name.dispose();
+      url.dispose();
     }
   }
 
@@ -552,14 +863,14 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-          child: ValueListenableBuilder<bool>(
-            valueListenable: widget.backend.isAnonymous,
-            builder: (context, anonymous, child) => Column(
+          child: ValueListenableBuilder<NeraUser?>(
+            valueListenable: widget.backend.currentUser,
+            builder: (context, user, child) => Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  anonymous ? 'Secure your wardrobe' : 'Your NERA account',
+                  user?.name ?? 'Your NERA account',
                   style: const TextStyle(
                     fontSize: 21,
                     fontWeight: FontWeight.w700,
@@ -567,43 +878,26 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  anonymous
-                      ? 'You are trying NERA anonymously. Link an account so your wardrobe stays with you.'
-                      : 'Your wardrobe is linked and syncs securely across devices.',
+                  user == null
+                      ? 'Your secure account details are unavailable.'
+                      : '${user.phoneNumber}\nBorn ${user.dateOfBirth}',
                   style: const TextStyle(color: NeraColors.muted),
                 ),
-                if (anonymous) ...[
-                  const SizedBox(height: 20),
-                  OutlinedButton.icon(
-                    onPressed: () =>
-                        _runAccountAction(widget.backend.signInWithGoogle),
-                    icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
-                    label: const Text('Continue with Google'),
-                  ),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: () =>
-                        _runAccountAction(widget.backend.signInWithApple),
-                    icon: const Icon(Icons.apple_rounded),
-                    label: const Text('Continue with Apple'),
-                  ),
-                ],
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await widget.backend.logout();
+                  },
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('Sign out'),
+                ),
               ],
             ),
           ),
         ),
       ),
     );
-  }
-
-  Future<void> _runAccountAction(Future<Object?> Function() action) async {
-    Navigator.pop(context);
-    try {
-      await action();
-      if (mounted) _showMessage('Your NERA account is now linked.');
-    } catch (error) {
-      if (mounted) _showMessage(_friendlyError(error), error: true);
-    }
   }
 
   void _showMessage(String message, {bool error = false}) {
@@ -622,14 +916,8 @@ String _friendlyError(Object? error) {
   if (error is NeraException) return error.message;
   if (error is NeraImageException) return error.message;
   final text = error.toString();
-  if (text.contains('operation-not-allowed')) {
-    return 'Enable Anonymous Authentication in the Firebase console first.';
-  }
-  if (text.contains('network-request-failed')) {
+  if (text.contains('network') || text.contains('could not be reached')) {
     return 'No network connection. Please reconnect and try again.';
-  }
-  if (text.contains('permission-denied') || text.contains('unauthorized')) {
-    return 'Firebase denied this action. Deploy the included security rules.';
   }
   return text.replaceFirst(RegExp(r'^Exception:\s*'), '');
 }
@@ -960,10 +1248,7 @@ class _EventTile extends StatelessWidget {
 }
 
 class _ShopTheLookCard extends StatelessWidget {
-  const _ShopTheLookCard({
-    required this.suggestion,
-    required this.hasOutfit,
-  });
+  const _ShopTheLookCard({required this.suggestion, required this.hasOutfit});
   final SuggestedPurchase? suggestion;
   final bool hasOutfit;
 
