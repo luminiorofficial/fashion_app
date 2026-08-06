@@ -89,19 +89,24 @@ All user data routes are owner-scoped by the bearer session.
 | `GET` | `/api/v1/wardrobe/items` | List the user's wardrobe |
 | `DELETE` | `/api/v1/wardrobe/items/:itemId` | Soft-delete a wardrobe item |
 
-## PostgreSQL handoff
+## PostgreSQL setup
 
-The API depends on an asynchronous repository contract in
-`server/src/repository.js`. Its current adapter is in-memory. When the dedicated
-database is available, apply the migrations and implement the checked repository
-contract with a PostgreSQL pool; routes and the Flutter client do not need to
-change. The required transaction boundaries and field mappings are documented in
-`database/repository-contract.md`.
+The API uses PostgreSQL whenever `DATABASE_URL` is present in `server/.env` and
+falls back to temporary in-memory storage only when it is absent. Create an empty
+database (the examples use `nera`) in pgAdmin, then configure and migrate it:
 
 ```powershell
-psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/001_initial_schema.sql
-psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/002_database_roles.sql
+Copy-Item server/.env.example server/.env
+# Edit server/.env and replace the DATABASE_URL password/database values.
+Set-Location server
+npm.cmd run db:migrate
+npm.cmd start
 ```
+
+Open `http://localhost:8080/api/v1/health`. A connected server reports
+`database.adapter` as `postgresql` and includes the database name. Passwords with
+special URL characters must be URL-encoded in `DATABASE_URL`. Standard local
+PostgreSQL installations should keep `DATABASE_SSL=false`.
 
 See `database/README.md` for the covered entities, ownership rules, and storage
 model. PostgreSQL 16+ is required.

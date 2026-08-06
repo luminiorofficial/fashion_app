@@ -10,12 +10,14 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
     "dev": "node --env-file-if-exists=.env --watch src/index.js",
-    "check": "node --check src/index.js && node --check src/app.js",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",
+    "check": "node --check src/index.js && node --check src/app.js && node --check src/postgres_repository.js && node --check scripts/migrate.js",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "express": "^5.1.0",
     "multer": "^2.0.2",
+    "pg": "^8.16.3",
     "twilio": "^6.0.2"
   },
   "devDependencies": {

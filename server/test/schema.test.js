@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {wardrobeCategories} = require("../src/validation");
 const {InMemoryRepository, assertRepositoryContract} = require("../src/repository");
+const {PostgresRepository} = require("../src/postgres_repository");
 
 const migrationsDirectory = path.resolve(__dirname, "../../database/migrations");
 const initialSchema = fs.readFileSync(path.join(migrationsDirectory, "001_initial_schema.sql"), "utf8");
@@ -33,4 +34,9 @@ test("application role is explicit and cannot access all tables by default", () 
 
 test("in-memory development adapter satisfies the checked repository contract", () => {
   assert.equal(assertRepositoryContract(new InMemoryRepository()) instanceof InMemoryRepository, true);
+});
+
+test("PostgreSQL adapter satisfies the checked repository contract", () => {
+  const pool = {query() { throw new Error("not used by this contract test"); }};
+  assert.equal(assertRepositoryContract(new PostgresRepository(pool)) instanceof PostgresRepository, true);
 });

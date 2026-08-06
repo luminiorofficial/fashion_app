@@ -22,7 +22,10 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
 
   const route = express.Router();
 
-  route.get("/health", (_request, response) => response.json({status: "ok", database: "repository-adapter", timestamp: new Date().toISOString()}));
+  route.get("/health", async (_request, response) => {
+    const database = repository.health ? await repository.health() : {status: "ok", adapter: "memory"};
+    response.json({status: "ok", database, timestamp: new Date().toISOString()});
+  });
 
   route.post("/auth/otp/request", async (request, response) => {
     const phoneNumber = phone(request.body?.phoneNumber);

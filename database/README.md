@@ -11,6 +11,14 @@ psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/001_initial_sch
 psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/002_database_roles.sql
 ```
 
+The backend also includes a migration command that reads `server/.env`, skips
+versions already recorded in `schema_migrations`, and applies the remaining files:
+
+```powershell
+Set-Location server
+npm.cmd run db:migrate
+```
+
 `001_initial_schema.sql` owns domain constraints, indexes, cascades, and update
 triggers. It supports verified phone accounts and sessions, OTP auditability,
 media storage metadata, repeatable AI-analysis jobs, current style profiles,

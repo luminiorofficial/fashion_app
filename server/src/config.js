@@ -20,6 +20,10 @@ function loadConfig(overrides = {}) {
     sessionTtlDays: Number(process.env.SESSION_TTL_DAYS || 30),
     geminiApiKey: process.env.GEMINI_API_KEY || "",
     geminiModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    databaseUrl: process.env.DATABASE_URL || "",
+    databasePoolMax: Number(process.env.DATABASE_POOL_MAX || 10),
+    databaseSsl: process.env.DATABASE_SSL === "true",
+    databaseSslRejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false",
     ...overrides,
   };
 }

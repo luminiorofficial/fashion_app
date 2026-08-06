@@ -308,10 +308,10 @@ DECLARE
 BEGIN
   SELECT purpose INTO asset_purpose FROM media_assets
     WHERE id = NEW.media_asset_id AND owner_user_id = NEW.user_id;
-  IF asset_purpose IS NOT NULL AND asset_purpose <> CASE NEW.analysis_type
+  IF asset_purpose IS NOT NULL AND asset_purpose <> (CASE NEW.analysis_type
     WHEN 'style_profile' THEN 'profile_analysis'::media_purpose
     WHEN 'wardrobe_item' THEN 'wardrobe_item'::media_purpose
-  END THEN
+  END) THEN
     RAISE EXCEPTION 'analysis type % is incompatible with media purpose %', NEW.analysis_type, asset_purpose
       USING ERRCODE = '23514';
   END IF;
