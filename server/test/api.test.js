@@ -33,6 +33,19 @@ test("registers with verified phone details and creates a session", async () => 
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
+test("logs in with an existing phone number using OTP", async () => {
+  const {app, uploadDir} = await fixture();
+  const initial = await request(app).post("/api/v1/auth/otp/request").send({name: "Asha Rao", dateOfBirth: "1996-04-18", phoneNumber: "+919876543210"}).expect(201);
+  const registerResponse = await request(app).post("/api/v1/auth/otp/verify").send({challengeId: initial.body.challengeId, otp: initial.body.developmentOtp}).expect(200);
+
+  const login = await request(app).post("/api/v1/auth/otp/request").send({phoneNumber: "+919876543210"}).expect(201);
+  const verify = await request(app).post("/api/v1/auth/otp/verify").send({challengeId: login.body.challengeId, otp: login.body.developmentOtp}).expect(200);
+
+  assert.equal(verify.body.user.phoneNumber, "+919876543210");
+  assert.equal(verify.body.user.name, "Asha Rao");
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
 test("adds a product link to the authenticated user's wardrobe", async () => {
   const {app, uploadDir} = await fixture();
   const token = await register(app);

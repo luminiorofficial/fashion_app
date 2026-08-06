@@ -66,7 +66,17 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const recorded = await repository.recordChallengeAttempt(challenge.id, challenge.attempts, {consumedAt: correct ? new Date().toISOString() : null});
     assert(recorded, 409, "OTP_CHALLENGE_CHANGED", "This OTP challenge was already updated. Please retry.");
     assert(correct, 401, "INVALID_OTP", "The OTP is incorrect.");
-    const user = await repository.findOrCreateUser({...challenge.registration, phoneNumber: challenge.phoneNumber});
+    let user;
+    if (challenge.purpose === "login") {
+      user = await repository.findUserByPhone(challenge.phoneNumber);
+      assert(user, 404, "USER_NOT_FOUND", "No user exists for this phone number.");
+    } else {
+      const registration = challenge.registration || {};
+      user = await repository.findOrCreateUser({
+        ...registration,
+        phoneNumber: challenge.phoneNumber,
+      });
+    }
     const token = createToken();
     const expiresAt = new Date(Date.now() + config.sessionTtlDays * 86_400_000).toISOString();
     await repository.createSession({userId: user.id, tokenHash: sha256(token), expiresAt});
