@@ -16,6 +16,7 @@ class RemoteNeraBackend implements NeraBackend {
   final ValueNotifier<String?> _userId = ValueNotifier(null);
   final ValueNotifier<bool> _authenticated = ValueNotifier(false);
   final ValueNotifier<NeraUser?> _currentUser = ValueNotifier(null);
+  NeraUser? _lastKnownUser;
   final _wardrobe = StreamController<List<WardrobeItem>>.broadcast();
   final _profile = StreamController<StyleProfile>.broadcast();
 
@@ -54,18 +55,22 @@ class RemoteNeraBackend implements NeraBackend {
 
   @override
   Future<OtpChallenge> requestOtp({
-    required String name,
-    required String dateOfBirth,
+    String? name,
+    String? dateOfBirth,
     required String phoneNumber,
   }) async {
-    final response = await _api.post('/auth/otp/request', {
-      'name': name,
-      'dateOfBirth': dateOfBirth,
-      'phoneNumber': phoneNumber,
-    });
+    final payload = <String, dynamic>{'phoneNumber': phoneNumber};
+    if ((name ?? '').trim().isNotEmpty) {
+      payload['name'] = name!.trim();
+    }
+    if ((dateOfBirth ?? '').trim().isNotEmpty) {
+      payload['dateOfBirth'] = dateOfBirth!.trim();
+    }
+    final response = await _api.post('/auth/otp/request', payload);
     return OtpChallenge(
       id: response['challengeId'] as String,
       developmentOtp: response['developmentOtp'] as String?,
+      purpose: response['purpose'] as String?,
     );
   }
 
@@ -85,6 +90,7 @@ class RemoteNeraBackend implements NeraBackend {
   }
 
   void _setUser(NeraUser user) {
+    _lastKnownUser = user;
     _currentUser.value = user;
     _userId.value = user.id;
     _authenticated.value = true;
@@ -115,8 +121,8 @@ class RemoteNeraBackend implements NeraBackend {
     await _storage.delete(key: _tokenKey);
     _api.accessToken = null;
     _userId.value = null;
-    _currentUser.value = null;
     _authenticated.value = false;
+    _currentUser.value = _lastKnownUser;
     _wardrobe.add(const []);
     _profile.add(const StyleProfile());
   }

@@ -9,8 +9,8 @@ abstract interface class NeraBackend {
   Stream<StyleProfile> watchProfile();
   Future<void> initialize();
   Future<OtpChallenge> requestOtp({
-    required String name,
-    required String dateOfBirth,
+    String? name,
+    String? dateOfBirth,
     required String phoneNumber,
   });
   Future<void> verifyOtp({required String challengeId, required String otp});

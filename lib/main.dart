@@ -113,12 +113,18 @@ class _NeraBootstrapState extends State<_NeraBootstrap> {
         }
         return ValueListenableBuilder<bool>(
           valueListenable: _backend.isAuthenticated,
-          builder: (context, authenticated, child) => authenticated
-              ? NeraHomeScreen(
-                  backend: _backend,
-                  imageService: widget.imageService ?? NeraImageService(),
-                )
-              : _PhoneRegistrationScreen(backend: _backend),
+          builder: (context, authenticated, child) {
+            final hasPreviousUser = _backend.currentUser.value != null;
+            return authenticated
+                ? NeraHomeScreen(
+                    backend: _backend,
+                    imageService: widget.imageService ?? NeraImageService(),
+                  )
+                : _PhoneRegistrationScreen(
+                    backend: _backend,
+                    returningUser: hasPreviousUser,
+                  );
+          },
         );
       },
     );
@@ -191,13 +197,16 @@ class _StartupError extends StatelessWidget {
 }
 
 class _PhoneRegistrationScreen extends StatefulWidget {
-  const _PhoneRegistrationScreen({required this.backend});
+  const _PhoneRegistrationScreen({required this.backend, required this.returningUser});
   final NeraBackend backend;
+  final bool returningUser;
 
   @override
   State<_PhoneRegistrationScreen> createState() =>
       _PhoneRegistrationScreenState();
 }
+
+enum _AuthMode { choice, register, login }
 
 class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -208,6 +217,7 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
   OtpChallenge? _challenge;
   bool _busy = false;
   String? _error;
+  _AuthMode _mode = _AuthMode.choice;
 
   @override
   void dispose() {
@@ -218,7 +228,29 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
     super.dispose();
   }
 
+  void _startRegister() {
+    setState(() {
+      _mode = _AuthMode.register;
+      _challenge = null;
+      _error = null;
+      _otp.clear();
+    });
+  }
+
+  void _startLogin() {
+    setState(() {
+      _mode = _AuthMode.login;
+      _challenge = null;
+      _error = null;
+      _otp.clear();
+    });
+  }
+
   Future<void> _submit() async {
+    if (_challenge == null && _mode == _AuthMode.choice) {
+      setState(() => _error = 'Choose login or register to continue.');
+      return;
+    }
     if (_challenge == null && !_formKey.currentState!.validate()) return;
     if (_challenge != null && _otp.text.trim().length != 6) {
       setState(() => _error = 'Enter the 6-digit OTP.');
@@ -231,11 +263,26 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
     try {
       if (_challenge == null) {
         final challenge = await widget.backend.requestOtp(
-          name: _name.text.trim(),
-          dateOfBirth: _birthDate.text.trim(),
+          name: _mode == _AuthMode.register ? _name.text.trim() : null,
+          dateOfBirth: _mode == _AuthMode.register ? _birthDate.text.trim() : null,
           phoneNumber: _phone.text.trim(),
         );
         if (mounted) {
+          if (_mode == _AuthMode.register && challenge.purpose == 'login') {
+            setState(() {
+              _challenge = null;
+              _error =
+                  'This phone number is already registered. Please enter a different number or log in with your existing number.';
+            });
+            return;
+          }
+          if (_mode == _AuthMode.login && challenge.purpose == 'registration') {
+            setState(() {
+              _challenge = null;
+              _error = 'This phone number is not registered yet. Please register first.';
+            });
+            return;
+          }
           setState(() {
             _challenge = challenge;
             if (challenge.developmentOtp != null) {
@@ -282,7 +329,11 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                   const SizedBox(height: 12),
                   Text(
                     _challenge == null
-                        ? 'Create your styling profile'
+                        ? (_mode == _AuthMode.choice
+                              ? 'Welcome to NERA'
+                              : (_mode == _AuthMode.register
+                                    ? 'Create your styling profile'
+                                    : 'Log in to NERA'))
                         : 'Verify your phone',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
@@ -293,7 +344,11 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                   const SizedBox(height: 8),
                   Text(
                     _challenge == null
-                        ? 'Your profile and wardrobe will be secured with phone OTP authentication.'
+                        ? (_mode == _AuthMode.choice
+                              ? 'Choose how you want to continue with your styling profile.'
+                              : (_mode == _AuthMode.register
+                                    ? 'Your profile and wardrobe will be secured with phone OTP authentication.'
+                                    : 'Use your phone number to sign in and continue where you left off.'))
                         : 'Enter the code sent to ${_phone.text}.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
@@ -303,49 +358,69 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                   ),
                   const SizedBox(height: 28),
                   if (_challenge == null) ...[
-                    TextFormField(
-                      controller: _name,
-                      textCapitalization: TextCapitalization.words,
-                      decoration: const InputDecoration(
-                        labelText: 'Full name',
-                        border: OutlineInputBorder(),
+                    if (_mode == _AuthMode.choice) ...[
+                      FilledButton(
+                        onPressed: _busy ? null : _startRegister,
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 13),
+                          child: Text('Register'),
+                        ),
                       ),
-                      validator: (value) => (value?.trim().length ?? 0) < 2
-                          ? 'Enter your full name.'
-                          : null,
-                    ),
-                    const SizedBox(height: 14),
-                    TextFormField(
-                      controller: _birthDate,
-                      keyboardType: TextInputType.datetime,
-                      decoration: const InputDecoration(
-                        labelText: 'Date of birth',
-                        hintText: 'YYYY-MM-DD',
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        onPressed: _busy ? null : _startLogin,
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 13),
+                          child: Text('Login'),
+                        ),
                       ),
-                      validator: (value) =>
-                          RegExp(
-                            r'^\d{4}-\d{2}-\d{2}$',
-                          ).hasMatch(value?.trim() ?? '')
-                          ? null
-                          : 'Use YYYY-MM-DD.',
-                    ),
-                    const SizedBox(height: 14),
-                    TextFormField(
-                      controller: _phone,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Phone number',
-                        hintText: '+919876543210',
-                        border: OutlineInputBorder(),
+                    ] else ...[
+                      if (_mode == _AuthMode.register) ...[
+                        TextFormField(
+                          controller: _name,
+                          textCapitalization: TextCapitalization.words,
+                          decoration: const InputDecoration(
+                            labelText: 'Full name',
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: (value) => (value?.trim().length ?? 0) < 2
+                              ? 'Enter your full name.'
+                              : null,
+                        ),
+                        const SizedBox(height: 14),
+                        TextFormField(
+                          controller: _birthDate,
+                          keyboardType: TextInputType.datetime,
+                          decoration: const InputDecoration(
+                            labelText: 'Date of birth',
+                            hintText: 'YYYY-MM-DD',
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: (value) =>
+                              RegExp(
+                                r'^\d{4}-\d{2}-\d{2}$',
+                              ).hasMatch(value?.trim() ?? '')
+                              ? null
+                              : 'Use YYYY-MM-DD.',
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      TextFormField(
+                        controller: _phone,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Phone number',
+                          hintText: '+919876543210',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) =>
+                            RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(
+                              value?.replaceAll(RegExp(r'[\s()-]'), '') ?? '',
+                            )
+                            ? null
+                            : 'Include country code, for example +91.',
                       ),
-                      validator: (value) =>
-                          RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(
-                            value?.replaceAll(RegExp(r'[\s()-]'), '') ?? '',
-                          )
-                          ? null
-                          : 'Include country code, for example +91.',
-                    ),
+                    ],
                   ] else
                     TextField(
                       controller: _otp,
@@ -364,24 +439,59 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                       _error!,
                       style: const TextStyle(color: Color(0xFFFF6B6B)),
                     ),
+                    if (_mode == _AuthMode.register && _error!.contains('already registered')) ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: _busy ? null : _startLogin,
+                          child: const Text('Login with your existing number'),
+                        ),
+                      ),
+                    ],
+                    if (_mode == _AuthMode.login && _error!.contains('not registered')) ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: _busy ? null : _startRegister,
+                          child: const Text('Register a new account'),
+                        ),
+                      ),
+                    ],
                   ],
                   const SizedBox(height: 20),
-                  FilledButton(
-                    onPressed: _busy ? null : _submit,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      child: _busy
-                          ? const SizedBox.square(
-                              dimension: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(
-                              _challenge == null
-                                  ? 'Send OTP'
-                                  : 'Verify & continue',
-                            ),
+                  if (_challenge == null && _mode != _AuthMode.choice) ...[
+                    FilledButton(
+                      onPressed: _busy ? null : _submit,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        child: _busy
+                            ? const SizedBox.square(
+                                dimension: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Text(
+                                _mode == _AuthMode.register
+                                    ? 'Send OTP'
+                                    : 'Send OTP',
+                              ),
+                      ),
                     ),
-                  ),
+                  ] else if (_challenge != null) ...[
+                    FilledButton(
+                      onPressed: _busy ? null : _submit,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        child: _busy
+                            ? const SizedBox.square(
+                                dimension: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Verify & continue'),
+                      ),
+                    ),
+                  ],
                   if (_challenge != null)
                     TextButton(
                       onPressed: _busy

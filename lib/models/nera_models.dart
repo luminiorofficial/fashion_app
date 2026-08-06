@@ -28,9 +28,10 @@ class NeraUser {
 }
 
 class OtpChallenge {
-  const OtpChallenge({required this.id, this.developmentOtp});
+  const OtpChallenge({required this.id, this.developmentOtp, this.purpose});
   final String id;
   final String? developmentOtp;
+  final String? purpose;
 }
 
 class WardrobeItem {

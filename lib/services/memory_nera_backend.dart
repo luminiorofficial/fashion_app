@@ -4,16 +4,23 @@ import '../models/nera_models.dart';
 import 'nera_backend.dart';
 
 class MemoryNeraBackend implements NeraBackend {
-  final ValueNotifier<String?> _userId = ValueNotifier('preview-user');
-  final ValueNotifier<bool> _authenticated = ValueNotifier(true);
-  final ValueNotifier<NeraUser?> _currentUser = ValueNotifier(
-    const NeraUser(
-      id: 'preview-user',
-      name: 'Preview User',
-      dateOfBirth: '1995-01-01',
-      phoneNumber: '+919999999999',
-    ),
-  );
+  MemoryNeraBackend({bool authenticated = false, NeraUser? initialUser}) {
+    _userId.value = initialUser?.id ?? (authenticated ? 'preview-user' : null);
+    _authenticated.value = authenticated;
+    _currentUser.value = initialUser ??
+        (authenticated
+            ? const NeraUser(
+                id: 'preview-user',
+                name: 'Preview User',
+                dateOfBirth: '1995-01-01',
+                phoneNumber: '+919999999999',
+              )
+            : null);
+  }
+
+  final ValueNotifier<String?> _userId = ValueNotifier(null);
+  final ValueNotifier<bool> _authenticated = ValueNotifier(false);
+  final ValueNotifier<NeraUser?> _currentUser = ValueNotifier(null);
   final _wardrobeController = StreamController<List<WardrobeItem>>.broadcast();
   final _profileController = StreamController<StyleProfile>.broadcast();
   final List<WardrobeItem> _items = [];
@@ -40,22 +47,41 @@ class MemoryNeraBackend implements NeraBackend {
 
   @override
   Future<OtpChallenge> requestOtp({
-    required String name,
-    required String dateOfBirth,
+    String? name,
+    String? dateOfBirth,
     required String phoneNumber,
-  }) async =>
-      const OtpChallenge(id: 'preview-challenge', developmentOtp: '123456');
+  }) async => OtpChallenge(
+    id: 'preview-challenge',
+    developmentOtp: '123456',
+    purpose: ((name ?? '').trim().isNotEmpty && (dateOfBirth ?? '').trim().isNotEmpty)
+        ? 'registration'
+        : 'login',
+  );
   @override
   Future<void> verifyOtp({
     required String challengeId,
     required String otp,
   }) async {
     _authenticated.value = true;
+    _currentUser.value ??= const NeraUser(
+      id: 'preview-user',
+      name: 'Preview User',
+      dateOfBirth: '1995-01-01',
+      phoneNumber: '+919999999999',
+    );
+    _userId.value = _currentUser.value?.id;
   }
 
   @override
   Future<void> logout() async {
     _authenticated.value = false;
+    _userId.value = null;
+    _currentUser.value ??= const NeraUser(
+      id: 'preview-user',
+      name: 'Preview User',
+      dateOfBirth: '1995-01-01',
+      phoneNumber: '+919999999999',
+    );
   }
 
   @override

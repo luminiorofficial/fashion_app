@@ -19,7 +19,10 @@ class _FakeImageService extends NeraImageService {
 void main() {
   testWidgets('renders the live NERA home experience', (tester) async {
     await tester.pumpWidget(
-      NeraApp(backend: MemoryNeraBackend(), imageService: _FakeImageService()),
+      NeraApp(
+        backend: MemoryNeraBackend(authenticated: true),
+        imageService: _FakeImageService(),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -42,7 +45,10 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      NeraApp(backend: MemoryNeraBackend(), imageService: _FakeImageService()),
+      NeraApp(
+        backend: MemoryNeraBackend(authenticated: true),
+        imageService: _FakeImageService(),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -66,11 +72,67 @@ void main() {
     expect(find.text('Outerwear'), findsOneWidget);
   });
 
+  testWidgets('shows login and register choices before the form', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      NeraApp(
+        backend: MemoryNeraBackend(),
+        imageService: _FakeImageService(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Login'), findsOneWidget);
+    expect(find.text('Register'), findsOneWidget);
+    expect(find.text('Full name'), findsNothing);
+    expect(find.text('Phone number'), findsNothing);
+
+    await tester.tap(find.text('Register'));
+    await tester.pumpAndSettle();
+    expect(find.text('Full name'), findsOneWidget);
+    expect(find.text('Date of birth'), findsOneWidget);
+  });
+
+  testWidgets('returns to phone-only auth after a completed registration', (
+    tester,
+  ) async {
+    final backend = MemoryNeraBackend();
+    await tester.pumpWidget(
+      NeraApp(backend: backend, imageService: _FakeImageService()),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Register'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'Ada Lovelace');
+    await tester.enterText(find.byType(TextFormField).at(1), '1815-12-10');
+    await tester.enterText(find.byType(TextFormField).at(2), '+919876543210');
+    await tester.tap(find.text('Send OTP'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Verify your phone'), findsOneWidget);
+    await tester.tap(find.text('Verify & continue'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Upload Wardrobe'), findsOneWidget);
+
+    await backend.logout();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Login'), findsOneWidget);
+    expect(find.text('Register'), findsOneWidget);
+  });
+
   testWidgets('profile photo analysis updates the style profile', (
     tester,
   ) async {
     await tester.pumpWidget(
-      NeraApp(backend: MemoryNeraBackend(), imageService: _FakeImageService()),
+      NeraApp(
+        backend: MemoryNeraBackend(authenticated: true),
+        imageService: _FakeImageService(),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -87,7 +149,7 @@ void main() {
   });
 
   testWidgets('event selection renders an outfit plan', (tester) async {
-    final backend = MemoryNeraBackend();
+    final backend = MemoryNeraBackend(authenticated: true);
     await backend.saveWardrobeDraft(
       const WardrobeDraft(
         id: 'top',
