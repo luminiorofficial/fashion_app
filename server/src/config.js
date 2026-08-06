@@ -4,6 +4,7 @@ function loadConfig(overrides = {}) {
   const root = path.resolve(__dirname, "..");
   return {
     env: process.env.NODE_ENV || "development",
+    host: process.env.HOST || "0.0.0.0",
     port: Number(process.env.PORT || 8080),
     publicBaseUrl: process.env.PUBLIC_BASE_URL || "http://localhost:8080",
     uploadDir: path.resolve(root, process.env.UPLOAD_DIR || "data/uploads"),

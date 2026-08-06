@@ -19,7 +19,7 @@ async function start() {
   const analyzer = new FashionAnalyzer(config);
   const smsProvider = createSmsProvider(config);
   const app = createApp({config, repository, assetStore, analyzer, smsProvider});
-  const server = app.listen(config.port, () => console.info(`NERA API listening on ${config.publicBaseUrl}/api/v1`));
+  const server = app.listen(config.port, config.host, () => console.info(`NERA API listening on ${config.publicBaseUrl}/api/v1`));
 
   const shutdown = () => server.close(async () => {
     await repository.close?.();
