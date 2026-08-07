@@ -20,7 +20,7 @@ function loadConfig(overrides = {}) {
     twilioFromNumber: process.env.TWILIO_FROM_NUMBER || "",
     sessionTtlDays: Number(process.env.SESSION_TTL_DAYS || 30),
     geminiApiKey: process.env.GEMINI_API_KEY || "",
-    geminiModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
     databaseUrl: process.env.DATABASE_URL || "",
     databasePoolMax: Number(process.env.DATABASE_POOL_MAX || 10),
     databaseSsl: process.env.DATABASE_SSL === "true",

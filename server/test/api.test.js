@@ -23,6 +23,7 @@ async function register(app, phoneNumber = "+919876543210") {
 }
 
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00, 0xff, 0xd9]);
+const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
 
 test("registers with verified phone details and creates a session", async () => {
   const {app, uploadDir} = await fixture();
@@ -79,6 +80,14 @@ test("analyzes a profile image and stores its asset and job relationship", async
   assert.equal(response.body.profile.bodyType, "Rectangle");
   assert.ok(response.body.profile.profileImageAssetId);
   assert.equal(response.body.profile.latestAnalysisJobId, response.body.analysisJobId);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("accepts profile uploads that use a generic content type but a valid PNG signature", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  const response = await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", png, {filename: "profile.png", contentType: "application/octet-stream"}).expect(201);
+  assert.equal(response.body.profile.bodyType, "Rectangle");
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 

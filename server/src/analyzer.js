@@ -28,15 +28,39 @@ class FashionAnalyzer {
   }
 
   async call(prompt, file, schema) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this.config.geminiModel}:generateContent`;
-    let response;
-    try {
-      response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", "x-goog-api-key": this.config.geminiApiKey}, body: JSON.stringify({contents: [{parts: [{text: prompt}, {inlineData: {mimeType: file.mimetype, data: file.buffer.toString("base64")}}]}], generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema}}), signal: AbortSignal.timeout(45_000)});
-    } catch (_) { throw new ApiError(504, "ANALYSIS_TIMEOUT", "The analysis service timed out. Please retry."); }
-    if (!response.ok) throw new ApiError(502, "ANALYSIS_FAILED", "The analysis service could not process the image.");
-    const payload = await response.json();
-    const output = payload.candidates?.[0]?.content?.parts?.[0]?.text;
-    try { return JSON.parse(output); } catch (_) { throw new ApiError(502, "INVALID_ANALYSIS", "The analysis service returned an invalid result."); }
+    const models = [this.config.geminiModel, "gemini-3.6-flash"].filter((model, index, all) => model && all.indexOf(model) === index);
+    let lastError;
+
+    for (const model of models) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      let response;
+      try {
+        response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", "x-goog-api-key": this.config.geminiApiKey}, body: JSON.stringify({contents: [{parts: [{text: prompt}, {inlineData: {mimeType: file.mimetype, data: file.buffer.toString("base64")}}]}], generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema}}), signal: AbortSignal.timeout(45_000)});
+      } catch (_) { throw new ApiError(504, "ANALYSIS_TIMEOUT", "The analysis service timed out. Please retry."); }
+
+      if (response.ok) {
+        const payload = await response.json();
+        const output = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+        try { return JSON.parse(output); } catch (_) { throw new ApiError(502, "INVALID_ANALYSIS", "The analysis service returned an invalid result."); }
+      }
+
+      lastError = await this.parseError(response);
+      if (response.status !== 404 && response.status !== 400) break;
+    }
+
+    throw new ApiError(lastError.status, lastError.code, lastError.message, lastError.details);
+  }
+
+  async parseError(response) {
+    let payload;
+    try { payload = await response.json(); } catch (_) { payload = null; }
+    const error = payload?.error;
+    return {
+      status: response.status || 502,
+      code: error?.status || "ANALYSIS_FAILED",
+      message: error?.message || "The analysis service could not process the image.",
+      details: error?.details,
+    };
   }
 }
 

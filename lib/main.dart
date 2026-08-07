@@ -197,9 +197,7 @@ class _StartupError extends StatelessWidget {
 }
 
 class _PhoneRegistrationScreen extends StatefulWidget {
-  _PhoneRegistrationScreen({required this.backend, required this.returningUser})
-      : backend = backend,
-        returningUser = returningUser;
+  _PhoneRegistrationScreen({required this.backend, required this.returningUser});
 
   final NeraBackend backend;
   final bool returningUser;
@@ -1814,55 +1812,14 @@ class _ProfileCreationState extends State<ProfileCreation> {
 
   Future<StyleProfile> _analyzeImage(ImageSource source) async {
     final pickedImage = await widget.imageService!.pick(source);
-    final Uint8List imageBytes = pickedImage.bytes;
-    final String fileName = pickedImage.fileName ?? 'profile.jpg';
+    if (pickedImage == null) {
+      throw const NeraException('No image was selected.');
+    }
+
+    final Uint8List imageBytes = Uint8List.fromList(pickedImage.bytes);
+    final String fileName = pickedImage.fileName;
 
     return await widget.backend.analyzeProfileImage(imageBytes, fileName);
-  }
-
-  Future<ImageSource?> _pickImageSource() async {
-    return await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: NeraColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Upload Full-Length Image',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'We will analyze your body shape, skin tone, hair color, and more',
-                style: TextStyle(color: NeraColors.muted, height: 1.4),
-              ),
-              const SizedBox(height: 16),
-              _UploadOption(
-                icon: Icons.camera_alt_rounded,
-                label: 'Take a photo',
-                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
-              ),
-              _UploadOption(
-                icon: Icons.photo_library_rounded,
-                label: 'Choose from gallery',
-                onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   void _showMessage(String message, {bool error = false}) {

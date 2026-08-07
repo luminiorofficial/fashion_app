@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'nera_backend.dart';
 
 class NeraApiClient {
@@ -51,8 +52,15 @@ class NeraApiClient {
     if (accessToken != null) {
       request.headers['authorization'] = 'Bearer $accessToken';
     }
+    final mimeType = _detectMimeType(fileName, bytes);
+    final parsedMimeType = mimeType.split('/');
     request.files.add(
-      http.MultipartFile.fromBytes('image', bytes, filename: fileName),
+      http.MultipartFile.fromBytes(
+        'image',
+        bytes,
+        filename: fileName,
+        contentType: MediaType(parsedMimeType[0], parsedMimeType[1]),
+      ),
     );
     try {
       final streamed = await _client
@@ -67,6 +75,17 @@ class NeraApiClient {
     } on http.ClientException catch (error) {
       throw NeraException('The NERA server could not be reached: ${error.message}');
     }
+  }
+
+  String _detectMimeType(String fileName, Uint8List bytes) {
+    final lowerName = fileName.toLowerCase();
+    if (lowerName.endsWith('.png')) return 'image/png';
+    if (lowerName.endsWith('.heic') || lowerName.endsWith('.heif')) return 'image/heic';
+    if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) return 'image/jpeg';
+    if (bytes.length >= 3 && bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff) return 'image/jpeg';
+    if (bytes.length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4e && bytes[3] == 0x47) return 'image/png';
+    if (bytes.length >= 12 && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70) return 'image/heic';
+    return 'image/jpeg';
   }
 
   Future<Map<String, dynamic>> _send(

@@ -25,8 +25,19 @@ class NeraImageService {
     final compressed = await _compressBelowLimit(original);
     return PickedImageData(
       bytes: compressed,
-      fileName: '${DateTime.now().millisecondsSinceEpoch}.jpg',
+      fileName: '${DateTime.now().millisecondsSinceEpoch}.${_extensionFor(picked.name)}',
     );
+  }
+
+  String _extensionFor(String fileName) {
+    final baseName = fileName.toLowerCase();
+    final dotIndex = baseName.lastIndexOf('.');
+    if (dotIndex > 0 && dotIndex < baseName.length - 1) {
+      final ext = baseName.substring(dotIndex + 1);
+      if (ext == 'jpeg' || ext == 'jpg') return 'jpg';
+      if (ext == 'png' || ext == 'heic' || ext == 'heif') return ext;
+    }
+    return 'jpg';
   }
 
   Future<Uint8List> _compressBelowLimit(Uint8List original) async {

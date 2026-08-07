@@ -4,6 +4,7 @@ const {ApiError, assert} = require("./errors");
 const {phone, birthDate, text, productUrl, wardrobeCategory} = require("./validation");
 const {createId, createOtp, createToken, hashOtp, safeEqual, sha256} = require("./security");
 const {assertRepositoryContract} = require("./repository");
+const {normalizeUploadedFile} = require("./storage");
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -100,10 +101,11 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
 
   route.get("/profile", authenticate, async (request, response) => response.json({profile: await repository.getProfile(request.auth.user.id)}));
   route.post("/profile/analyze", authenticate, upload.single("image"), async (request, response) => {
-    assert(request.file, 400, "IMAGE_REQUIRED", "A full-body image is required.");
-    const stored = await assetStore.save(request.auth.user.id, request.file);
+    const file = normalizeUploadedFile(request.file);
+    assert(file, 400, "IMAGE_REQUIRED", "A full-body image is required.");
+    const stored = await assetStore.save(request.auth.user.id, file);
     const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "profile_analysis", ...stored});
-    const result = await analyzer.analyzeProfile(request.file);
+    const result = await analyzer.analyzeProfile(file);
     const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "style_profile", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
     const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageAssetId: asset.id, profileImageUrl: asset.publicUrl, latestAnalysisJobId: job.id});
     response.status(201).json({profile, analysisJobId: job.id});
@@ -111,10 +113,11 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
 
   route.get("/wardrobe/items", authenticate, async (request, response) => response.json({items: (await repository.listWardrobe(request.auth.user.id)).map(publicWardrobeItem)}));
   route.post("/wardrobe/analyze", authenticate, upload.single("image"), async (request, response) => {
-    assert(request.file, 400, "IMAGE_REQUIRED", "A clothing or accessory image is required.");
-    const stored = await assetStore.save(request.auth.user.id, request.file);
+    const file = normalizeUploadedFile(request.file);
+    assert(file, 400, "IMAGE_REQUIRED", "A clothing or accessory image is required.");
+    const stored = await assetStore.save(request.auth.user.id, file);
     const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "wardrobe_item", ...stored});
-    const result = await analyzer.analyzeWardrobe(request.file);
+    const result = await analyzer.analyzeWardrobe(file);
     const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "wardrobe_item", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
     response.status(201).json({draft: {assetId: asset.id, imageUrl: asset.publicUrl, name: result.item_name, category: result.category, tags: result.tags, analysisJobId: job.id}});
   });
