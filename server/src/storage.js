@@ -1,6 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const sharp = require("sharp");
 const {ApiError} = require("./errors");
 
 const extensions = {
@@ -40,6 +41,43 @@ function normalizeUploadedFile(file) {
   return file;
 }
 
+async function processUploadedFile(file) {
+  if (!file?.buffer) return file;
+  const normalizedFile = normalizeUploadedFile(file);
+  if (!normalizedFile?.buffer) return normalizedFile;
+  const mimeType = normalizedFile.mimetype;
+  if (!mimeType || !extensions[mimeType] || !validSignature(normalizedFile.buffer, mimeType)) return normalizedFile;
+
+  try {
+    const image = sharp(normalizedFile.buffer).rotate();
+    const metadata = await image.metadata();
+    const longestSide = Math.max(metadata.width || 0, metadata.height || 0);
+    let pipeline = image;
+
+    if (longestSide > 1800) {
+      const scale = 1800 / longestSide;
+      pipeline = image.resize({
+        width: Math.max(1, Math.round((metadata.width || 1800) * scale)),
+        height: Math.max(1, Math.round((metadata.height || 1800) * scale)),
+        fit: "inside",
+        withoutEnlargement: false,
+      });
+    }
+
+    const processedBuffer = await pipeline.jpeg({quality: 82, progressive: true}).toBuffer();
+    return {
+      ...normalizedFile,
+      buffer: processedBuffer,
+      size: processedBuffer.length,
+      mimetype: "image/jpeg",
+      originalname: normalizedFile.originalname ? `${path.parse(normalizedFile.originalname).name || "image"}.jpg` : "image.jpg",
+      processed: true,
+    };
+  } catch {
+    return normalizedFile;
+  }
+}
+
 class LocalAssetStore {
   constructor({uploadDir, publicBaseUrl}) {
     this.uploadDir = uploadDir;
@@ -47,7 +85,7 @@ class LocalAssetStore {
   }
 
   async save(userId, file) {
-    const normalizedFile = normalizeUploadedFile(file);
+    const normalizedFile = file?.processed ? file : await processUploadedFile(file);
     const mimeType = normalizedFile?.mimetype;
     if (!normalizedFile || !normalizedFile.buffer || !mimeType || !extensions[mimeType] || !validSignature(normalizedFile.buffer, mimeType)) {
       throw new ApiError(400, "INVALID_IMAGE", "Upload a valid JPG, JPEG, PNG, or HEIC image.");
@@ -66,4 +104,4 @@ class LocalAssetStore {
   }
 }
 
-module.exports = {LocalAssetStore, validSignature, normalizeUploadedFile};
+module.exports = {LocalAssetStore, validSignature, normalizeUploadedFile, processUploadedFile};

@@ -4,7 +4,7 @@ const {ApiError, assert} = require("./errors");
 const {phone, birthDate, text, productUrl, wardrobeCategory} = require("./validation");
 const {createId, createOtp, createToken, hashOtp, safeEqual, sha256} = require("./security");
 const {assertRepositoryContract} = require("./repository");
-const {normalizeUploadedFile} = require("./storage");
+const {normalizeUploadedFile, processUploadedFile} = require("./storage");
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -101,7 +101,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
 
   route.get("/profile", authenticate, async (request, response) => response.json({profile: await repository.getProfile(request.auth.user.id)}));
   route.post("/profile/analyze", authenticate, upload.single("image"), async (request, response) => {
-    const file = normalizeUploadedFile(request.file);
+    const file = await processUploadedFile(normalizeUploadedFile(request.file));
     assert(file, 400, "IMAGE_REQUIRED", "A full-body image is required.");
     const stored = await assetStore.save(request.auth.user.id, file);
     const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "profile_analysis", ...stored});
@@ -113,7 +113,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
 
   route.get("/wardrobe/items", authenticate, async (request, response) => response.json({items: (await repository.listWardrobe(request.auth.user.id)).map(publicWardrobeItem)}));
   route.post("/wardrobe/analyze", authenticate, upload.single("image"), async (request, response) => {
-    const file = normalizeUploadedFile(request.file);
+    const file = await processUploadedFile(normalizeUploadedFile(request.file));
     assert(file, 400, "IMAGE_REQUIRED", "A clothing or accessory image is required.");
     const stored = await assetStore.save(request.auth.user.id, file);
     const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "wardrobe_item", ...stored});

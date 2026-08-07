@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const request = require("supertest");
+const sharp = require("sharp");
 const {createApp} = require("../src/app");
 const {loadConfig} = require("../src/config");
 const {InMemoryRepository} = require("../src/repository");
@@ -88,6 +89,22 @@ test("accepts profile uploads that use a generic content type but a valid PNG si
   const token = await register(app);
   const response = await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", png, {filename: "profile.png", contentType: "application/octet-stream"}).expect(201);
   assert.equal(response.body.profile.bodyType, "Rectangle");
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("stores a processed version of uploaded images instead of the original file", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  const original = await sharp({create: {width: 2200, height: 1600, channels: 3, background: {r: 255, g: 255, b: 255}}}).png().toBuffer();
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", original, {filename: "profile.png", contentType: "image/png"}).expect(201);
+  const files = await fs.readdir(uploadDir, {recursive: true});
+  const storedFiles = files.filter((entry) => typeof entry === "string" && /\.(jpg|jpeg|png|webp)$/i.test(entry));
+  assert.ok(storedFiles.length > 0);
+  assert.ok(storedFiles.some((entry) => /\.(jpg|jpeg|webp)$/i.test(entry)));
+  assert.ok(!storedFiles.some((entry) => /\.png$/i.test(entry)));
+  const storedBuffer = await fs.readFile(path.join(uploadDir, storedFiles[0]));
+  assert.equal(storedBuffer[0], 0xff);
+  assert.equal(storedBuffer[1], 0xd8);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 

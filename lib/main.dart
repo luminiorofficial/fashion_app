@@ -1736,12 +1736,14 @@ class ProfileCreation extends StatefulWidget {
 class _ProfileCreationState extends State<ProfileCreation> {
   late bool _processingImage;
   late StyleProfile? _analysisResult;
+  String? _validationErrorMessage;
 
   @override
   void initState() {
     super.initState();
     _processingImage = false;
     _analysisResult = null;
+    _validationErrorMessage = null;
   }
 
   Future<ImageSource?> _pickImageSource() async {
@@ -1791,7 +1793,10 @@ class _ProfileCreationState extends State<ProfileCreation> {
 
   Future<void> _handleImageUpload() async {
     try {
-      setState(() => _processingImage = true);
+      setState(() {
+        _processingImage = true;
+        _validationErrorMessage = null;
+      });
       final source = await _pickImageSource();
       if (source == null) return;
 
@@ -1800,11 +1805,18 @@ class _ProfileCreationState extends State<ProfileCreation> {
         setState(() {
           _processingImage = false;
           _analysisResult = result;
+          _validationErrorMessage = null;
         });
         _showMessage('✓ Analysis Complete', error: false);
       }
     } catch (error) {
-      if (mounted) _showMessage('Error: ${_friendlyError(error)}', error: true);
+      if (mounted) {
+        final message = _friendlyError(error);
+        setState(() {
+          _validationErrorMessage = message;
+        });
+        _showMessage(message, error: true);
+      }
     } finally {
       if (mounted) setState(() => _processingImage = false);
     }
@@ -1852,6 +1864,44 @@ class _ProfileCreationState extends State<ProfileCreation> {
                 : const Text('Upload Image'),
           ),
           const SizedBox(height: 24),
+          if (_validationErrorMessage != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF3A1D1F),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Full-length photo required',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _validationErrorMessage!,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.white70,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  FilledButton(
+                    onPressed: _processingImage ? null : _handleImageUpload,
+                    child: const Text('Upload Another Photo'),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const Text(
             'Analysis will be done using Gemini AI',
             style: TextStyle(
