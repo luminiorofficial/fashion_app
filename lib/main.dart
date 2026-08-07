@@ -116,7 +116,7 @@ class _NeraBootstrapState extends State<_NeraBootstrap> {
           builder: (context, authenticated, child) {
             final hasPreviousUser = _backend.currentUser.value != null;
             return authenticated
-                ? NeraHomeScreen(
+                ? ProfileCreation(
                     backend: _backend,
                     imageService: widget.imageService ?? NeraImageService(),
                   )
@@ -197,7 +197,10 @@ class _StartupError extends StatelessWidget {
 }
 
 class _PhoneRegistrationScreen extends StatefulWidget {
-  const _PhoneRegistrationScreen({required this.backend, required this.returningUser});
+  _PhoneRegistrationScreen({required this.backend, required this.returningUser})
+      : backend = backend,
+        returningUser = returningUser;
+
   final NeraBackend backend;
   final bool returningUser;
 
@@ -212,7 +215,7 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _birthDate = TextEditingController();
-  final _phone = TextEditingController();
+  final _phone = TextEditingController(text: '+91 ');
   final _otp = TextEditingController();
   OtpChallenge? _challenge;
   bool _busy = false;
@@ -396,6 +399,16 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                             hintText: 'YYYY-MM-DD',
                             border: OutlineInputBorder(),
                           ),
+                          onChanged: (value) {
+                            // Auto-insert hyphens for date format YYYY-MM-DD
+                            if (value != null && value.length == 4 && !_birthDate.text.contains('-')) {
+                              _birthDate.text = value + '-';
+                              _birthDate.selection = TextSelection.collapsed(offset: _birthDate.text.length);
+                            } else if (value != null && value.length == 7 && _birthDate.text.contains('-')) {
+                              _birthDate.text = value + '-';
+                              _birthDate.selection = TextSelection.collapsed(offset: _birthDate.text.length);
+                            }
+                          },
                           validator: (value) =>
                               RegExp(
                                 r'^\d{4}-\d{2}-\d{2}$',
@@ -410,9 +423,17 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                         keyboardType: TextInputType.phone,
                         decoration: const InputDecoration(
                           labelText: 'Phone number',
-                          hintText: '+919876543210',
+                          hintText: '9876543210',
                           border: OutlineInputBorder(),
+                          helperText: 'Example: 9836****',
                         ),
+                        onChanged: (value) {
+                          // Auto-format phone number: ensure +91 with space or hyphen
+                          if (value != null && !value.startsWith('+91')) {
+                            _phone.text = '+91 ' + value.replaceAll('+91', '').trim();
+                            _phone.selection = TextSelection.collapsed(offset: _phone.text.length);
+                          }
+                        },
                         validator: (value) =>
                             RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(
                               value?.replaceAll(RegExp(r'[\s()-]'), '') ?? '',
@@ -1697,4 +1718,202 @@ class _UploadOption extends StatelessWidget {
     trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38),
     onTap: onTap,
   );
+}
+
+// Profile Creation Screen
+class ProfileCreation extends StatefulWidget {
+  const ProfileCreation({
+    super.key,
+    required this.backend,
+    required this.imageService,
+  });
+
+  final NeraBackend backend;
+  final NeraImageService imageService;
+
+  @override
+  State<ProfileCreation> createState() => _ProfileCreationState();
+}
+
+class _ProfileCreationState extends State<ProfileCreation> {
+  late bool _processingImage;
+  late StyleProfile? _analysisResult;
+
+  @override
+  void initState() {
+    super.initState();
+    _processingImage = false;
+    _analysisResult = null;
+  }
+
+  Future<ImageSource?> _pickImageSource() async {
+    return await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: NeraColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Upload Full-Length Image',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'We will analyze your body shape, skin tone, hair color, and more',
+                style: TextStyle(color: NeraColors.muted, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              _UploadOption(
+                icon: Icons.camera_alt_rounded,
+                label: 'Take a photo',
+                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+              ),
+              _UploadOption(
+                icon: Icons.photo_library_rounded,
+                label: 'Choose from gallery',
+                onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleImageUpload() async {
+    try {
+      setState(() => _processingImage = true);
+      final source = await _pickImageSource();
+      if (source == null) return;
+
+      final result = await _analyzeImage(source);
+      if (mounted) {
+        setState(() {
+          _processingImage = false;
+          _analysisResult = result;
+        });
+        _showMessage('✓ Analysis Complete', error: false);
+      }
+    } catch (error) {
+      if (mounted) _showMessage('Error: ${_friendlyError(error)}', error: true);
+    } finally {
+      if (mounted) setState(() => _processingImage = false);
+    }
+  }
+
+  Future<StyleProfile> _analyzeImage(ImageSource source) async {
+    final pickedImage = await widget.imageService!.pick(source);
+    final Uint8List imageBytes = pickedImage.bytes;
+    final String fileName = pickedImage.fileName ?? 'profile.jpg';
+
+    return await widget.backend.analyzeProfileImage(imageBytes, fileName);
+  }
+
+  Future<ImageSource?> _pickImageSource() async {
+    return await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: NeraColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Upload Full-Length Image',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'We will analyze your body shape, skin tone, hair color, and more',
+                style: TextStyle(color: NeraColors.muted, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              _UploadOption(
+                icon: Icons.camera_alt_rounded,
+                label: 'Take a photo',
+                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+              ),
+              _UploadOption(
+                icon: Icons.photo_library_rounded,
+                label: 'Choose from gallery',
+                onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showMessage(String message, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: error ? const Color(0xFF7C2930) : NeraColors.button,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Create Profile')),
+      body: Column(
+        children: [
+          const Text(
+            'Upload full-length image',
+            style: TextStyle(fontSize: 16),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _processingImage ? null : _handleImageUpload,
+            child: _processingImage
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Upload Image'),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Analysis will be done using Gemini AI',
+            style: TextStyle(
+              fontSize: 14,
+              color: NeraColors.muted,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'We will analyze your body shape, skin tone, hair color, and more',
+            style: const TextStyle(
+              fontSize: 12,
+              color: NeraColors.muted,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
