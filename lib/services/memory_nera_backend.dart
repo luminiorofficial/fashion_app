@@ -4,7 +4,11 @@ import '../models/nera_models.dart';
 import 'nera_backend.dart';
 
 class MemoryNeraBackend implements NeraBackend {
-  MemoryNeraBackend({bool authenticated = false, NeraUser? initialUser}) {
+  MemoryNeraBackend({
+    bool authenticated = false,
+    NeraUser? initialUser,
+    StyleProfile? initialProfile,
+  }) {
     _userId.value = initialUser?.id ?? (authenticated ? 'preview-user' : null);
     _authenticated.value = authenticated;
     _currentUser.value = initialUser ??
@@ -16,21 +20,26 @@ class MemoryNeraBackend implements NeraBackend {
                 phoneNumber: '+919999999999',
               )
             : null);
+    _styleProfile = initialProfile ?? const StyleProfile();
+    _profileValue.value = authenticated ? _styleProfile : null;
   }
 
   final ValueNotifier<String?> _userId = ValueNotifier(null);
   final ValueNotifier<bool> _authenticated = ValueNotifier(false);
   final ValueNotifier<NeraUser?> _currentUser = ValueNotifier(null);
+  final ValueNotifier<StyleProfile?> _profileValue = ValueNotifier(null);
   final _wardrobeController = StreamController<List<WardrobeItem>>.broadcast();
   final _profileController = StreamController<StyleProfile>.broadcast();
   final List<WardrobeItem> _items = [];
-  StyleProfile _styleProfile = const StyleProfile();
+  late StyleProfile _styleProfile;
   @override
   ValueListenable<String?> get userId => _userId;
   @override
   ValueListenable<bool> get isAuthenticated => _authenticated;
   @override
   ValueListenable<NeraUser?> get currentUser => _currentUser;
+  @override
+  ValueListenable<StyleProfile?> get profile => _profileValue;
   @override
   Future<void> initialize() async {}
   @override
@@ -70,6 +79,7 @@ class MemoryNeraBackend implements NeraBackend {
       phoneNumber: '+919999999999',
     );
     _userId.value = _currentUser.value?.id;
+    _profileValue.value ??= _styleProfile;
   }
 
   @override
@@ -82,6 +92,7 @@ class MemoryNeraBackend implements NeraBackend {
       dateOfBirth: '1995-01-01',
       phoneNumber: '+919999999999',
     );
+    _profileValue.value = null;
   }
 
   @override
@@ -154,6 +165,7 @@ class MemoryNeraBackend implements NeraBackend {
       facialStructure: 'Oval',
     );
     _profileController.add(_styleProfile);
+    _profileValue.value = _styleProfile;
     return _styleProfile;
   }
 
@@ -173,6 +185,7 @@ class MemoryNeraBackend implements NeraBackend {
     _userId.dispose();
     _authenticated.dispose();
     _currentUser.dispose();
+    _profileValue.dispose();
     _wardrobeController.close();
     _profileController.close();
   }

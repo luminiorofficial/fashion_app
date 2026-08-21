@@ -1,8 +1,20 @@
 const {ApiError} = require("./errors");
 const {wardrobeCategories: categories} = require("./validation");
 
+// Statuses worth retrying: rate limiting (429) and transient server-side
+// failures (500/502/503/504) from Gemini.
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+// Subset that reads as "the AI service itself is down" rather than a
+// specific, actionable condition (e.g. quota) — these get a friendly
+// message instead of the raw provider error once every model is exhausted.
+const UNAVAILABLE_STATUSES = new Set([500, 502, 503, 504]);
+
 class FashionAnalyzer {
-  constructor(config) { this.config = config; }
+  constructor(config) {
+    this.config = config;
+    this.maxRetries = config.geminiMaxRetries ?? 3;
+    this.retryBaseDelayMs = config.geminiRetryBaseDelayMs ?? 500;
+  }
 
   async analyzeWardrobe(file) {
     if (!this.config.geminiApiKey) return {item_name: "Wardrobe item", category: "Accessory", tags: ["pending-ai-review"]};
@@ -61,7 +73,24 @@ class FashionAnalyzer {
     let lastError;
 
     for (const model of models) {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      try {
+        return await this.callModel(model, prompt, file, schema);
+      } catch (error) {
+        lastError = error;
+        const canTryNextModel = RETRYABLE_STATUSES.has(error.status) || error.status === 404 || error.status === 400;
+        if (!canTryNextModel) break;
+      }
+    }
+
+    throw this.friendlyError(lastError);
+  }
+
+  // Calls a single model, retrying in-place with exponential backoff on
+  // 429/500/502/503/504 before giving up on this model.
+  async callModel(model, prompt, file, schema) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+    for (let attempt = 0; ; attempt += 1) {
       let response;
       try {
         response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", "x-goog-api-key": this.config.geminiApiKey}, body: JSON.stringify({contents: [{parts: [{text: prompt}, {inlineData: {mimeType: file.mimetype, data: file.buffer.toString("base64")}}]}], generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema}}), signal: AbortSignal.timeout(45_000)});
@@ -73,11 +102,27 @@ class FashionAnalyzer {
         try { return JSON.parse(output); } catch (_) { throw new ApiError(502, "INVALID_ANALYSIS", "The analysis service returned an invalid result."); }
       }
 
-      lastError = await this.parseError(response);
-      if (response.status !== 404 && response.status !== 400) break;
+      const parsed = await this.parseError(response);
+      if (RETRYABLE_STATUSES.has(parsed.status) && attempt < this.maxRetries) {
+        await this.wait(this.retryBaseDelayMs * 2 ** attempt);
+        continue;
+      }
+      throw new ApiError(parsed.status, parsed.code, parsed.message, parsed.details);
     }
+  }
 
-    throw new ApiError(lastError.status, lastError.code, lastError.message, lastError.details);
+  wait(ms) {
+    return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+  }
+
+  // Hides opaque "service unavailable" failures behind a friendly message
+  // once every model/retry has been exhausted. Statuses like 429 keep their
+  // specific, actionable provider message (e.g. quota exceeded).
+  friendlyError(error) {
+    if (error instanceof ApiError && UNAVAILABLE_STATUSES.has(error.status)) {
+      return new ApiError(503, "AI_SERVICE_UNAVAILABLE", "Our styling AI is temporarily unavailable. Please try again in a moment.", error.details);
+    }
+    return error;
   }
 
   async parseError(response) {

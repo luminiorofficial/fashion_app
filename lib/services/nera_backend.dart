@@ -5,6 +5,10 @@ abstract interface class NeraBackend {
   ValueListenable<String?> get userId;
   ValueListenable<bool> get isAuthenticated;
   ValueListenable<NeraUser?> get currentUser;
+  /// Null while the profile hasn't been fetched yet for the current
+  /// session. Once known, callers use [StyleProfile.isAnalyzed] to decide
+  /// between showing profile creation or the home screen.
+  ValueListenable<StyleProfile?> get profile;
   Stream<List<WardrobeItem>> watchWardrobe();
   Stream<StyleProfile> watchProfile();
   Future<void> initialize();

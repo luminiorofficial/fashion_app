@@ -16,6 +16,7 @@ class RemoteNeraBackend implements NeraBackend {
   final ValueNotifier<String?> _userId = ValueNotifier(null);
   final ValueNotifier<bool> _authenticated = ValueNotifier(false);
   final ValueNotifier<NeraUser?> _currentUser = ValueNotifier(null);
+  final ValueNotifier<StyleProfile?> _profileValue = ValueNotifier(null);
   NeraUser? _lastKnownUser;
   final _wardrobe = StreamController<List<WardrobeItem>>.broadcast();
   final _profile = StreamController<StyleProfile>.broadcast();
@@ -26,6 +27,8 @@ class RemoteNeraBackend implements NeraBackend {
   ValueListenable<bool> get isAuthenticated => _authenticated;
   @override
   ValueListenable<NeraUser?> get currentUser => _currentUser;
+  @override
+  ValueListenable<StyleProfile?> get profile => _profileValue;
 
   @override
   Future<void> initialize() async {
@@ -106,9 +109,11 @@ class RemoteNeraBackend implements NeraBackend {
           .map((item) => WardrobeItem.fromJson(item as Map<String, dynamic>))
           .toList(),
     );
-    _profile.add(
-      StyleProfile.fromJson(results[1]['profile'] as Map<String, dynamic>?),
+    final fetchedProfile = StyleProfile.fromJson(
+      results[1]['profile'] as Map<String, dynamic>?,
     );
+    _profile.add(fetchedProfile);
+    _profileValue.value = fetchedProfile;
   }
 
   @override
@@ -125,6 +130,7 @@ class RemoteNeraBackend implements NeraBackend {
     _currentUser.value = _lastKnownUser;
     _wardrobe.add(const []);
     _profile.add(const StyleProfile());
+    _profileValue.value = null;
   }
 
   @override
@@ -190,6 +196,7 @@ class RemoteNeraBackend implements NeraBackend {
       response['profile'] as Map<String, dynamic>,
     );
     _profile.add(profile);
+    _profileValue.value = profile;
     return profile;
   }
 
@@ -210,6 +217,7 @@ class RemoteNeraBackend implements NeraBackend {
     _userId.dispose();
     _authenticated.dispose();
     _currentUser.dispose();
+    _profileValue.dispose();
     _wardrobe.close();
     _profile.close();
   }

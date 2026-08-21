@@ -50,3 +50,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Generated caches and scratch directories (e.g. Node's compile cache,
+# server test upload fixtures created via fs.mkdtemp(".tmp-"))
+.tmp/
+.tmp-*/
+node-compile-cache/

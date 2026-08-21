@@ -114,16 +114,24 @@ class _NeraBootstrapState extends State<_NeraBootstrap> {
         return ValueListenableBuilder<bool>(
           valueListenable: _backend.isAuthenticated,
           builder: (context, authenticated, child) {
-            final hasPreviousUser = _backend.currentUser.value != null;
-            return authenticated
-                ? ProfileCreation(
-                    backend: _backend,
-                    imageService: widget.imageService ?? NeraImageService(),
-                  )
-                : _PhoneRegistrationScreen(
-                    backend: _backend,
-                    returningUser: hasPreviousUser,
-                  );
+            if (!authenticated) {
+              final hasPreviousUser = _backend.currentUser.value != null;
+              return _PhoneRegistrationScreen(
+                backend: _backend,
+                returningUser: hasPreviousUser,
+              );
+            }
+            return ValueListenableBuilder<StyleProfile?>(
+              valueListenable: _backend.profile,
+              builder: (context, profile, child) {
+                // Authenticated, but the profile hasn't been fetched yet.
+                if (profile == null) return const _LaunchScreen();
+                final imageService = widget.imageService ?? NeraImageService();
+                return profile.isAnalyzed
+                    ? NeraHomeScreen(backend: _backend, imageService: imageService)
+                    : ProfileCreation(backend: _backend, imageService: imageService);
+              },
+            );
           },
         );
       },
@@ -1792,13 +1800,13 @@ class _ProfileCreationState extends State<ProfileCreation> {
   }
 
   Future<void> _handleImageUpload() async {
+    final source = await _pickImageSource();
+    if (source == null) return;
     try {
       setState(() {
         _processingImage = true;
         _validationErrorMessage = null;
       });
-      final source = await _pickImageSource();
-      if (source == null) return;
 
       final result = await _analyzeImage(source);
       if (mounted) {
