@@ -21,6 +21,8 @@ function loadConfig(overrides = {}) {
     sessionTtlDays: Number(process.env.SESSION_TTL_DAYS || 30),
     geminiApiKey: process.env.GEMINI_API_KEY || "",
     geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
+    geminiMaxRetries: Number(process.env.GEMINI_MAX_RETRIES || 3),
+    geminiRetryBaseDelayMs: Number(process.env.GEMINI_RETRY_BASE_DELAY_MS || 500),
     databaseUrl: process.env.DATABASE_URL || "",
     databasePoolMax: Number(process.env.DATABASE_POOL_MAX || 10),
     databaseSsl: process.env.DATABASE_SSL === "true",

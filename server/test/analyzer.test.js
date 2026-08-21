@@ -37,6 +37,56 @@ test("surfaces Gemini provider failures with the underlying reason after exhaust
   }
 });
 
+test("retries a network/timeout failure and succeeds once the connection recovers", async () => {
+  const analyzer = new FashionAnalyzer({geminiApiKey: "test-key", geminiModel: "gemini-3.6-flash", ...FAST_RETRY});
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    if (calls < 3) throw new DOMException("The operation timed out.", "TimeoutError");
+    return {
+      ok: true,
+      async json() {
+        return {candidates: [{content: {parts: [{text: JSON.stringify({item_name: "Blazer", category: "Outerwear", tags: []})}]}}]};
+      },
+    };
+  };
+
+  try {
+    const result = await analyzer.call("Describe the image", {mimetype: "image/jpeg", buffer: Buffer.from("abc")}, {type: "object"});
+    assert.equal(result.item_name, "Blazer");
+    assert.equal(calls, 3);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("gives up on repeated network/timeout failures after the max attempts", async () => {
+  const analyzer = new FashionAnalyzer({geminiApiKey: "test-key", geminiModel: "gemini-3.6-flash", geminiMaxRetries: 2, ...FAST_RETRY});
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    throw new DOMException("The operation timed out.", "TimeoutError");
+  };
+
+  try {
+    await assert.rejects(
+      () => analyzer.call("Describe the image", {mimetype: "image/jpeg", buffer: Buffer.from("abc")}, {type: "object"}),
+      (error) => {
+        assert.equal(error.status, 503);
+        assert.equal(error.code, "AI_SERVICE_UNAVAILABLE");
+        assert.match(error.message, /temporarily unavailable/i);
+        return true;
+      },
+    );
+    // 1 initial attempt + 2 retries against the single (deduped) model.
+    assert.equal(calls, 3);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("retries on a transient 503 and succeeds once Gemini recovers", async () => {
   const analyzer = new FashionAnalyzer({geminiApiKey: "test-key", geminiModel: "gemini-3.6-flash", ...FAST_RETRY});
   const originalFetch = global.fetch;

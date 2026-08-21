@@ -86,28 +86,44 @@ class FashionAnalyzer {
   }
 
   // Calls a single model, retrying in-place with exponential backoff on
-  // 429/500/502/503/504 before giving up on this model.
+  // 429/500/502/503/504 responses and on network/timeout failures, before
+  // giving up on this model.
   async callModel(model, prompt, file, schema) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
     for (let attempt = 0; ; attempt += 1) {
-      let response;
-      try {
-        response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", "x-goog-api-key": this.config.geminiApiKey}, body: JSON.stringify({contents: [{parts: [{text: prompt}, {inlineData: {mimeType: file.mimetype, data: file.buffer.toString("base64")}}]}], generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema}}), signal: AbortSignal.timeout(45_000)});
-      } catch (_) { throw new ApiError(504, "ANALYSIS_TIMEOUT", "The analysis service timed out. Please retry."); }
+      const outcome = await this.attemptModel(endpoint, prompt, file, schema);
+      if (outcome.ok) return outcome.result;
 
-      if (response.ok) {
-        const payload = await response.json();
-        const output = payload.candidates?.[0]?.content?.parts?.[0]?.text;
-        try { return JSON.parse(output); } catch (_) { throw new ApiError(502, "INVALID_ANALYSIS", "The analysis service returned an invalid result."); }
-      }
-
-      const parsed = await this.parseError(response);
-      if (RETRYABLE_STATUSES.has(parsed.status) && attempt < this.maxRetries) {
+      if (RETRYABLE_STATUSES.has(outcome.error.status) && attempt < this.maxRetries) {
         await this.wait(this.retryBaseDelayMs * 2 ** attempt);
         continue;
       }
-      throw new ApiError(parsed.status, parsed.code, parsed.message, parsed.details);
+      throw outcome.error;
+    }
+  }
+
+  // Makes a single request attempt. Network/timeout failures are reported
+  // the same way as HTTP error responses so callModel can retry both alike.
+  async attemptModel(endpoint, prompt, file, schema) {
+    let response;
+    try {
+      response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", "x-goog-api-key": this.config.geminiApiKey}, body: JSON.stringify({contents: [{parts: [{text: prompt}, {inlineData: {mimeType: file.mimetype, data: file.buffer.toString("base64")}}]}], generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema}}), signal: AbortSignal.timeout(45_000)});
+    } catch (_) {
+      return {ok: false, error: new ApiError(504, "ANALYSIS_TIMEOUT", "The analysis service timed out. Please retry.")};
+    }
+
+    if (!response.ok) {
+      const parsed = await this.parseError(response);
+      return {ok: false, error: new ApiError(parsed.status, parsed.code, parsed.message, parsed.details)};
+    }
+
+    const payload = await response.json();
+    const output = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+    try {
+      return {ok: true, result: JSON.parse(output)};
+    } catch (_) {
+      return {ok: false, error: new ApiError(502, "INVALID_ANALYSIS", "The analysis service returned an invalid result.")};
     }
   }
 

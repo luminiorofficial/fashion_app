@@ -1,20 +1,38 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'nera_backend.dart';
 
 class NeraApiClient {
   NeraApiClient({http.Client? client}) : _client = client ?? http.Client();
-  static const baseUrl = String.fromEnvironment(
+
+  /// Set at build time via `--dart-define=NERA_API_BASE_URL=...`. There is
+  /// no production default — release builds must configure this.
+  static const _configuredBaseUrl = String.fromEnvironment(
     'NERA_API_BASE_URL',
-    defaultValue: 'http://192.168.1.107:8080/api/v1',
   );
-  static const _fallbackBaseUrls = <String>[
-    'http://10.0.2.2:8080/api/v1',
-    'http://localhost:8080/api/v1',
-  ];
+
+  static String get baseUrl {
+    if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
+    if (kDebugMode) return _devBaseUrl;
+    throw const NeraException(
+      'The app is missing its server address. Rebuild with '
+      '--dart-define=NERA_API_BASE_URL=https://your-api.example.com/api/v1.',
+    );
+  }
+
+  /// Development-only fallback: the Android emulator reaches the host
+  /// machine through 10.0.2.2, while every other local target (iOS
+  /// simulator, desktop) can reach it via localhost directly.
+  static String get _devBaseUrl {
+    if (!kIsWeb && Platform.isAndroid) return 'http://10.0.2.2:8080/api/v1';
+    return 'http://localhost:8080/api/v1';
+  }
+
   final http.Client _client;
   String? accessToken;
 
@@ -22,22 +40,6 @@ class NeraApiClient {
   Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) =>
       _send('POST', path, body: body);
 
-  Future<String> _resolveBaseUrl() async {
-    final candidates = <String>{baseUrl, ..._fallbackBaseUrls}.toList();
-    for (final candidate in candidates) {
-      try {
-        final response = await _client
-            .get(Uri.parse('$candidate/health'))
-            .timeout(const Duration(seconds: 5));
-        if (response.statusCode == 200) {
-          return candidate;
-        }
-      } on Object {
-        // Try the next candidate.
-      }
-    }
-    return baseUrl;
-  }
   Future<void> delete(String path) async {
     await _send('DELETE', path);
   }
@@ -47,8 +49,7 @@ class NeraApiClient {
     Uint8List bytes,
     String fileName,
   ) async {
-    final resolvedBaseUrl = await _resolveBaseUrl();
-    final request = http.MultipartRequest('POST', Uri.parse('$resolvedBaseUrl$path'));
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'));
     if (accessToken != null) {
       request.headers['authorization'] = 'Bearer $accessToken';
     }
@@ -98,8 +99,7 @@ class NeraApiClient {
       if (accessToken != null) 'authorization': 'Bearer $accessToken',
     };
     try {
-      final resolvedBaseUrl = await _resolveBaseUrl();
-      final request = http.Request(method, Uri.parse('$resolvedBaseUrl$path'))
+      final request = http.Request(method, Uri.parse('$baseUrl$path'))
         ..headers.addAll(headers);
       if (body != null) request.body = jsonEncode(body);
       final response = await http.Response.fromStream(

@@ -205,7 +205,7 @@ class _StartupError extends StatelessWidget {
 }
 
 class _PhoneRegistrationScreen extends StatefulWidget {
-  _PhoneRegistrationScreen({required this.backend, required this.returningUser});
+  const _PhoneRegistrationScreen({required this.backend, required this.returningUser});
 
   final NeraBackend backend;
   final bool returningUser;
@@ -407,11 +407,11 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                           ),
                           onChanged: (value) {
                             // Auto-insert hyphens for date format YYYY-MM-DD
-                            if (value != null && value.length == 4 && !_birthDate.text.contains('-')) {
-                              _birthDate.text = value + '-';
+                            if (value.length == 4 && !_birthDate.text.contains('-')) {
+                              _birthDate.text = '$value-';
                               _birthDate.selection = TextSelection.collapsed(offset: _birthDate.text.length);
-                            } else if (value != null && value.length == 7 && _birthDate.text.contains('-')) {
-                              _birthDate.text = value + '-';
+                            } else if (value.length == 7 && _birthDate.text.contains('-')) {
+                              _birthDate.text = '$value-';
                               _birthDate.selection = TextSelection.collapsed(offset: _birthDate.text.length);
                             }
                           },
@@ -435,8 +435,8 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                         ),
                         onChanged: (value) {
                           // Auto-format phone number: ensure +91 with space or hyphen
-                          if (value != null && !value.startsWith('+91')) {
-                            _phone.text = '+91 ' + value.replaceAll('+91', '').trim();
+                          if (!value.startsWith('+91')) {
+                            _phone.text = '+91 ${value.replaceAll('+91', '').trim()}';
                             _phone.selection = TextSelection.collapsed(offset: _phone.text.length);
                           }
                         },
@@ -1743,14 +1743,12 @@ class ProfileCreation extends StatefulWidget {
 
 class _ProfileCreationState extends State<ProfileCreation> {
   late bool _processingImage;
-  late StyleProfile? _analysisResult;
   String? _validationErrorMessage;
 
   @override
   void initState() {
     super.initState();
     _processingImage = false;
-    _analysisResult = null;
     _validationErrorMessage = null;
   }
 
@@ -1808,11 +1806,10 @@ class _ProfileCreationState extends State<ProfileCreation> {
         _validationErrorMessage = null;
       });
 
-      final result = await _analyzeImage(source);
+      await _analyzeImage(source);
       if (mounted) {
         setState(() {
           _processingImage = false;
-          _analysisResult = result;
           _validationErrorMessage = null;
         });
         _showMessage('✓ Analysis Complete', error: false);
@@ -1831,7 +1828,7 @@ class _ProfileCreationState extends State<ProfileCreation> {
   }
 
   Future<StyleProfile> _analyzeImage(ImageSource source) async {
-    final pickedImage = await widget.imageService!.pick(source);
+    final pickedImage = await widget.imageService.pick(source);
     if (pickedImage == null) {
       throw const NeraException('No image was selected.');
     }
