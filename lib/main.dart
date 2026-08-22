@@ -128,8 +128,14 @@ class _NeraBootstrapState extends State<_NeraBootstrap> {
                 if (profile == null) return const _LaunchScreen();
                 final imageService = widget.imageService ?? NeraImageService();
                 return profile.isAnalyzed
-                    ? NeraHomeScreen(backend: _backend, imageService: imageService)
-                    : ProfileCreation(backend: _backend, imageService: imageService);
+                    ? NeraHomeScreen(
+                        backend: _backend,
+                        imageService: imageService,
+                      )
+                    : ProfileCreation(
+                        backend: _backend,
+                        imageService: imageService,
+                      );
               },
             );
           },
@@ -205,7 +211,10 @@ class _StartupError extends StatelessWidget {
 }
 
 class _PhoneRegistrationScreen extends StatefulWidget {
-  const _PhoneRegistrationScreen({required this.backend, required this.returningUser});
+  const _PhoneRegistrationScreen({
+    required this.backend,
+    required this.returningUser,
+  });
 
   final NeraBackend backend;
   final bool returningUser;
@@ -273,7 +282,9 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
       if (_challenge == null) {
         final challenge = await widget.backend.requestOtp(
           name: _mode == _AuthMode.register ? _name.text.trim() : null,
-          dateOfBirth: _mode == _AuthMode.register ? _birthDate.text.trim() : null,
+          dateOfBirth: _mode == _AuthMode.register
+              ? _birthDate.text.trim()
+              : null,
           phoneNumber: _phone.text.trim(),
         );
         if (mounted) {
@@ -288,7 +299,8 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
           if (_mode == _AuthMode.login && challenge.purpose == 'registration') {
             setState(() {
               _challenge = null;
-              _error = 'This phone number is not registered yet. Please register first.';
+              _error =
+                  'This phone number is not registered yet. Please register first.';
             });
             return;
           }
@@ -407,12 +419,18 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                           ),
                           onChanged: (value) {
                             // Auto-insert hyphens for date format YYYY-MM-DD
-                            if (value.length == 4 && !_birthDate.text.contains('-')) {
+                            if (value.length == 4 &&
+                                !_birthDate.text.contains('-')) {
                               _birthDate.text = '$value-';
-                              _birthDate.selection = TextSelection.collapsed(offset: _birthDate.text.length);
-                            } else if (value.length == 7 && _birthDate.text.contains('-')) {
+                              _birthDate.selection = TextSelection.collapsed(
+                                offset: _birthDate.text.length,
+                              );
+                            } else if (value.length == 7 &&
+                                _birthDate.text.contains('-')) {
                               _birthDate.text = '$value-';
-                              _birthDate.selection = TextSelection.collapsed(offset: _birthDate.text.length);
+                              _birthDate.selection = TextSelection.collapsed(
+                                offset: _birthDate.text.length,
+                              );
                             }
                           },
                           validator: (value) =>
@@ -436,8 +454,11 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                         onChanged: (value) {
                           // Auto-format phone number: ensure +91 with space or hyphen
                           if (!value.startsWith('+91')) {
-                            _phone.text = '+91 ${value.replaceAll('+91', '').trim()}';
-                            _phone.selection = TextSelection.collapsed(offset: _phone.text.length);
+                            _phone.text =
+                                '+91 ${value.replaceAll('+91', '').trim()}';
+                            _phone.selection = TextSelection.collapsed(
+                              offset: _phone.text.length,
+                            );
                           }
                         },
                         validator: (value) =>
@@ -466,7 +487,8 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                       _error!,
                       style: const TextStyle(color: Color(0xFFFF6B6B)),
                     ),
-                    if (_mode == _AuthMode.register && _error!.contains('already registered')) ...[
+                    if (_mode == _AuthMode.register &&
+                        _error!.contains('already registered')) ...[
                       const SizedBox(height: 10),
                       Align(
                         alignment: Alignment.centerLeft,
@@ -476,7 +498,8 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                         ),
                       ),
                     ],
-                    if (_mode == _AuthMode.login && _error!.contains('not registered')) ...[
+                    if (_mode == _AuthMode.login &&
+                        _error!.contains('not registered')) ...[
                       const SizedBox(height: 10),
                       Align(
                         alignment: Alignment.centerLeft,
@@ -496,7 +519,9 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                         child: _busy
                             ? const SizedBox.square(
                                 dimension: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : Text(
                                 _mode == _AuthMode.register
@@ -513,7 +538,9 @@ class _PhoneRegistrationScreenState extends State<_PhoneRegistrationScreen> {
                         child: _busy
                             ? const SizedBox.square(
                                 dimension: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Text('Verify & continue'),
                       ),
@@ -575,6 +602,7 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
   bool _wardrobeLoading = true;
   bool _profileLoading = true;
   bool _processingImage = false;
+  String? _wardrobeProgress;
   bool _analyzingProfile = false;
   bool _generatingOutfit = false;
 
@@ -639,6 +667,7 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
       const SizedBox(height: 28),
       _UploadWardrobeCard(
         busy: _processingImage,
+        progress: _wardrobeProgress,
         onTap: _processingImage ? null : _showWardrobeSources,
       ),
       const SizedBox(height: 22),
@@ -746,30 +775,53 @@ class _NeraHomeScreenState extends State<NeraHomeScreen> {
       allowProductLink: true,
     );
     if (source == null || !mounted) return;
-    setState(() => _processingImage = true);
-    WardrobeDraft? draft;
+    setState(() {
+      _processingImage = true;
+      _wardrobeProgress = 'Selecting images…';
+    });
+    var completed = 0;
     try {
-      final picked = await widget.imageService.pick(source);
-      if (picked == null) return;
-      draft = await widget.backend.analyzeWardrobeImage(
-        Uint8List.fromList(picked.bytes),
-        picked.fileName,
-      );
-      if (!mounted) return;
-      final reviewed = await _reviewWardrobeDraft(draft);
-      if (reviewed == null) {
-        await widget.backend.discardWardrobeDraft(draft);
-      } else {
-        await widget.backend.saveWardrobeDraft(reviewed);
-        if (mounted) {
-          _showMessage('${reviewed.name} was added to your wardrobe.');
+      final pickedImages = await widget.imageService.pickMany(source);
+      for (final picked in pickedImages) {
+        WardrobeDraft? draft;
+        try {
+          if (mounted) {
+            setState(
+              () => _wardrobeProgress =
+                  '${completed + 1}/${pickedImages.length} analyzing…',
+            );
+          }
+          draft = await widget.backend.analyzeWardrobeImage(
+            Uint8List.fromList(picked.bytes),
+            picked.fileName,
+          );
+          if (!mounted) return;
+          final reviewed = await _reviewWardrobeDraft(draft);
+          if (reviewed == null) {
+            await widget.backend.discardWardrobeDraft(draft);
+          } else {
+            await widget.backend.saveWardrobeDraft(reviewed);
+            completed += 1;
+          }
+        } catch (error) {
+          if (draft != null) await widget.backend.discardWardrobeDraft(draft);
+          if (mounted) _showMessage(_friendlyError(error), error: true);
         }
       }
+      if (mounted && completed > 0) {
+        _showMessage(
+          '$completed wardrobe ${completed == 1 ? 'item' : 'items'} added.',
+        );
+      }
     } catch (error) {
-      if (draft != null) await widget.backend.discardWardrobeDraft(draft);
       if (mounted) _showMessage(_friendlyError(error), error: true);
     } finally {
-      if (mounted) setState(() => _processingImage = false);
+      if (mounted) {
+        setState(() {
+          _processingImage = false;
+          _wardrobeProgress = null;
+        });
+      }
     }
   }
 
@@ -1146,8 +1198,13 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _UploadWardrobeCard extends StatelessWidget {
-  const _UploadWardrobeCard({required this.busy, required this.onTap});
+  const _UploadWardrobeCard({
+    required this.busy,
+    required this.progress,
+    required this.onTap,
+  });
   final bool busy;
+  final String? progress;
   final VoidCallback? onTap;
 
   @override
@@ -1182,7 +1239,7 @@ class _UploadWardrobeCard extends StatelessWidget {
               const SizedBox(height: 3),
               Text(
                 busy
-                    ? 'NERA is identifying your piece'
+                    ? progress ?? 'NERA is identifying your piece'
                     : 'Camera or photo library',
                 style: const TextStyle(color: NeraColors.blue, fontSize: 14),
               ),
@@ -1769,10 +1826,7 @@ class _ProfileCreationState extends State<ProfileCreation> {
             children: [
               const Text(
                 'Upload Full-Length Image',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 10),
               Text(

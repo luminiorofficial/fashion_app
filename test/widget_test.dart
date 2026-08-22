@@ -9,11 +9,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
 class _FakeImageService extends NeraImageService {
+  _FakeImageService({this.wardrobeImages = 1});
+
+  final int wardrobeImages;
+
   @override
   Future<PickedImageData?> pick(ImageSource source) async => PickedImageData(
     bytes: Uint8List.fromList(<int>[1, 2, 3]),
     fileName: 'test.jpg',
   );
+
+  @override
+  Future<List<PickedImageData>> pickMany(ImageSource source) async => [
+    for (var index = 0; index < wardrobeImages; index += 1)
+      PickedImageData(
+        bytes: Uint8List.fromList(<int>[1, 2, 3]),
+        fileName: 'test-$index.jpg',
+      ),
+  ];
 }
 
 const _analyzedProfile = StyleProfile(
@@ -26,10 +39,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      NeraApp(
-        backend: MemoryNeraBackend(),
-        imageService: _FakeImageService(),
-      ),
+      NeraApp(backend: MemoryNeraBackend(), imageService: _FakeImageService()),
     );
     await tester.pumpAndSettle();
 
@@ -141,6 +151,38 @@ void main() {
     expect(find.text('Outerwear'), findsOneWidget);
   });
 
+  testWidgets('gallery uploads and saves each selected wardrobe image', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      NeraApp(
+        backend: MemoryNeraBackend(
+          authenticated: true,
+          initialProfile: _analyzedProfile,
+        ),
+        imageService: _FakeImageService(wardrobeImages: 2),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Upload Wardrobe'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Choose from gallery'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Review AI details'), findsOneWidget);
+    await tester.tap(find.text('Save item'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Review AI details'), findsOneWidget);
+    await tester.tap(find.text('Save item'));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView).first, const Offset(0, -1000));
+    await tester.pumpAndSettle();
+    expect(find.text('Black Silk Blazer'), findsNWidgets(2));
+  });
+
   testWidgets(
     'new registration goes through OTP and profile creation before reaching home',
     (tester) async {
@@ -153,15 +195,9 @@ void main() {
       await tester.tap(find.text('Register'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(
-        find.byType(TextFormField).at(0),
-        'Ada Lovelace',
-      );
+      await tester.enterText(find.byType(TextFormField).at(0), 'Ada Lovelace');
       await tester.enterText(find.byType(TextFormField).at(1), '1815-12-10');
-      await tester.enterText(
-        find.byType(TextFormField).at(2),
-        '+919876543210',
-      );
+      await tester.enterText(find.byType(TextFormField).at(2), '+919876543210');
       await tester.tap(find.text('Send OTP'));
       await tester.pumpAndSettle();
 

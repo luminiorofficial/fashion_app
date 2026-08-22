@@ -39,7 +39,7 @@ void main() {
 
       expect(captured, isNotNull);
       expect(captured!.method, 'POST');
-      expect(captured!.url.path, endsWith('/outfits/generate'));
+      expect(captured!.url.path, '/api/v1/outfits/generate');
       expect(jsonDecode(captured!.body), {'eventType': 'Wedding'});
 
       expect(outfit.id, 'outfit-1');
@@ -61,7 +61,8 @@ void main() {
           jsonEncode({
             'error': {
               'code': 'WARDROBE_TOO_SMALL',
-              'message': 'Add at least 2 wardrobe items before generating an outfit.',
+              'message':
+                  'Add at least 2 wardrobe items before generating an outfit.',
             },
           }),
           400,

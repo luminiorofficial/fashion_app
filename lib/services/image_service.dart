@@ -21,11 +21,45 @@ class NeraImageService {
     );
     if (picked == null) return null;
 
+    return _toPickedImage(picked, 0);
+  }
+
+  Future<List<PickedImageData>> pickMany(ImageSource source) async {
+    final picked = source == ImageSource.gallery
+        ? await _picker.pickMultiImage(
+            imageQuality: 92,
+            maxWidth: 2400,
+            maxHeight: 2400,
+            requestFullMetadata: false,
+          )
+        : await _pickSingle(source);
+    if (picked.isEmpty) return const [];
+
+    final results = <PickedImageData>[];
+    for (var index = 0; index < picked.length; index += 1) {
+      results.add(await _toPickedImage(picked[index], index));
+    }
+    return results;
+  }
+
+  Future<List<XFile>> _pickSingle(ImageSource source) async {
+    final picked = await _picker.pickImage(
+      source: source,
+      imageQuality: 92,
+      maxWidth: 2400,
+      maxHeight: 2400,
+      requestFullMetadata: false,
+    );
+    return picked == null ? const [] : [picked];
+  }
+
+  Future<PickedImageData> _toPickedImage(XFile picked, int index) async {
     final original = await picked.readAsBytes();
     final compressed = await _compressBelowLimit(original);
     return PickedImageData(
       bytes: compressed,
-      fileName: '${DateTime.now().millisecondsSinceEpoch}.${_extensionFor(picked.name)}',
+      fileName:
+          '${DateTime.now().millisecondsSinceEpoch}-$index.${_extensionFor(picked.name)}',
     );
   }
 
