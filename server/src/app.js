@@ -19,7 +19,9 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     if (request.method === "OPTIONS") return response.sendStatus(204);
     next();
   });
-  app.use("/uploads", express.static(config.uploadDir, {fallthrough: false, immutable: true, maxAge: "1d"}));
+  if (config.imageStorageProvider === "local") {
+    app.use("/uploads", express.static(config.uploadDir, {fallthrough: false, immutable: true, maxAge: "1d"}));
+  }
 
   const route = express.Router();
 
@@ -99,7 +101,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
   route.get("/me", authenticate, (request, response) => response.json({user: publicUser(request.auth.user)}));
   route.post("/auth/logout", authenticate, async (request, response) => { await repository.revokeSession(request.auth.tokenHash); response.sendStatus(204); });
 
-  route.get("/profile", authenticate, async (request, response) => response.json({profile: await repository.getProfile(request.auth.user.id)}));
+  route.get("/profile", authenticate, async (request, response) => response.json({profile: await publicProfile(assetStore, await repository.getProfile(request.auth.user.id))}));
   route.post("/profile/analyze", authenticate, upload.single("image"), async (request, response) => {
     const file = await processUploadedFile(normalizeUploadedFile(request.file));
     assert(file, 400, "IMAGE_REQUIRED", "A full-body image is required.");
@@ -107,11 +109,14 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "profile_analysis", ...stored});
     const result = await analyzer.analyzeProfile(file);
     const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "style_profile", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
-    const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageAssetId: asset.id, profileImageUrl: asset.publicUrl, latestAnalysisJobId: job.id});
-    response.status(201).json({profile, analysisJobId: job.id});
+    const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageAssetId: asset.id, profileImageStorageKey: asset.storageKey, latestAnalysisJobId: job.id});
+    response.status(201).json({profile: await publicProfile(assetStore, profile), analysisJobId: job.id});
   });
 
-  route.get("/wardrobe/items", authenticate, async (request, response) => response.json({items: (await repository.listWardrobe(request.auth.user.id)).map(publicWardrobeItem)}));
+  route.get("/wardrobe/items", authenticate, async (request, response) => {
+    const items = await repository.listWardrobe(request.auth.user.id);
+    response.json({items: await Promise.all(items.map((item) => publicWardrobeItem(assetStore, item)))});
+  });
   route.post("/wardrobe/analyze", authenticate, upload.single("image"), async (request, response) => {
     const file = await processUploadedFile(normalizeUploadedFile(request.file));
     assert(file, 400, "IMAGE_REQUIRED", "A clothing or accessory image is required.");
@@ -119,7 +124,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "wardrobe_item", ...stored});
     const result = await analyzer.analyzeWardrobe(file);
     const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "wardrobe_item", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
-    response.status(201).json({draft: {assetId: asset.id, imageUrl: asset.publicUrl, name: result.item_name, category: result.category, tags: result.tags, color: result.color ?? null, material: result.material ?? null, pattern: result.pattern ?? null, season: result.season || [], occasion: result.occasion || [], style: result.style || [], analysisJobId: job.id}});
+    response.status(201).json({draft: {assetId: asset.id, imageUrl: await assetStore.signedUrl(asset.storageKey), name: result.item_name, category: result.category, tags: result.tags, color: result.color ?? null, material: result.material ?? null, pattern: result.pattern ?? null, season: result.season || [], occasion: result.occasion || [], style: result.style || [], analysisJobId: job.id}});
   });
   route.delete("/wardrobe/drafts/:assetId", authenticate, async (request, response) => {
     const asset = await repository.getAsset(request.params.assetId);
@@ -143,7 +148,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const styleTags = cleanStringArray(metadata.style);
     const item = await repository.createWardrobeItem(request.auth.user.id, {
       sourceType: "upload", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags),
-      mediaAssetId: asset.id, analysisJobId: analysisJob.id, imageUrl: asset.publicUrl, productUrl: null,
+      mediaAssetId: asset.id, analysisJobId: analysisJob.id, imageStorageKey: asset.storageKey, productUrl: null,
       primaryColor: typeof metadata.color === "string" ? metadata.color.trim().slice(0, 100) || null : null,
       material: typeof metadata.material === "string" ? metadata.material.trim().slice(0, 160) || null : null,
       pattern: typeof metadata.pattern === "string" ? metadata.pattern.trim().slice(0, 120) || null : null,
@@ -151,16 +156,20 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
       occasion: cleanStringArray(metadata.occasion, 6),
       styleTags,
     });
-    response.status(201).json({item: publicWardrobeItem(item)});
+    response.status(201).json({item: await publicWardrobeItem(assetStore, item)});
   });
   route.post("/wardrobe/links", authenticate, async (request, response) => {
-    const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "product_link", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags), mediaAssetId: null, imageUrl: "", productUrl: productUrl(request.body?.productUrl)});
-    response.status(201).json({item: publicWardrobeItem(item)});
+    const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "product_link", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags), mediaAssetId: null, imageStorageKey: null, productUrl: productUrl(request.body?.productUrl)});
+    response.status(201).json({item: await publicWardrobeItem(assetStore, item)});
   });
   route.delete("/wardrobe/items/:itemId", authenticate, async (request, response) => {
     const item = await repository.getWardrobeItem(request.params.itemId);
     assert(item && item.userId === request.auth.user.id && !item.deletedAt, 404, "WARDROBE_ITEM_NOT_FOUND", "The wardrobe item was not found.");
     await repository.deleteWardrobeItem(item.id);
+    if (item.mediaAssetId) {
+      await assetStore.remove(item.imageStorageKey);
+      await repository.archiveAsset(item.mediaAssetId);
+    }
     response.sendStatus(204);
   });
 
@@ -189,7 +198,8 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
 }
 
 const publicUser = (user) => ({id: user.id, name: user.name, dateOfBirth: user.dateOfBirth, phoneNumber: user.phoneNumber, phoneVerifiedAt: user.phoneVerifiedAt});
-const publicWardrobeItem = (item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: item.imageUrl || "", productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], createdAt: item.createdAt});
+const publicWardrobeItem = async (assetStore, item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: await assetStore.signedUrl(item.imageStorageKey), productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], createdAt: item.createdAt});
+const publicProfile = async (assetStore, profile) => ({...profile, profileImageUrl: await assetStore.signedUrl(profile.profileImageStorageKey)});
 const publicOutfit = (outfit) => ({id: outfit.id, eventType: outfit.eventType, wardrobeItemIds: outfit.wardrobeItemIds, rationale: outfit.rationale, createdAt: outfit.createdAt});
 const cleanTags = (value) => Array.isArray(value) ? [...new Set(value.filter((tag) => typeof tag === "string").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 12) : [];
 const cleanStringArray = (value, max = 6) => Array.isArray(value) ? [...new Set(value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean))].slice(0, max) : [];

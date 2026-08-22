@@ -2,6 +2,8 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const sharp = require("sharp");
+const {S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand} = require("@aws-sdk/client-s3");
+const {getSignedUrl} = require("@aws-sdk/s3-request-presigner");
 const {ApiError} = require("./errors");
 
 const extensions = {
@@ -102,6 +104,53 @@ class LocalAssetStore {
     if (!target.startsWith(`${this.uploadDir}${path.sep}`)) return;
     await fs.rm(target, {force: true});
   }
+
+  // Development/testing only: files are served directly by the static
+  // /uploads route, so there is nothing to sign or expire.
+  async signedUrl(storageKey) {
+    return storageKey ? `${this.publicBaseUrl}/uploads/${storageKey}` : "";
+  }
 }
 
-module.exports = {LocalAssetStore, validSignature, normalizeUploadedFile, processUploadedFile};
+// Private object storage backed by a Cloudflare R2 bucket (S3-compatible
+// API). The bucket must NOT have public access enabled: every read goes
+// through signedUrl(), which mints a short-lived, expiring GetObject URL
+// instead of relying on a permanent public URL.
+class R2AssetStore {
+  constructor(config) {
+    this.bucket = config.r2Bucket;
+    this.signedUrlTtlSeconds = config.r2SignedUrlTtlSeconds || 900;
+    this.client = new S3Client({
+      region: "auto",
+      endpoint: config.r2Endpoint || `https://${config.r2AccountId}.r2.cloudflarestorage.com`,
+      // R2 does not support the S3 SDK's default virtual-hosted-style
+      // addressing (bucket.endpoint/key); Cloudflare's own docs call for
+      // path-style requests (endpoint/bucket/key) instead.
+      forcePathStyle: true,
+      credentials: {accessKeyId: config.r2AccessKeyId, secretAccessKey: config.r2SecretAccessKey},
+    });
+  }
+
+  async save(userId, file) {
+    const normalizedFile = file?.processed ? file : await processUploadedFile(file);
+    const mimeType = normalizedFile?.mimetype;
+    if (!normalizedFile || !normalizedFile.buffer || !mimeType || !extensions[mimeType] || !validSignature(normalizedFile.buffer, mimeType)) {
+      throw new ApiError(400, "INVALID_IMAGE", "Upload a valid JPG, JPEG, PNG, or HEIC image.");
+    }
+    const key = `${userId}/${crypto.randomUUID()}${extensions[mimeType]}`;
+    await this.client.send(new PutObjectCommand({Bucket: this.bucket, Key: key, Body: normalizedFile.buffer, ContentType: mimeType}));
+    return {storageProvider: "r2", storageKey: key, originalFilename: path.basename(normalizedFile.originalname || "image").slice(0, 255), mimeType, byteSize: normalizedFile.size, checksumSha256: crypto.createHash("sha256").update(normalizedFile.buffer).digest("hex")};
+  }
+
+  async remove(storageKey) {
+    if (!storageKey) return;
+    await this.client.send(new DeleteObjectCommand({Bucket: this.bucket, Key: storageKey}));
+  }
+
+  async signedUrl(storageKey) {
+    if (!storageKey) return "";
+    return getSignedUrl(this.client, new GetObjectCommand({Bucket: this.bucket, Key: storageKey}), {expiresIn: this.signedUrlTtlSeconds});
+  }
+}
+
+module.exports = {LocalAssetStore, R2AssetStore, validSignature, normalizeUploadedFile, processUploadedFile};

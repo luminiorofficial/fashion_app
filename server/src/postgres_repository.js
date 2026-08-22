@@ -95,7 +95,7 @@ function profileFromRow(row) {
     styleAttributes: row.style_attributes || [],
     stylingNotes: row.styling_notes,
     profileImageAssetId: row.profile_image_asset_id,
-    profileImageUrl: row.profile_image_url || "",
+    profileImageStorageKey: row.profile_image_storage_key || null,
     latestAnalysisJobId: row.latest_analysis_job_id,
     updatedAt: iso(row.updated_at),
   };
@@ -109,7 +109,7 @@ function wardrobeFromRow(row) {
     name: row.name,
     category: row.category,
     sourceType: row.source_type,
-    imageUrl: row.image_url || "",
+    imageStorageKey: row.image_storage_key || null,
     productUrl: row.product_url,
     mediaAssetId: row.media_asset_id,
     analysisJobId: row.analysis_job_id,
@@ -147,11 +147,11 @@ const wardrobeSelect = `
        FROM wardrobe_item_media media
       WHERE media.wardrobe_item_id = item.id AND media.is_primary
       LIMIT 1) AS media_asset_id,
-    (SELECT asset.public_url
+    (SELECT asset.storage_key
        FROM wardrobe_item_media media
        JOIN media_assets asset ON asset.id = media.media_asset_id
       WHERE media.wardrobe_item_id = item.id AND media.is_primary
-      LIMIT 1) AS image_url,
+      LIMIT 1) AS image_storage_key,
     COALESCE((SELECT array_agg(tag.normalized_name ORDER BY tag.normalized_name)
        FROM wardrobe_item_tags item_tag
        JOIN tags tag ON tag.id = item_tag.tag_id
@@ -289,8 +289,8 @@ class PostgresRepository {
     const result = await this.pool.query(`
       INSERT INTO media_assets
         (owner_user_id, purpose, storage_provider, storage_key, public_url, original_filename, mime_type, byte_size, checksum_sha256, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'ready')
-      RETURNING *`, [asset.userId, asset.purpose, asset.storageProvider, asset.storageKey, asset.publicUrl,
+      VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, 'ready')
+      RETURNING *`, [asset.userId, asset.purpose, asset.storageProvider, asset.storageKey,
       asset.originalFilename, asset.mimeType, asset.byteSize, asset.checksumSha256]);
     return assetFromRow(result.rows[0]);
   }
@@ -336,7 +336,7 @@ class PostgresRepository {
         profile_image_asset_id = EXCLUDED.profile_image_asset_id,
         latest_analysis_job_id = EXCLUDED.latest_analysis_job_id
       RETURNING *)
-      SELECT saved_profile.*, asset.public_url AS profile_image_url
+      SELECT saved_profile.*, asset.storage_key AS profile_image_storage_key
         FROM saved_profile
         LEFT JOIN media_assets asset ON asset.id = saved_profile.profile_image_asset_id`,
     [userId, profile.bodyType, profile.skinTone, profile.skinUndertone, profile.hairColor, profile.facialStructure,
@@ -346,7 +346,7 @@ class PostgresRepository {
 
   async getProfile(userId) {
     const result = await this.pool.query(`
-      SELECT profile.*, asset.public_url AS profile_image_url
+      SELECT profile.*, asset.storage_key AS profile_image_storage_key
         FROM user_style_profiles profile
         LEFT JOIN media_assets asset ON asset.id = profile.profile_image_asset_id
        WHERE profile.user_id = $1`, [userId]);

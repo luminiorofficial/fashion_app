@@ -2,7 +2,7 @@ const {loadConfig} = require("./config");
 const {createApp} = require("./app");
 const {InMemoryRepository} = require("./repository");
 const {PostgresRepository} = require("./postgres_repository");
-const {LocalAssetStore} = require("./storage");
+const {LocalAssetStore, R2AssetStore} = require("./storage");
 const {FashionAnalyzer} = require("./analyzer");
 const {createSmsProvider} = require("./sms");
 
@@ -15,7 +15,12 @@ async function start() {
   } else {
     console.warn("DATABASE_URL is not configured; data will use temporary in-memory storage.");
   }
-  const assetStore = new LocalAssetStore(config);
+  const assetStore = config.imageStorageProvider === "r2" ? new R2AssetStore(config) : new LocalAssetStore(config);
+  if (assetStore instanceof R2AssetStore) {
+    console.info(`Using Cloudflare R2 bucket "${config.r2Bucket}" for private image storage.`);
+  } else {
+    console.warn("R2_BUCKET is not configured; images will be stored on local disk (development only).");
+  }
   const analyzer = new FashionAnalyzer(config);
   const smsProvider = createSmsProvider(config);
   const app = createApp({config, repository, assetStore, analyzer, smsProvider});

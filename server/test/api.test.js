@@ -9,7 +9,35 @@ const {loadConfig} = require("../src/config");
 const {InMemoryRepository} = require("../src/repository");
 const {LocalAssetStore} = require("../src/storage");
 
-async function fixture({smsProvider, analyzer} = {}) {
+// A private object store double: unlike LocalAssetStore it never returns a
+// stored/static URL. signedUrl() mints a fresh, distinguishable URL on every
+// call, so tests can prove the API resolves image URLs on demand rather than
+// persisting one, and remove()/save() are tracked so deletion flows can be
+// asserted against.
+class FakePrivateAssetStore {
+  constructor() {
+    this.objects = new Map();
+    this.removed = [];
+    this.signCalls = [];
+  }
+  async save(userId, file) {
+    const storageKey = `${userId}/${this.objects.size}-${file.originalname || "image"}`;
+    this.objects.set(storageKey, file.buffer);
+    return {storageProvider: "fake-private", storageKey, originalFilename: file.originalname, mimeType: file.mimetype, byteSize: file.buffer.length, checksumSha256: "deadbeef"};
+  }
+  async remove(storageKey) {
+    if (!storageKey) return;
+    this.objects.delete(storageKey);
+    this.removed.push(storageKey);
+  }
+  async signedUrl(storageKey) {
+    if (!storageKey) return "";
+    this.signCalls.push(storageKey);
+    return `https://signed.example/${storageKey}?expires=${this.signCalls.length}`;
+  }
+}
+
+async function fixture({smsProvider, analyzer, assetStore} = {}) {
   const uploadDir = await fs.mkdtemp(path.join(__dirname, ".tmp-"));
   const config = loadConfig({env: "test", uploadDir, publicBaseUrl: "http://test", otpHashSecret: "a-secure-test-secret-that-is-long-enough"});
   const repository = new InMemoryRepository();
@@ -18,7 +46,7 @@ async function fixture({smsProvider, analyzer} = {}) {
     analyzeProfile: async () => ({body_shape: "Rectangle", skin_tone: "Medium", skin_undertone: "warm", hair_color: "brown", facial_structure: "oval", style_attributes: ["balanced"], styling_notes: "Structured layers work well."}),
     suggestOutfit: async ({wardrobe}) => ({wardrobe_item_ids: wardrobe.slice(0, 2).map((item) => item.id), rationale: "A polished, balanced look selected from your wardrobe."}),
   };
-  const app = createApp({config, repository, assetStore: new LocalAssetStore(config), analyzer: {...defaultAnalyzer, ...analyzer}, smsProvider: smsProvider || {name: "test_console", exposeOtp: true, sendOtp: async () => ({messageId: null})}});
+  const app = createApp({config, repository, assetStore: assetStore || new LocalAssetStore(config), analyzer: {...defaultAnalyzer, ...analyzer}, smsProvider: smsProvider || {name: "test_console", exposeOtp: true, sendOtp: async () => ({messageId: null})}});
   return {app, repository, uploadDir};
 }
 
@@ -256,5 +284,85 @@ test("does not let one user generate an outfit from another user's wardrobe", as
   await addWardrobeItem(app, firstToken, {name: "Tailored Trouser", category: "Bottom"});
   const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${secondToken}`).send({eventType: "Daily"}).expect(400);
   assert.equal(response.body.error.code, "WARDROBE_TOO_SMALL");
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("resolves wardrobe images through the asset store's signed URL instead of a stored public URL", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  const {app, uploadDir} = await fixture({assetStore});
+  const token = await register(app);
+
+  const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "blazer.jpg", contentType: "image/jpeg"}).expect(201);
+  assert.match(analyzed.body.draft.imageUrl, /^https:\/\/signed\.example\//);
+  const signCallsAfterAnalyze = assetStore.signCalls.length;
+  assert.ok(signCallsAfterAnalyze > 0);
+
+  const draft = analyzed.body.draft;
+  const saved = await request(app).post("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: draft.name, category: draft.category, tags: draft.tags}).expect(201);
+  assert.match(saved.body.item.imageUrl, /^https:\/\/signed\.example\//);
+
+  // Listing the wardrobe again mints a fresh signed URL rather than replaying
+  // a value that was persisted at save time.
+  const list = await request(app).get("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).expect(200);
+  assert.match(list.body.items[0].imageUrl, /^https:\/\/signed\.example\//);
+  assert.ok(assetStore.signCalls.length > signCallsAfterAnalyze);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("resolves the profile image through the asset store's signed URL", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  const {app, uploadDir} = await fixture({assetStore});
+  const token = await register(app);
+
+  const analyzed = await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+  assert.match(analyzed.body.profile.profileImageUrl, /^https:\/\/signed\.example\//);
+
+  const fetched = await request(app).get("/api/v1/profile").set("authorization", `Bearer ${token}`).expect(200);
+  assert.match(fetched.body.profile.profileImageUrl, /^https:\/\/signed\.example\//);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("removes the underlying object from the asset store when a wardrobe item is deleted", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  const {app, uploadDir} = await fixture({assetStore});
+  const token = await register(app);
+
+  const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "blazer.jpg", contentType: "image/jpeg"}).expect(201);
+  const draft = analyzed.body.draft;
+  const saved = await request(app).post("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: draft.name, category: draft.category, tags: draft.tags}).expect(201);
+  assert.equal(assetStore.objects.size, 1);
+  const [storageKey] = assetStore.objects.keys();
+
+  await request(app).delete(`/api/v1/wardrobe/items/${saved.body.item.id}`).set("authorization", `Bearer ${token}`).expect(204);
+
+  assert.deepEqual(assetStore.removed, [storageKey]);
+  assert.equal(assetStore.objects.size, 0);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("deleting a product-link wardrobe item (no image) does not touch the asset store", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  const {app, uploadDir} = await fixture({assetStore});
+  const token = await register(app);
+  const item = await addWardrobeItem(app, token, {name: "Leather Tote", category: "Accessory"});
+
+  await request(app).delete(`/api/v1/wardrobe/items/${item.id}`).set("authorization", `Bearer ${token}`).expect(204);
+
+  assert.deepEqual(assetStore.removed, []);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("removes the underlying object from the asset store when a wardrobe draft is discarded", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  const {app, uploadDir} = await fixture({assetStore});
+  const token = await register(app);
+
+  const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "shoes.jpg", contentType: "image/jpeg"}).expect(201);
+  assert.equal(assetStore.objects.size, 1);
+
+  await request(app).delete(`/api/v1/wardrobe/drafts/${analyzed.body.draft.assetId}`).set("authorization", `Bearer ${token}`).expect(204);
+
+  assert.equal(assetStore.objects.size, 0);
+  assert.equal(assetStore.removed.length, 1);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
