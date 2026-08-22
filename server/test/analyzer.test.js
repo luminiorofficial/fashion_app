@@ -180,6 +180,61 @@ test("shows a friendly message instead of a raw 503/UNAVAILABLE once every model
   }
 });
 
+test("falls back to a static wardrobe item without calling Gemini when no API key is configured", async () => {
+  const analyzer = new FashionAnalyzer({geminiApiKey: "", ...FAST_RETRY});
+  const result = await analyzer.analyzeWardrobe({mimetype: "image/jpeg", buffer: Buffer.from("abc")});
+  assert.equal(result.category, "Accessory");
+  assert.deepEqual(result.season, []);
+  assert.deepEqual(result.occasion, []);
+  assert.deepEqual(result.style, []);
+  assert.equal(result.color, null);
+});
+
+test("suggestOutfit sends a text-only prompt (no image) naming only the user's wardrobe item ids", async () => {
+  const analyzer = new FashionAnalyzer({geminiApiKey: "test-key", geminiModel: "gemini-3.6-flash", ...FAST_RETRY});
+  const originalFetch = global.fetch;
+  let requestBody;
+  global.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      async json() {
+        return {candidates: [{content: {parts: [{text: JSON.stringify({wardrobe_item_ids: ["item-1"], rationale: "A polished work-appropriate look."})}]}}]};
+      },
+    };
+  };
+
+  try {
+    const wardrobe = [
+      {id: "item-1", name: "Silk Blouse", category: "Top", primaryColor: "White", tags: ["silk"]},
+      {id: "item-2", name: "Tailored Trouser", category: "Bottom"},
+    ];
+    const result = await analyzer.suggestOutfit({eventType: "Work Meeting", profile: {bodyType: "Rectangle", skinTone: "Medium"}, wardrobe});
+    assert.deepEqual(result.wardrobe_item_ids, ["item-1"]);
+    assert.equal(result.rationale, "A polished work-appropriate look.");
+
+    assert.equal(requestBody.contents[0].parts.length, 1);
+    assert.ok(!("inlineData" in requestBody.contents[0].parts[0]));
+    assert.match(requestBody.contents[0].parts[0].text, /Work Meeting/);
+    assert.match(requestBody.contents[0].parts[0].text, /item-1/);
+    assert.match(requestBody.contents[0].parts[0].text, /item-2/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("suggestOutfit falls back to a deterministic pick from the wardrobe when no API key is configured", async () => {
+  const analyzer = new FashionAnalyzer({geminiApiKey: "", ...FAST_RETRY});
+  const wardrobe = [
+    {id: "top-1", name: "Silk Blouse", category: "Top"},
+    {id: "bottom-1", name: "Tailored Trouser", category: "Bottom"},
+    {id: "shoes-1", name: "Loafers", category: "Shoes"},
+  ];
+  const result = await analyzer.suggestOutfit({eventType: "Daily", profile: {}, wardrobe});
+  assert.deepEqual(new Set(result.wardrobe_item_ids), new Set(["top-1", "bottom-1", "shoes-1"]));
+  assert.match(result.rationale, /daily/i);
+});
+
 test("rejects profile analysis when the image is not a full-length photo", async () => {
   const analyzer = new FashionAnalyzer({geminiApiKey: "test-key", geminiModel: "gemini-3.6-flash"});
   const originalFetch = global.fetch;

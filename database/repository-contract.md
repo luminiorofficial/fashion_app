@@ -34,6 +34,11 @@ implement every method exported in `repositoryMethods` from
   asset and completed analysis job.
 - `archiveAsset` and `deleteWardrobeItem` are soft deletes. Analysis and audit
   history remains referentially valid.
+- `createOutfit` must insert one `outfits` row (status `completed`, `completed_at`
+  set) and one `outfit_items` row per selected wardrobe item id, in one
+  transaction, with `position` set to each item's order in the array. The
+  composite `outfit_item_wardrobe_owner_fk` re-validates that every wardrobe
+  item id belongs to the same user at the database layer.
 
 Images remain outside PostgreSQL. The adapter stores only metadata and storage
 keys in `media_assets`; `LocalAssetStore` can later be replaced by S3, R2, or an

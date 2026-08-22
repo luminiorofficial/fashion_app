@@ -9,6 +9,7 @@ const repositoryMethods = Object.freeze([
   "createAsset", "getAsset", "archiveAsset",
   "createAnalysisJob", "getAnalysisJob", "saveProfile", "getProfile",
   "listWardrobe", "createWardrobeItem", "getWardrobeItem", "deleteWardrobeItem",
+  "createOutfit",
 ]);
 
 function assertRepositoryContract(repository) {

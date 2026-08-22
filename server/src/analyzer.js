@@ -9,6 +9,19 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 // message instead of the raw provider error once every model is exhausted.
 const UNAVAILABLE_STATUSES = new Set([500, 502, 503, 504]);
 
+const eventGuidance = {
+  Daily: "Everyday casual comfort suitable for running errands or a relaxed day.",
+  "Work Meeting": "Polished, professional, and conservative for a business setting.",
+  Brunch: "Relaxed but put-together daytime social wear.",
+  Wedding: "Elevated, formal attire appropriate for a wedding guest.",
+};
+
+function summarizeProfile(profile) {
+  if (!profile?.bodyType && !profile?.skinTone) return null;
+  const {bodyType, skinTone, skinUndertone, hairColor, facialStructure, styleAttributes, stylingNotes} = profile;
+  return {bodyType, skinTone, skinUndertone, hairColor, facialStructure, styleAttributes, stylingNotes};
+}
+
 class FashionAnalyzer {
   constructor(config) {
     this.config = config;
@@ -17,12 +30,22 @@ class FashionAnalyzer {
   }
 
   async analyzeWardrobe(file) {
-    if (!this.config.geminiApiKey) return {item_name: "Wardrobe item", category: "Accessory", tags: ["pending-ai-review"]};
+    if (!this.config.geminiApiKey) return {item_name: "Wardrobe item", category: "Accessory", tags: ["pending-ai-review"], color: null, material: null, pattern: null, season: [], occasion: [], style: []};
     return this.call([
-      "Analyze this single fashion item. Return an accurate concise catalog name, one allowed category, and up to six styling tags.",
+      "Analyze this single fashion item. Return an accurate concise catalog name, one allowed category, up to six styling tags, and structured attributes.",
       `Allowed categories: ${categories.join(", ")}.`,
+      "color is the single dominant color as a common color name (e.g. 'Black', 'Navy Blue'), or null if unclear.",
+      "material is the primary fabric or material if visually identifiable (e.g. 'Cotton', 'Leather', 'Denim'), or null if unclear.",
+      "pattern is the visible pattern (e.g. 'Solid', 'Striped', 'Floral', 'Plaid'), or null if unclear.",
+      "season lists every season this item suits, chosen from: Spring, Summer, Autumn, Winter.",
+      "occasion lists suitable occasions, chosen from: Casual, Work, Formal, Party, Wedding, Athletic.",
+      "style lists up to four style descriptors, e.g. 'Minimalist', 'Bohemian', 'Classic', 'Streetwear'.",
     ].join("\n"), file, {
-      type: "object", properties: {item_name: {type: "string"}, category: {type: "string", enum: categories}, tags: {type: "array", items: {type: "string"}, maxItems: 6}}, required: ["item_name", "category", "tags"], additionalProperties: false,
+      type: "object", properties: {
+        item_name: {type: "string"}, category: {type: "string", enum: categories}, tags: {type: "array", items: {type: "string"}, maxItems: 6},
+        color: {type: ["string", "null"]}, material: {type: ["string", "null"]}, pattern: {type: ["string", "null"]},
+        season: {type: "array", items: {type: "string"}, maxItems: 4}, occasion: {type: "array", items: {type: "string"}, maxItems: 6}, style: {type: "array", items: {type: "string"}, maxItems: 4},
+      }, required: ["item_name", "category", "tags", "color", "material", "pattern", "season", "occasion", "style"], additionalProperties: false,
     });
   }
 
@@ -68,6 +91,60 @@ class FashionAnalyzer {
     });
   }
 
+  // Picks a complete outfit using only the wardrobe items the user already
+  // owns. Text-only Gemini call (no image), so it shares call()/callModel()
+  // with the image-analysis methods to reuse the same retry/fallback and
+  // friendly-error behavior.
+  async suggestOutfit({eventType, profile, wardrobe}) {
+    if (!this.config.geminiApiKey) return this.fallbackOutfit(eventType, wardrobe);
+
+    const catalog = wardrobe.map((item) => ({
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      color: item.primaryColor || undefined,
+      material: item.material || undefined,
+      pattern: item.pattern || undefined,
+      season: item.season?.length ? item.season : undefined,
+      occasion: item.occasion?.length ? item.occasion : undefined,
+      tags: item.tags?.length ? item.tags : undefined,
+    }));
+    const profileSummary = summarizeProfile(profile);
+
+    const prompt = [
+      `Choose a complete outfit for the event "${eventType}" using ONLY the wardrobe items listed below.`,
+      eventGuidance[eventType] ? `Event guidance: ${eventGuidance[eventType]}` : "",
+      "Never invent an item or id that is not in the wardrobe list. Prefer 2 to 5 complementary items that form a coherent outfit for the event.",
+      profileSummary ? `User's style profile: ${JSON.stringify(profileSummary)}` : "No style profile is available yet; style conservatively.",
+      `Wardrobe items (JSON array): ${JSON.stringify(catalog)}`,
+      "Return wardrobe_item_ids as the chosen items' ids (each must exactly match an id from the wardrobe list) and a short rationale (2-3 sentences) explaining the choice for this event and profile.",
+    ].filter(Boolean).join("\n");
+
+    return this.call(prompt, null, {
+      type: "object",
+      properties: {
+        wardrobe_item_ids: {type: "array", items: {type: "string"}, minItems: 1, maxItems: 6},
+        rationale: {type: "string"},
+      },
+      required: ["wardrobe_item_ids", "rationale"], additionalProperties: false,
+    });
+  }
+
+  // Deterministic outfit pick used when GEMINI_API_KEY is unset, mirroring
+  // the plain fallbacks used by the other analyze* methods above.
+  fallbackOutfit(eventType, wardrobe) {
+    const byCategory = (category) => wardrobe.find((item) => item.category === category);
+    const dress = byCategory("Dress");
+    const picks = dress
+      ? [dress, byCategory("Shoes"), byCategory("Outerwear")]
+      : [byCategory("Top"), byCategory("Bottom"), byCategory("Shoes"), byCategory("Outerwear")];
+    const ids = picks.filter(Boolean).map((item) => item.id);
+    return {
+      wardrobe_item_ids: ids.length ? ids : wardrobe.slice(0, 2).map((item) => item.id),
+      rationale: `A simple ${eventType.toLowerCase()} look put together from your wardrobe. Configure GEMINI_API_KEY to enable AI-personalized styling.`,
+    };
+  }
+
   async call(prompt, file, schema) {
     const models = [this.config.geminiModel, "gemini-3.6-flash"].filter((model, index, all) => model && all.indexOf(model) === index);
     let lastError;
@@ -106,9 +183,10 @@ class FashionAnalyzer {
   // Makes a single request attempt. Network/timeout failures are reported
   // the same way as HTTP error responses so callModel can retry both alike.
   async attemptModel(endpoint, prompt, file, schema) {
+    const parts = file ? [{text: prompt}, {inlineData: {mimeType: file.mimetype, data: file.buffer.toString("base64")}}] : [{text: prompt}];
     let response;
     try {
-      response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", "x-goog-api-key": this.config.geminiApiKey}, body: JSON.stringify({contents: [{parts: [{text: prompt}, {inlineData: {mimeType: file.mimetype, data: file.buffer.toString("base64")}}]}], generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema}}), signal: AbortSignal.timeout(45_000)});
+      response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", "x-goog-api-key": this.config.geminiApiKey}, body: JSON.stringify({contents: [{parts}], generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema}}), signal: AbortSignal.timeout(45_000)});
     } catch (_) {
       return {ok: false, error: new ApiError(504, "ANALYSIS_TIMEOUT", "The analysis service timed out. Please retry.")};
     }

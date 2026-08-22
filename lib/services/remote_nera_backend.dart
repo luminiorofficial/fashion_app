@@ -205,10 +205,11 @@ class RemoteNeraBackend implements NeraBackend {
     String eventType,
     List<WardrobeItem> wardrobe,
     StyleProfile profile,
-  ) {
-    throw const NeraException(
-      'Outfit generation will be connected in the next implementation phase.',
-    );
+  ) async {
+    final response = await _api.post('/outfits/generate', {
+      'eventType': eventType,
+    });
+    return OutfitPlan.fromJson(response['outfit'] as Map<String, dynamic>);
   }
 
   @override

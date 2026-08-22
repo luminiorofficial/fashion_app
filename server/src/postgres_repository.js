@@ -114,9 +114,30 @@ function wardrobeFromRow(row) {
     mediaAssetId: row.media_asset_id,
     analysisJobId: row.analysis_job_id,
     tags: row.tags || [],
+    primaryColor: row.primary_color,
+    secondaryColors: row.secondary_colors || [],
+    material: row.material,
+    pattern: row.pattern,
+    season: row.season || [],
+    occasion: row.occasion || [],
+    styleTags: row.attributes?.style || [],
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     deletedAt: iso(row.deleted_at),
+  };
+}
+
+function outfitFromRow(row, wardrobeItemIds) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    eventType: row.event_type,
+    status: row.status,
+    rationale: row.rationale,
+    wardrobeItemIds,
+    createdAt: iso(row.created_at),
+    completedAt: iso(row.completed_at),
   };
 }
 
@@ -354,9 +375,12 @@ class PostgresRepository {
       const productDomain = item.productUrl ? new URL(item.productUrl).hostname : null;
       const inserted = await client.query(`
         INSERT INTO wardrobe_items
-          (user_id, category_id, source_type, name, product_url, product_domain, analysis_job_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id`, [userId, category.rows[0].id, item.sourceType, item.name, item.productUrl, productDomain, item.analysisJobId || null]);
+          (user_id, category_id, source_type, name, product_url, product_domain, analysis_job_id,
+           primary_color, secondary_colors, material, pattern, season, occasion, attributes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        RETURNING id`, [userId, category.rows[0].id, item.sourceType, item.name, item.productUrl, productDomain, item.analysisJobId || null,
+        item.primaryColor || null, item.secondaryColors || [], item.material || null, item.pattern || null,
+        item.season || [], item.occasion || [], JSON.stringify(item.styleTags?.length ? {style: item.styleTags} : {})]);
       const itemId = inserted.rows[0].id;
 
       if (item.mediaAssetId) {
@@ -379,6 +403,24 @@ class PostgresRepository {
 
   async deleteWardrobeItem(itemId) {
     await this.pool.query("UPDATE wardrobe_items SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL", [itemId]);
+  }
+
+  async createOutfit(userId, {eventType, rationale, wardrobeItemIds, analysisContext}) {
+    return this.transaction(async (client) => {
+      const inserted = await client.query(`
+        INSERT INTO outfits (user_id, event_type, status, rationale, analysis_context, completed_at)
+        VALUES ($1, $2, 'completed', $3, $4, now())
+        RETURNING *`, [userId, eventType, rationale, JSON.stringify(analysisContext || {})]);
+      const outfit = inserted.rows[0];
+      let position = 0;
+      for (const wardrobeItemId of wardrobeItemIds) {
+        await client.query(`
+          INSERT INTO outfit_items (user_id, outfit_id, wardrobe_item_id, position)
+          VALUES ($1, $2, $3, $4)`, [userId, outfit.id, wardrobeItemId, position]);
+        position += 1;
+      }
+      return outfitFromRow(outfit, wardrobeItemIds);
+    });
   }
 }
 

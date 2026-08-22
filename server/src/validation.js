@@ -37,4 +37,12 @@ function productUrl(value) {
   return clean;
 }
 
-module.exports = {text, phone, birthDate, productUrl, wardrobeCategory, wardrobeCategories};
+const outfitEventTypes = ["Daily", "Work Meeting", "Brunch", "Wedding"];
+
+function outfitEventType(value) {
+  const clean = text(value, "eventType", {max: 40});
+  assert(outfitEventTypes.includes(clean), 400, "INVALID_EVENT_TYPE", `eventType must be one of: ${outfitEventTypes.join(", ")}.`);
+  return clean;
+}
+
+module.exports = {text, phone, birthDate, productUrl, wardrobeCategory, wardrobeCategories, outfitEventType, outfitEventTypes};

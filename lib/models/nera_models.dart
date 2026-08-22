@@ -181,6 +181,21 @@ class OutfitPlan {
   final String rationale;
   final SuggestedPurchase? suggestedPurchaseItem;
   final DateTime? createdAt;
+
+  factory OutfitPlan.fromJson(Map<String, dynamic> json) => OutfitPlan(
+    id: json['id'] as String,
+    eventType: json['eventType'] as String? ?? '',
+    wardrobeItemIds: List<String>.from(
+      json['wardrobeItemIds'] as List? ?? const [],
+    ),
+    rationale: json['rationale'] as String? ?? '',
+    suggestedPurchaseItem: json['suggestedPurchaseItem'] != null
+        ? SuggestedPurchase.fromMap(
+            json['suggestedPurchaseItem'] as Map<String, dynamic>,
+          )
+        : null,
+    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
+  );
 }
 
 class PickedImageData {

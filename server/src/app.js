@@ -1,7 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const {ApiError, assert} = require("./errors");
-const {phone, birthDate, text, productUrl, wardrobeCategory} = require("./validation");
+const {phone, birthDate, text, productUrl, wardrobeCategory, outfitEventType} = require("./validation");
 const {createId, createOtp, createToken, hashOtp, safeEqual, sha256} = require("./security");
 const {assertRepositoryContract} = require("./repository");
 const {normalizeUploadedFile, processUploadedFile} = require("./storage");
@@ -119,7 +119,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "wardrobe_item", ...stored});
     const result = await analyzer.analyzeWardrobe(file);
     const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "wardrobe_item", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
-    response.status(201).json({draft: {assetId: asset.id, imageUrl: asset.publicUrl, name: result.item_name, category: result.category, tags: result.tags, analysisJobId: job.id}});
+    response.status(201).json({draft: {assetId: asset.id, imageUrl: asset.publicUrl, name: result.item_name, category: result.category, tags: result.tags, color: result.color ?? null, material: result.material ?? null, pattern: result.pattern ?? null, season: result.season || [], occasion: result.occasion || [], style: result.style || [], analysisJobId: job.id}});
   });
   route.delete("/wardrobe/drafts/:assetId", authenticate, async (request, response) => {
     const asset = await repository.getAsset(request.params.assetId);
@@ -139,7 +139,18 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     assert(analysisJob && analysisJob.userId === request.auth.user.id && analysisJob.mediaAssetId === asset.id && analysisJob.analysisType === "wardrobe_item", 404, "ANALYSIS_NOT_FOUND", "The wardrobe analysis was not found.");
     const inUse = (await repository.listWardrobe(request.auth.user.id)).some((item) => item.mediaAssetId === asset.id);
     assert(!inUse, 409, "ASSET_IN_USE", "The image already belongs to a wardrobe item.");
-    const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "upload", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags), mediaAssetId: asset.id, analysisJobId: analysisJob.id, imageUrl: asset.publicUrl, productUrl: null});
+    const metadata = analysisJob.result || {};
+    const styleTags = cleanStringArray(metadata.style);
+    const item = await repository.createWardrobeItem(request.auth.user.id, {
+      sourceType: "upload", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags),
+      mediaAssetId: asset.id, analysisJobId: analysisJob.id, imageUrl: asset.publicUrl, productUrl: null,
+      primaryColor: typeof metadata.color === "string" ? metadata.color.trim().slice(0, 100) || null : null,
+      material: typeof metadata.material === "string" ? metadata.material.trim().slice(0, 160) || null : null,
+      pattern: typeof metadata.pattern === "string" ? metadata.pattern.trim().slice(0, 120) || null : null,
+      season: cleanStringArray(metadata.season, 4),
+      occasion: cleanStringArray(metadata.occasion, 6),
+      styleTags,
+    });
     response.status(201).json({item: publicWardrobeItem(item)});
   });
   route.post("/wardrobe/links", authenticate, async (request, response) => {
@@ -151,6 +162,19 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     assert(item && item.userId === request.auth.user.id && !item.deletedAt, 404, "WARDROBE_ITEM_NOT_FOUND", "The wardrobe item was not found.");
     await repository.deleteWardrobeItem(item.id);
     response.sendStatus(204);
+  });
+
+  route.post("/outfits/generate", authenticate, async (request, response) => {
+    const eventType = outfitEventType(request.body?.eventType);
+    const wardrobe = await repository.listWardrobe(request.auth.user.id);
+    assert(wardrobe.length >= 2, 400, "WARDROBE_TOO_SMALL", "Add at least 2 wardrobe items before generating an outfit.");
+    const profile = await repository.getProfile(request.auth.user.id);
+    const suggestion = await analyzer.suggestOutfit({eventType, profile, wardrobe});
+    const wardrobeIds = new Set(wardrobe.map((item) => item.id));
+    const wardrobeItemIds = [...new Set(suggestion.wardrobe_item_ids || [])].filter((id) => wardrobeIds.has(id));
+    assert(wardrobeItemIds.length > 0, 502, "INVALID_OUTFIT_SELECTION", "The styling AI did not return a valid outfit from your wardrobe.");
+    const outfit = await repository.createOutfit(request.auth.user.id, {eventType, rationale: suggestion.rationale, wardrobeItemIds, analysisContext: {wardrobeItemCount: wardrobe.length}});
+    response.status(201).json({outfit: publicOutfit(outfit)});
   });
 
   app.use("/api/v1", route);
@@ -165,7 +189,9 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
 }
 
 const publicUser = (user) => ({id: user.id, name: user.name, dateOfBirth: user.dateOfBirth, phoneNumber: user.phoneNumber, phoneVerifiedAt: user.phoneVerifiedAt});
-const publicWardrobeItem = (item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: item.imageUrl || "", productUrl: item.productUrl, tags: item.tags, createdAt: item.createdAt});
+const publicWardrobeItem = (item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: item.imageUrl || "", productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], createdAt: item.createdAt});
+const publicOutfit = (outfit) => ({id: outfit.id, eventType: outfit.eventType, wardrobeItemIds: outfit.wardrobeItemIds, rationale: outfit.rationale, createdAt: outfit.createdAt});
 const cleanTags = (value) => Array.isArray(value) ? [...new Set(value.filter((tag) => typeof tag === "string").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 12) : [];
+const cleanStringArray = (value, max = 6) => Array.isArray(value) ? [...new Set(value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean))].slice(0, max) : [];
 
 module.exports = {createApp};
