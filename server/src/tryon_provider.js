@@ -5,6 +5,26 @@ const {ApiError} = require("./errors");
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const UNAVAILABLE_STATUSES = new Set([500, 502, 503, 504]);
 
+// The REST API expects protobuf enum names here, while the environment
+// variables intentionally use the shorter, human-readable values.
+const IMAGE_ASPECT_RATIO_ENUMS = {
+  "1:1": "ASPECT_RATIO_ONE_BY_ONE",
+  "2:3": "ASPECT_RATIO_TWO_BY_THREE",
+  "3:2": "ASPECT_RATIO_THREE_BY_TWO",
+  "3:4": "ASPECT_RATIO_THREE_BY_FOUR",
+  "4:3": "ASPECT_RATIO_FOUR_BY_THREE",
+  "4:5": "ASPECT_RATIO_FOUR_BY_FIVE",
+  "9:16": "ASPECT_RATIO_NINE_BY_SIXTEEN",
+  "16:9": "ASPECT_RATIO_SIXTEEN_BY_NINE",
+};
+
+const IMAGE_SIZE_ENUMS = {
+  "512": "IMAGE_SIZE_FIVE_TWELVE",
+  "1K": "IMAGE_SIZE_ONE_K",
+  "2K": "IMAGE_SIZE_TWO_K",
+  "4K": "IMAGE_SIZE_FOUR_K",
+};
+
 // Generates a photorealistic composite of a real person wearing selected
 // wardrobe garments, using a multi-image-input, image-output Gemini model.
 // This is a separate model family (and separate retry/fallback chain) from
@@ -77,7 +97,10 @@ class GeminiVirtualTryOnProvider {
           generationConfig: {
             responseModalities: ["TEXT", "IMAGE"],
             responseFormat: {
-              image: {aspectRatio: this.config.geminiImageAspectRatio, imageSize: this.config.geminiImageSize},
+              image: {
+                aspectRatio: IMAGE_ASPECT_RATIO_ENUMS[this.config.geminiImageAspectRatio],
+                imageSize: IMAGE_SIZE_ENUMS[this.config.geminiImageSize],
+              },
             },
           },
         }),

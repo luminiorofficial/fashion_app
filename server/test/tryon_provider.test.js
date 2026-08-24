@@ -27,13 +27,56 @@ test("requests IMAGE output and sends the profile photo followed by each garment
     assert.ok(!result.developmentFallback);
 
     assert.deepEqual(requestBody.generationConfig.responseModalities, ["TEXT", "IMAGE"]);
-    assert.deepEqual(requestBody.generationConfig.responseFormat.image, {aspectRatio: "3:4", imageSize: "1K"});
+    assert.deepEqual(requestBody.generationConfig.responseFormat.image, {
+      aspectRatio: "ASPECT_RATIO_THREE_BY_FOUR",
+      imageSize: "IMAGE_SIZE_ONE_K",
+    });
     assert.equal("imageConfig" in requestBody.generationConfig, false);
     const parts = requestBody.contents[0].parts;
     assert.equal(parts.length, 3);
     assert.match(parts[0].text, /Styling notes: Top: Silk Blouse/);
     assert.equal(parts[1].inlineData.data, profileFile.buffer.toString("base64"));
     assert.equal(parts[2].inlineData.data, garmentFiles[0].buffer.toString("base64"));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("converts every friendly image format value to its REST enum", async () => {
+  const aspectRatios = {
+    "1:1": "ASPECT_RATIO_ONE_BY_ONE",
+    "2:3": "ASPECT_RATIO_TWO_BY_THREE",
+    "3:2": "ASPECT_RATIO_THREE_BY_TWO",
+    "3:4": "ASPECT_RATIO_THREE_BY_FOUR",
+    "4:3": "ASPECT_RATIO_FOUR_BY_THREE",
+    "4:5": "ASPECT_RATIO_FOUR_BY_FIVE",
+    "9:16": "ASPECT_RATIO_NINE_BY_SIXTEEN",
+    "16:9": "ASPECT_RATIO_SIXTEEN_BY_NINE",
+  };
+  const imageSizes = {
+    "512": "IMAGE_SIZE_FIVE_TWELVE",
+    "1K": "IMAGE_SIZE_ONE_K",
+    "2K": "IMAGE_SIZE_TWO_K",
+    "4K": "IMAGE_SIZE_FOUR_K",
+  };
+  const originalFetch = global.fetch;
+  let requestImageFormat;
+  global.fetch = async (_url, options) => {
+    requestImageFormat = JSON.parse(options.body).generationConfig.responseFormat.image;
+    return {ok: true, async json() { return {candidates: [{content: {parts: [{inlineData: {mimeType: "image/png", data: "aGk="}}]}}]}; }};
+  };
+
+  try {
+    for (const [friendly, restEnum] of Object.entries(aspectRatios)) {
+      const provider = new GeminiVirtualTryOnProvider({geminiApiKey: "test-key", geminiImageModel: "gemini-3-pro-image", geminiImageSize: "1K", geminiImageAspectRatio: friendly, ...FAST_RETRY});
+      await provider.generate({profileFile, garmentFiles});
+      assert.equal(requestImageFormat.aspectRatio, restEnum);
+    }
+    for (const [friendly, restEnum] of Object.entries(imageSizes)) {
+      const provider = new GeminiVirtualTryOnProvider({geminiApiKey: "test-key", geminiImageModel: "gemini-3-pro-image", geminiImageSize: friendly, geminiImageAspectRatio: "3:4", ...FAST_RETRY});
+      await provider.generate({profileFile, garmentFiles});
+      assert.equal(requestImageFormat.imageSize, restEnum);
+    }
   } finally {
     global.fetch = originalFetch;
   }
