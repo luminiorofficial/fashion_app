@@ -10,6 +10,7 @@ class RemoteNeraBackend implements NeraBackend {
     : _api = api ?? NeraApiClient(),
       _storage = secureStorage ?? const FlutterSecureStorage();
 
+  static const tryOnRequestTimeout = Duration(seconds: 180);
   static const _tokenKey = 'nera_access_token';
   final NeraApiClient _api;
   final FlutterSecureStorage _storage;
@@ -251,10 +252,11 @@ class RemoteNeraBackend implements NeraBackend {
     required List<String> wardrobeItemIds,
     String? outfitId,
   }) async {
-    final response = await _api.post('/tryon/generate', {
-      'wardrobeItemIds': wardrobeItemIds,
-      'outfitId': ?outfitId,
-    });
+    final response = await _api.post(
+      '/tryon/generate',
+      {'wardrobeItemIds': wardrobeItemIds, 'outfitId': ?outfitId},
+      timeout: tryOnRequestTimeout,
+    );
     final result = TryOnResult.fromJson(
       response['tryOn'] as Map<String, dynamic>,
     );

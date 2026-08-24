@@ -187,14 +187,16 @@ class CloudinaryAssetStore {
     await this.client.uploader.destroy(storageKey, {type: "authenticated", resource_type: "image", invalidate: true});
   }
 
-  // Every stored asset is re-encoded to JPEG by processUploadedFile() before
-  // it reaches save(), so the delivery format is always "jpg".
+  // New public IDs are extensionless and need an explicit JPEG delivery
+  // format. Legacy public IDs may already include their source extension;
+  // passing format for those would make Cloudinary append a second one.
   async signedUrl(storageKey) {
     if (!storageKey) return "";
+    const hasImageExtension = /\.(?:jpe?g|png|webp)$/i.test(storageKey);
     return this.client.url(storageKey, {
       type: "authenticated",
       resource_type: "image",
-      format: "jpg",
+      ...(!hasImageExtension ? {format: "jpg"} : {}),
       secure: true,
       sign_url: true,
       ...(this.authTokenKey ? {auth_token: {key: this.authTokenKey, duration: this.signedUrlTtlSeconds}} : {}),

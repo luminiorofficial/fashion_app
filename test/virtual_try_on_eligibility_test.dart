@@ -32,6 +32,7 @@ const _photoTop = WardrobeItem(
   category: 'Top',
   imageUrl: 'https://images.example/photo-top.jpg',
   imagePath: '',
+  imageStorageProvider: 'cloudinary',
 );
 
 const _linkBottom = WardrobeItem(
@@ -45,7 +46,7 @@ const _linkBottom = WardrobeItem(
 );
 
 void main() {
-  test('only uploaded wardrobe items with valid URLs are try-on eligible', () {
+  test('only Cloudinary wardrobe photos with valid URLs are eligible', () {
     expect(_photoTop.canUseVirtualTryOn, isTrue);
     expect(_linkBottom.canUseVirtualTryOn, isFalse);
     expect(
@@ -55,6 +56,17 @@ void main() {
         category: 'Top',
         imageUrl: 'not-a-url',
         imagePath: '',
+      ).canUseVirtualTryOn,
+      isFalse,
+    );
+    expect(
+      const WardrobeItem(
+        id: 'legacy-r2',
+        name: 'Legacy R2 Top',
+        category: 'Top',
+        imageUrl: 'https://images.example/legacy-top.jpg',
+        imagePath: '',
+        imageStorageProvider: 'r2',
       ).canUseVirtualTryOn,
       isFalse,
     );
@@ -112,7 +124,7 @@ void main() {
 
     expect(backend.requests, isEmpty);
     expect(
-      find.text('Upload a photo for Link Bottom to use Virtual Try-On.'),
+      find.text('Re-upload photo for Link Bottom to use Virtual Try-On.'),
       findsWidgets,
     );
   });
@@ -127,6 +139,7 @@ void main() {
       category: 'Top',
       imageUrl: 'https://images.example/replacement-top.jpg',
       imagePath: '',
+      imageStorageProvider: 'cloudinary',
     );
     const linkTop = WardrobeItem(
       id: 'link-top',

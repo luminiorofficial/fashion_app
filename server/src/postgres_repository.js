@@ -96,6 +96,7 @@ function profileFromRow(row) {
     stylingNotes: row.styling_notes,
     profileImageAssetId: row.profile_image_asset_id,
     profileImageStorageKey: row.profile_image_storage_key || null,
+    profileImageStorageProvider: row.profile_image_storage_provider || null,
     latestAnalysisJobId: row.latest_analysis_job_id,
     updatedAt: iso(row.updated_at),
   };
@@ -110,6 +111,7 @@ function wardrobeFromRow(row) {
     category: row.category,
     sourceType: row.source_type,
     imageStorageKey: row.image_storage_key || null,
+    imageStorageProvider: row.image_storage_provider || null,
     productUrl: row.product_url,
     mediaAssetId: row.media_asset_id,
     analysisJobId: row.analysis_job_id,
@@ -174,6 +176,11 @@ const wardrobeSelect = `
        JOIN media_assets asset ON asset.id = media.media_asset_id
       WHERE media.wardrobe_item_id = item.id AND media.is_primary
       LIMIT 1) AS image_storage_key,
+    (SELECT asset.storage_provider
+       FROM wardrobe_item_media media
+       JOIN media_assets asset ON asset.id = media.media_asset_id
+      WHERE media.wardrobe_item_id = item.id AND media.is_primary
+      LIMIT 1) AS image_storage_provider,
     COALESCE((SELECT array_agg(tag.normalized_name ORDER BY tag.normalized_name)
        FROM wardrobe_item_tags item_tag
        JOIN tags tag ON tag.id = item_tag.tag_id
@@ -358,7 +365,8 @@ class PostgresRepository {
         profile_image_asset_id = EXCLUDED.profile_image_asset_id,
         latest_analysis_job_id = EXCLUDED.latest_analysis_job_id
       RETURNING *)
-      SELECT saved_profile.*, asset.storage_key AS profile_image_storage_key
+      SELECT saved_profile.*, asset.storage_key AS profile_image_storage_key,
+        asset.storage_provider AS profile_image_storage_provider
         FROM saved_profile
         LEFT JOIN media_assets asset ON asset.id = saved_profile.profile_image_asset_id`,
     [userId, profile.bodyType, profile.skinTone, profile.skinUndertone, profile.hairColor, profile.facialStructure,
@@ -368,7 +376,8 @@ class PostgresRepository {
 
   async getProfile(userId) {
     const result = await this.pool.query(`
-      SELECT profile.*, asset.storage_key AS profile_image_storage_key
+      SELECT profile.*, asset.storage_key AS profile_image_storage_key,
+        asset.storage_provider AS profile_image_storage_provider
         FROM user_style_profiles profile
         LEFT JOIN media_assets asset ON asset.id = profile.profile_image_asset_id
        WHERE profile.user_id = $1`, [userId]);

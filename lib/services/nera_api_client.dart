@@ -8,7 +8,10 @@ import 'package:http_parser/http_parser.dart';
 import 'nera_backend.dart';
 
 class NeraApiClient {
-  NeraApiClient({http.Client? client}) : _client = client ?? http.Client();
+  NeraApiClient({
+    http.Client? client,
+    this.requestTimeout = const Duration(seconds: 30),
+  }) : _client = client ?? http.Client();
 
   /// Set at build time via `--dart-define=NERA_API_BASE_URL=...`. There is
   /// no production default — release builds must configure this.
@@ -44,11 +47,15 @@ class NeraApiClient {
   }
 
   final http.Client _client;
+  final Duration requestTimeout;
   String? accessToken;
 
   Future<Map<String, dynamic>> get(String path) => _send('GET', path);
-  Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) =>
-      _send('POST', path, body: body);
+  Future<Map<String, dynamic>> post(
+    String path,
+    Map<String, dynamic> body, {
+    Duration? timeout,
+  }) => _send('POST', path, body: body, timeout: timeout);
 
   Future<void> delete(String path) async {
     await _send('DELETE', path);
@@ -126,6 +133,7 @@ class NeraApiClient {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    Duration? timeout,
   }) async {
     final headers = <String, String>{
       'content-type': 'application/json',
@@ -136,7 +144,7 @@ class NeraApiClient {
         ..headers.addAll(headers);
       if (body != null) request.body = jsonEncode(body);
       final response = await http.Response.fromStream(
-        await _client.send(request).timeout(const Duration(seconds: 30)),
+        await _client.send(request).timeout(timeout ?? requestTimeout),
       );
       if (response.statusCode == 204) return const {};
       return _decode(response.statusCode, response.body);

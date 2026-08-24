@@ -27,7 +27,8 @@ test("requests IMAGE output and sends the profile photo followed by each garment
     assert.ok(!result.developmentFallback);
 
     assert.deepEqual(requestBody.generationConfig.responseModalities, ["TEXT", "IMAGE"]);
-    assert.equal(requestBody.generationConfig.imageConfig.aspectRatio, "3:4");
+    assert.deepEqual(requestBody.generationConfig.responseFormat.image, {aspectRatio: "3:4", imageSize: "1K"});
+    assert.equal("imageConfig" in requestBody.generationConfig, false);
     const parts = requestBody.contents[0].parts;
     assert.equal(parts.length, 3);
     assert.match(parts[0].text, /Styling notes: Top: Silk Blouse/);

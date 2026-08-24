@@ -29,6 +29,7 @@ function loadConfig(overrides = {}) {
     geminiImageFallbackModel: process.env.GEMINI_IMAGE_FALLBACK_MODEL || "gemini-3.1-flash-image",
     geminiImageSize: process.env.GEMINI_IMAGE_SIZE || "1K",
     geminiImageAspectRatio: process.env.GEMINI_IMAGE_ASPECT_RATIO || "3:4",
+    geminiImageTimeoutMs: Number(process.env.GEMINI_IMAGE_TIMEOUT_MS || 120_000),
     databaseUrl: process.env.DATABASE_URL || "",
     databasePoolMax: Number(process.env.DATABASE_POOL_MAX || 10),
     databaseSsl: process.env.DATABASE_SSL === "true",

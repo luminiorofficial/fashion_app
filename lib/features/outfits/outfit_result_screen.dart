@@ -81,7 +81,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
       final item = _itemsMissingImages.first;
       setState(
         () => _tryOnError =
-            'Upload a photo for ${item.name} to use Virtual Try-On.',
+            'Re-upload photo for ${item.name} to use Virtual Try-On.',
       );
       return;
     }
@@ -220,8 +220,8 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
                   Expanded(
                     child: Text(
                       _tryOnItems.isEmpty
-                          ? 'Upload a photo for ${_itemsMissingImages.first.name} to use Virtual Try-On.'
-                          : '${_itemsMissingImages.map((item) => item.name).join(', ')} will be excluded from Virtual Try-On until you upload ${_itemsMissingImages.length == 1 ? 'a photo' : 'photos'}.',
+                          ? 'Re-upload photo for ${_itemsMissingImages.first.name} to use Virtual Try-On.'
+                          : '${_itemsMissingImages.map((item) => item.name).join(', ')} will be excluded from Virtual Try-On. Re-upload ${_itemsMissingImages.length == 1 ? 'its photo' : 'their photos'}.',
                     ),
                   ),
                 ],

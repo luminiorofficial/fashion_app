@@ -38,9 +38,10 @@ class GeminiVirtualTryOnProvider {
 
   async callModel(model, profileFile, garmentFiles, notes) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    this.logDevelopment(`Gemini model=${model}`);
 
     for (let attempt = 0; ; attempt += 1) {
-      const outcome = await this.attemptModel(endpoint, profileFile, garmentFiles, notes);
+      const outcome = await this.attemptModel(endpoint, model, profileFile, garmentFiles, notes);
       if (outcome.ok) return outcome.result;
 
       if (RETRYABLE_STATUSES.has(outcome.error.status) && attempt < this.maxRetries) {
@@ -51,7 +52,7 @@ class GeminiVirtualTryOnProvider {
     }
   }
 
-  async attemptModel(endpoint, profileFile, garmentFiles, notes) {
+  async attemptModel(endpoint, model, profileFile, garmentFiles, notes) {
     const instruction = [
       "You are a virtual try-on compositor. The first image is a real person (the subject). Every image after it is a single garment or accessory from their wardrobe.",
       "Generate one photorealistic image of the SAME person wearing all of the given garments together as a single coherent outfit.",
@@ -75,19 +76,24 @@ class GeminiVirtualTryOnProvider {
           contents: [{parts}],
           generationConfig: {
             responseModalities: ["TEXT", "IMAGE"],
-            imageConfig: {aspectRatio: this.config.geminiImageAspectRatio, imageSize: this.config.geminiImageSize},
+            responseFormat: {
+              image: {aspectRatio: this.config.geminiImageAspectRatio, imageSize: this.config.geminiImageSize},
+            },
           },
         }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(this.config.geminiImageTimeoutMs ?? 120_000),
       });
-    } catch (_) {
+    } catch (error) {
+      this.logDevelopment(`Gemini request error: model=${model} error=${error.name || "UNKNOWN"}`);
       return {ok: false, error: new ApiError(504, "TRYON_TIMEOUT", "The try-on service timed out. Please retry.")};
     }
 
     if (!response.ok) {
       const parsed = await this.parseError(response);
+      this.logDevelopment(`Gemini HTTP error: model=${model} status=${response.status} code=${parsed.code} error=${JSON.stringify(parsed.message)}`);
       return {ok: false, error: new ApiError(parsed.status, parsed.code, parsed.message, parsed.details)};
     }
+    this.logDevelopment(`Gemini HTTP status: model=${model} status=${response.status}`);
 
     const payload = await response.json();
     const responseParts = payload.candidates?.[0]?.content?.parts || [];
@@ -108,6 +114,10 @@ class GeminiVirtualTryOnProvider {
 
   wait(ms) {
     return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+  }
+
+  logDevelopment(message) {
+    if (this.config.env === "development") console.info(`[NERA try-on] ${message}`);
   }
 
   friendlyError(error) {

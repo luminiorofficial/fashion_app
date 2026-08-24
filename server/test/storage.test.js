@@ -39,7 +39,8 @@ function fakeCloudinaryClient() {
     },
     url(publicId, options) {
       calls.urls.push({publicId, options});
-      return `https://res.cloudinary.com/test-cloud/image/authenticated/s--fakesig--/${publicId}.${options.format}`;
+      const format = options.format ? `.${options.format}` : "";
+      return `https://res.cloudinary.com/test-cloud/image/authenticated/s--fakesig--/${publicId}${format}`;
     },
   };
 }
@@ -146,6 +147,28 @@ test("CloudinaryAssetStore.signedUrl mints a private, authenticated delivery URL
 
   assert.equal(await store.signedUrl(""), "");
   assert.equal(await store.signedUrl(null), "");
+});
+
+test("CloudinaryAssetStore.signedUrl handles extensionless and extension-bearing public IDs", async () => {
+  const client = fakeCloudinaryClient();
+  const store = new CloudinaryAssetStore(cloudinaryConfig(), client);
+
+  assert.equal(
+    await store.signedUrl("abc/uuid"),
+    "https://res.cloudinary.com/test-cloud/image/authenticated/s--fakesig--/abc/uuid.jpg",
+  );
+  assert.equal(
+    await store.signedUrl("abc/uuid.jpg"),
+    "https://res.cloudinary.com/test-cloud/image/authenticated/s--fakesig--/abc/uuid.jpg",
+  );
+  assert.equal(
+    await store.signedUrl("abc/uuid.png"),
+    "https://res.cloudinary.com/test-cloud/image/authenticated/s--fakesig--/abc/uuid.png",
+  );
+
+  assert.equal(client.calls.urls[0].options.format, "jpg");
+  assert.equal("format" in client.calls.urls[1].options, false);
+  assert.equal("format" in client.calls.urls[2].options, false);
 });
 
 test("CloudinaryAssetStore.signedUrl includes an expiring auth token when CLOUDINARY_AUTH_TOKEN_KEY is configured", async () => {

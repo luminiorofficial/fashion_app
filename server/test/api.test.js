@@ -16,7 +16,8 @@ const {ApiError} = require("../src/errors");
 // persisting one, and remove()/save() are tracked so deletion flows can be
 // asserted against.
 class FakePrivateAssetStore {
-  constructor() {
+  constructor(storageProvider = "cloudinary") {
+    this.storageProvider = storageProvider;
     this.objects = new Map();
     this.removed = [];
     this.signCalls = [];
@@ -24,7 +25,7 @@ class FakePrivateAssetStore {
   async save(userId, file) {
     const storageKey = `${userId}/${this.objects.size}-${file.originalname || "image"}`;
     this.objects.set(storageKey, file.buffer);
-    return {storageProvider: "fake-private", storageKey, originalFilename: file.originalname, mimeType: file.mimetype, byteSize: file.buffer.length, checksumSha256: "deadbeef"};
+    return {storageProvider: this.storageProvider, storageKey, originalFilename: file.originalname, mimeType: file.mimetype, byteSize: file.buffer.length, checksumSha256: "deadbeef"};
   }
   async remove(storageKey) {
     if (!storageKey) return;
@@ -386,6 +387,7 @@ test("resolves wardrobe images through the asset store's signed URL instead of a
   const draft = analyzed.body.draft;
   const saved = await request(app).post("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: draft.name, category: draft.category, tags: draft.tags}).expect(201);
   assert.match(saved.body.item.imageUrl, /^https:\/\/signed\.example\//);
+  assert.equal(saved.body.item.imageStorageProvider, "cloudinary");
 
   // Listing the wardrobe again mints a fresh signed URL rather than replaying
   // a value that was persisted at save time.
@@ -572,7 +574,7 @@ test("raises the personalized match score for an item with positive feedback his
 });
 
 test("generates a virtual try-on image from wardrobe items and the analyzed profile photo", async () => {
-  const {app, uploadDir} = await fixture();
+  const {app, uploadDir} = await fixture({assetStore: new FakePrivateAssetStore()});
   const token = await register(app);
   const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
   await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
@@ -590,7 +592,7 @@ test("generates a virtual try-on image from wardrobe items and the analyzed prof
 });
 
 test("requires an analyzed profile photo before generating a try-on", async () => {
-  const {app, uploadDir} = await fixture();
+  const {app, uploadDir} = await fixture({assetStore: new FakePrivateAssetStore()});
   const token = await register(app);
   const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
 
@@ -600,21 +602,21 @@ test("requires an analyzed profile photo before generating a try-on", async () =
 });
 
 test("rejects a try-on for a wardrobe item that has no photo", async () => {
-  const {app, uploadDir} = await fixture();
+  const {app, uploadDir} = await fixture({assetStore: new FakePrivateAssetStore()});
   const token = await register(app);
   const link = await addWardrobeItem(app, token, {name: "Leather Tote", category: "Accessory"});
   await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
 
   const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [link.id]}).expect(400);
   assert.equal(response.body.error.code, "WARDROBE_ITEM_HAS_NO_IMAGE");
-  assert.match(response.body.error.message, /must have a photo/i);
+  assert.match(response.body.error.message, /Re-upload photo for Leather Tote/);
   assert.doesNotMatch(response.body.error.message, /server could not complete/i);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
 test("does not call the try-on provider when any selected item has no photo", async () => {
   let providerCalls = 0;
-  const {app, uploadDir} = await fixture({tryonProvider: {
+  const {app, uploadDir} = await fixture({assetStore: new FakePrivateAssetStore(), tryonProvider: {
     generate: async () => {
       providerCalls += 1;
       return {buffer: jpeg, mimeType: "image/jpeg", developmentFallback: false};
@@ -632,10 +634,9 @@ test("does not call the try-on provider when any selected item has no photo", as
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
-test("does not call Gemini when a selected uploaded item has no valid image URL", async () => {
+test("rejects an old non-Cloudinary wardrobe asset before calling Gemini", async () => {
   let providerCalls = 0;
-  const assetStore = new FakePrivateAssetStore();
-  assetStore.signedUrl = async () => "not-a-valid-url";
+  const assetStore = new FakePrivateAssetStore("r2");
   const {app, uploadDir} = await fixture({
     assetStore,
     tryonProvider: {
@@ -651,7 +652,76 @@ test("does not call Gemini when a selected uploaded item has no valid image URL"
 
   const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id]}).expect(400);
 
-  assert.equal(response.body.error.code, "WARDROBE_ITEM_HAS_NO_IMAGE");
+  assert.equal(response.body.error.code, "WARDROBE_ASSET_UNAVAILABLE");
+  assert.match(response.body.error.message, new RegExp(top.id));
+  assert.match(response.body.error.message, /Silk Blouse/);
+  assert.equal(providerCalls, 0);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("returns the wardrobe item name and id when its Cloudinary object is missing", async () => {
+  let providerCalls = 0;
+  const assetStore = new FakePrivateAssetStore();
+  const {app, repository, uploadDir} = await fixture({
+    assetStore,
+    tryonProvider: {generate: async () => { providerCalls += 1; return {buffer: jpeg, mimeType: "image/jpeg"}; }},
+  });
+  const token = await register(app);
+  const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+  const user = await repository.findUserByPhone("+919876543210");
+  const [storedTop] = await repository.listWardrobe(user.id);
+  assetStore.objects.delete(storedTop.imageStorageKey);
+
+  const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id]}).expect(422);
+
+  assert.equal(response.body.error.code, "WARDROBE_ASSET_FETCH_FAILED");
+  assert.match(response.body.error.message, new RegExp(top.id));
+  assert.match(response.body.error.message, /Silk Blouse/);
+  assert.equal(providerCalls, 0);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("rejects a missing Cloudinary profile object before calling Gemini", async () => {
+  let providerCalls = 0;
+  const assetStore = new FakePrivateAssetStore();
+  const {app, repository, uploadDir} = await fixture({
+    assetStore,
+    tryonProvider: {generate: async () => { providerCalls += 1; return {buffer: jpeg, mimeType: "image/jpeg"}; }},
+  });
+  const token = await register(app);
+  const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+  const user = await repository.findUserByPhone("+919876543210");
+  const profile = await repository.getProfile(user.id);
+  assetStore.objects.delete(profile.profileImageStorageKey);
+
+  const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id]}).expect(422);
+
+  assert.equal(response.body.error.code, "PROFILE_ASSET_FETCH_FAILED");
+  assert.match(response.body.error.message, /full-body profile photo/i);
+  assert.equal(providerCalls, 0);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("rejects an old non-Cloudinary profile asset before calling Gemini", async () => {
+  let providerCalls = 0;
+  const assetStore = new FakePrivateAssetStore();
+  const {app, repository, uploadDir} = await fixture({
+    assetStore,
+    tryonProvider: {generate: async () => { providerCalls += 1; return {buffer: jpeg, mimeType: "image/jpeg"}; }},
+  });
+  const token = await register(app);
+  const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+  const user = await repository.findUserByPhone("+919876543210");
+  const profile = await repository.getProfile(user.id);
+  profile.profileImageStorageProvider = "local";
+
+  const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id]}).expect(400);
+
+  assert.equal(response.body.error.code, "PROFILE_ASSET_UNAVAILABLE");
+  assert.match(response.body.error.message, /Re-upload your full-body profile photo/);
   assert.equal(providerCalls, 0);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });

@@ -116,6 +116,45 @@ void main() {
     );
   });
 
+  test(
+    'try-on uses an extended timeout longer than the normal API timeout',
+    () async {
+      expect(
+        RemoteNeraBackend.tryOnRequestTimeout,
+        greaterThan(const Duration(seconds: 30)),
+      );
+      final mockClient = MockClient((request) async {
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        return http.Response(
+          jsonEncode({
+            'tryOn': {
+              'id': 'tryon-slow',
+              'wardrobeItemIds': ['item-1'],
+              'imageUrl': 'https://example.test/generated.jpg',
+              'status': 'completed',
+              'isSaved': false,
+              'developmentFallback': false,
+            },
+          }),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final backend = RemoteNeraBackend(
+        api: NeraApiClient(
+          client: mockClient,
+          requestTimeout: const Duration(milliseconds: 10),
+        ),
+      );
+
+      final result = await backend.generateTryOn(
+        wardrobeItemIds: const ['item-1'],
+      );
+
+      expect(result.id, 'tryon-slow');
+    },
+  );
+
   test('API errors retain the backend code and friendly message', () async {
     final mockClient = MockClient(
       (request) async => http.Response(

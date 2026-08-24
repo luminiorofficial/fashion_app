@@ -113,7 +113,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
       const result = await analyzer.analyzeProfile(file);
       const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "style_profile", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
       const previousProfile = await repository.getProfile(request.auth.user.id);
-      const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageAssetId: asset.id, profileImageStorageKey: asset.storageKey, latestAnalysisJobId: job.id});
+      const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageAssetId: asset.id, profileImageStorageKey: asset.storageKey, profileImageStorageProvider: asset.storageProvider, latestAnalysisJobId: job.id});
       if (previousProfile?.profileImageAssetId && previousProfile.profileImageAssetId !== asset.id) {
         await cleanupOrphanedAsset(assetStore, repository, previousProfile.profileImageStorageKey, {id: previousProfile.profileImageAssetId});
       }
@@ -165,7 +165,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     const styleTags = cleanStringArray(metadata.style);
     const item = await repository.createWardrobeItem(request.auth.user.id, {
       sourceType: "upload", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags),
-      mediaAssetId: asset.id, analysisJobId: analysisJob.id, imageStorageKey: asset.storageKey, productUrl: null,
+      mediaAssetId: asset.id, analysisJobId: analysisJob.id, imageStorageKey: asset.storageKey, imageStorageProvider: asset.storageProvider, productUrl: null,
       primaryColor: typeof metadata.color === "string" ? metadata.color.trim().slice(0, 100) || null : null,
       material: typeof metadata.material === "string" ? metadata.material.trim().slice(0, 160) || null : null,
       pattern: typeof metadata.pattern === "string" ? metadata.pattern.trim().slice(0, 120) || null : null,
@@ -227,6 +227,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
 
   route.post("/tryon/generate", authenticate, async (request, response) => {
     const wardrobeItemIds = wardrobeItemIdList(request.body?.wardrobeItemIds);
+    logDevelopment(config, `try-on selected wardrobe IDs: ${wardrobeItemIds.join(", ")}`);
     const outfitId = request.body?.outfitId ? text(request.body.outfitId, "outfitId", {max: 100}) : null;
     if (outfitId) {
       const outfit = await repository.getOutfit(outfitId);
@@ -236,19 +237,28 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     const wardrobeById = new Map(wardrobe.map((item) => [item.id, item]));
     const garmentItems = wardrobeItemIds.map((itemId) => wardrobeById.get(itemId));
     assert(garmentItems.every(Boolean), 404, "WARDROBE_ITEM_NOT_FOUND", "One or more wardrobe items were not found.");
-    assert(garmentItems.every((item) => item.mediaAssetId && item.imageStorageKey), 400, "WARDROBE_ITEM_HAS_NO_IMAGE", "Every item in a try-on look must have a photo. Product-link items without a photo can't be tried on yet.");
-
-    // Resolve every selected garment URL before any provider work. This is a
-    // final guard against stale/broken asset metadata and guarantees Gemini
-    // is only called for a selection whose uploaded images are all usable.
-    const garmentImageUrls = await Promise.all(garmentItems.map((item) => assetStore.signedUrl(item.imageStorageKey)));
-    assert(garmentImageUrls.every(isValidImageUrl), 400, "WARDROBE_ITEM_HAS_NO_IMAGE", "Every item in a try-on look must have a valid uploaded photo. Product-link items without a photo can't be tried on yet.");
+    for (const item of garmentItems) {
+      logDevelopment(config, `try-on wardrobe asset: id=${item.id} provider=${item.imageStorageProvider || "missing"}`);
+      assert(item.mediaAssetId && item.imageStorageKey, 400, "WARDROBE_ITEM_HAS_NO_IMAGE", `Re-upload photo for ${item.name} (${item.id}) to use Virtual Try-On.`);
+      assert(item.imageStorageProvider === "cloudinary", 400, "WARDROBE_ASSET_UNAVAILABLE", `Re-upload photo for ${item.name} (${item.id}); its image is not available in Cloudinary.`);
+    }
 
     const profile = await repository.getProfile(request.auth.user.id);
     assert(profile?.profileImageAssetId && profile.profileImageStorageKey, 400, "PROFILE_PHOTO_REQUIRED", "Analyze your style profile with a full-body photo before using virtual try-on.");
+    logDevelopment(config, `try-on profile asset: id=${profile.profileImageAssetId} provider=${profile.profileImageStorageProvider || "missing"}`);
+    assert(profile.profileImageStorageProvider === "cloudinary", 400, "PROFILE_ASSET_UNAVAILABLE", "Re-upload your full-body profile photo; it is not available in Cloudinary.");
 
-    const profileFile = await assetStore.readBytes(profile.profileImageStorageKey);
-    const garmentFiles = await Promise.all(garmentItems.map((item) => assetStore.readBytes(item.imageStorageKey)));
+    const profileFile = await readTryOnAsset({config, assetStore, storageKey: profile.profileImageStorageKey, description: `profile id=${profile.profileImageAssetId}`, error: new ApiError(422, "PROFILE_ASSET_FETCH_FAILED", "Re-upload your full-body profile photo; the stored Cloudinary image could not be retrieved.")});
+    const garmentFiles = [];
+    for (const item of garmentItems) {
+      garmentFiles.push(await readTryOnAsset({
+        config,
+        assetStore,
+        storageKey: item.imageStorageKey,
+        description: `wardrobe id=${item.id} name=${JSON.stringify(item.name)}`,
+        error: new ApiError(422, "WARDROBE_ASSET_FETCH_FAILED", `Re-upload photo for ${item.name} (${item.id}); the stored Cloudinary image could not be retrieved.`),
+      }));
+    }
     for (const file of [profileFile, ...garmentFiles]) {
       assert(file.buffer.length <= MAX_FETCHED_ASSET_BYTES, 502, "ASSET_TOO_LARGE", "A stored image is too large to process.");
     }
@@ -314,8 +324,23 @@ const cleanupOrphanedAsset = async (assetStore, repository, storageKey, asset) =
 };
 
 const publicUser = (user) => ({id: user.id, name: user.name, dateOfBirth: user.dateOfBirth, phoneNumber: user.phoneNumber, phoneVerifiedAt: user.phoneVerifiedAt});
-const publicWardrobeItem = async (assetStore, item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: await assetStore.signedUrl(item.imageStorageKey), productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], createdAt: item.createdAt});
+const publicWardrobeItem = async (assetStore, item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: await assetStore.signedUrl(item.imageStorageKey), imageStorageProvider: item.imageStorageProvider || null, productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], createdAt: item.createdAt});
 const publicProfile = async (assetStore, profile) => ({...profile, profileImageUrl: await assetStore.signedUrl(profile.profileImageStorageKey)});
+
+const logDevelopment = (config, message) => {
+  if (config.env === "development") console.info(`[NERA try-on] ${message}`);
+};
+
+const readTryOnAsset = async ({config, assetStore, storageKey, description, error}) => {
+  try {
+    const file = await assetStore.readBytes(storageKey);
+    logDevelopment(config, `asset fetch success: ${description}`);
+    return file;
+  } catch (cause) {
+    logDevelopment(config, `asset fetch failure: ${description} code=${cause.code || cause.name || "UNKNOWN"}`);
+    throw error;
+  }
+};
 const publicOutfit = (outfit) => ({id: outfit.id, eventType: outfit.eventType, wardrobeItemIds: outfit.wardrobeItemIds, rationale: outfit.rationale, suggestedPurchaseItem: outfit.suggestedPurchaseItem || null, createdAt: outfit.createdAt});
 const publicFeedback = (feedback) => ({outfitId: feedback.outfitId, reaction: feedback.reaction || null, wornAt: feedback.wornAt || null, updatedAt: feedback.updatedAt});
 const publicTryOn = async (assetStore, tryOn, resultStorageKey, developmentFallback) => ({id: tryOn.id, outfitId: tryOn.outfitId || null, wardrobeItemIds: tryOn.wardrobeItemIds, imageUrl: await assetStore.signedUrl(resultStorageKey), status: tryOn.status, isSaved: tryOn.isSaved, developmentFallback: !!developmentFallback, createdAt: tryOn.createdAt});
@@ -345,15 +370,6 @@ const computeMatchScore = (wardrobeItemIds, affinity) => {
 };
 const cleanTags = (value) => Array.isArray(value) ? [...new Set(value.filter((tag) => typeof tag === "string").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 12) : [];
 const cleanStringArray = (value, max = 6) => Array.isArray(value) ? [...new Set(value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean))].slice(0, max) : [];
-const isValidImageUrl = (value) => {
-  if (typeof value !== "string" || !value.trim()) return false;
-  try {
-    const url = new URL(value);
-    return (url.protocol === "http:" || url.protocol === "https:") && !!url.hostname;
-  } catch (_) {
-    return false;
-  }
-};
 // The suggested purchase comes from the styling AI, not a trusted product
 // catalog: keep only a plain name/type pair (never a URL) so nothing it
 // hallucinates can be surfaced as a clickable link to the client.

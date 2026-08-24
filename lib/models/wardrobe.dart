@@ -16,6 +16,7 @@ class WardrobeItem {
     required this.imagePath,
     this.productUrl,
     this.sourceType = 'upload',
+    this.imageStorageProvider,
     this.tags = const [],
     this.createdAt,
   });
@@ -26,16 +27,19 @@ class WardrobeItem {
   final String imagePath;
   final String? productUrl;
   final String sourceType;
+  final String? imageStorageProvider;
   final List<String> tags;
   final DateTime? createdAt;
 
   bool get hasPhoto => imageUrl.isNotEmpty || imagePath.isNotEmpty;
 
-  /// Virtual try-on is a server feature, so a local placeholder/path is not
-  /// enough: the item must be an uploaded wardrobe item with a real URL that
-  /// the API issued for its stored image.
+  /// Production try-on can only fetch assets that the database identifies as
+  /// Cloudinary objects. A syntactically valid URL is not proof that a legacy
+  /// local/R2 object still exists in the active store.
   bool get canUseVirtualTryOn {
-    if (sourceType != 'upload') return false;
+    if (sourceType != 'upload' || imageStorageProvider != 'cloudinary') {
+      return false;
+    }
     final uri = Uri.tryParse(imageUrl.trim());
     return uri != null &&
         (uri.scheme == 'http' || uri.scheme == 'https') &&
@@ -50,6 +54,7 @@ class WardrobeItem {
     imagePath: '',
     productUrl: json['productUrl'] as String?,
     sourceType: json['sourceType'] as String? ?? 'upload',
+    imageStorageProvider: json['imageStorageProvider'] as String?,
     tags: List<String>.from(json['tags'] as List? ?? const []),
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
   );
