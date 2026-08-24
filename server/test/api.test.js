@@ -607,5 +607,51 @@ test("rejects a try-on for a wardrobe item that has no photo", async () => {
 
   const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [link.id]}).expect(400);
   assert.equal(response.body.error.code, "WARDROBE_ITEM_HAS_NO_IMAGE");
+  assert.match(response.body.error.message, /must have a photo/i);
+  assert.doesNotMatch(response.body.error.message, /server could not complete/i);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("does not call the try-on provider when any selected item has no photo", async () => {
+  let providerCalls = 0;
+  const {app, uploadDir} = await fixture({tryonProvider: {
+    generate: async () => {
+      providerCalls += 1;
+      return {buffer: jpeg, mimeType: "image/jpeg", developmentFallback: false};
+    },
+  }});
+  const token = await register(app);
+  const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
+  const link = await addWardrobeItem(app, token, {name: "Leather Tote", category: "Accessory"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+
+  const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id, link.id]}).expect(400);
+
+  assert.equal(response.body.error.code, "WARDROBE_ITEM_HAS_NO_IMAGE");
+  assert.equal(providerCalls, 0);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("does not call Gemini when a selected uploaded item has no valid image URL", async () => {
+  let providerCalls = 0;
+  const assetStore = new FakePrivateAssetStore();
+  assetStore.signedUrl = async () => "not-a-valid-url";
+  const {app, uploadDir} = await fixture({
+    assetStore,
+    tryonProvider: {
+      generate: async () => {
+        providerCalls += 1;
+        return {buffer: jpeg, mimeType: "image/jpeg", developmentFallback: false};
+      },
+    },
+  });
+  const token = await register(app);
+  const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+
+  const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id]}).expect(400);
+
+  assert.equal(response.body.error.code, "WARDROBE_ITEM_HAS_NO_IMAGE");
+  assert.equal(providerCalls, 0);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });

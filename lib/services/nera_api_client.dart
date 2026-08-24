@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'nera_backend.dart';
@@ -158,10 +158,20 @@ class NeraApiClient {
     }
     if (statusCode < 200 || statusCode >= 300) {
       final error = json['error'];
+      final errorCode = error is Map ? error['code'] as String? : null;
+      final errorMessage = error is Map
+          ? error['message'] as String? ?? 'Request failed ($statusCode).'
+          : 'Request failed ($statusCode).';
+      if (kDebugMode) {
+        debugPrint(
+          'NERA API error: status=$statusCode '
+          'code=${errorCode ?? 'UNKNOWN'} message=$errorMessage',
+        );
+      }
       throw NeraException(
-        error is Map
-            ? error['message'] as String? ?? 'Request failed ($statusCode).'
-            : 'Request failed ($statusCode).',
+        errorMessage,
+        code: errorCode,
+        statusCode: statusCode,
       );
     }
     return json;

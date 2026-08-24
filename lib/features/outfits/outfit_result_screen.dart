@@ -35,6 +35,12 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
       .where((item) => widget.outfit.wardrobeItemIds.contains(item.id))
       .toList();
 
+  List<WardrobeItem> get _tryOnItems =>
+      _items.where((item) => item.canUseVirtualTryOn).toList();
+
+  List<WardrobeItem> get _itemsMissingImages =>
+      _items.where((item) => !item.canUseVirtualTryOn).toList();
+
   Future<void> _react(OutfitReaction reaction) async {
     setState(() => _savingReaction = reaction);
     try {
@@ -63,10 +69,19 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
   }
 
   Future<void> _tryOn() async {
-    if (widget.outfit.wardrobeItemIds.isEmpty) {
+    if (_items.isEmpty) {
       setState(
         () => _tryOnError =
             'This look has no wardrobe items to try on. Generate another look.',
+      );
+      return;
+    }
+    final tryOnItems = _tryOnItems;
+    if (tryOnItems.isEmpty) {
+      final item = _itemsMissingImages.first;
+      setState(
+        () => _tryOnError =
+            'Upload a photo for ${item.name} to use Virtual Try-On.',
       );
       return;
     }
@@ -76,7 +91,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
     });
     try {
       final result = await widget.backend.generateTryOn(
-        wardrobeItemIds: widget.outfit.wardrobeItemIds,
+        wardrobeItemIds: tryOnItems.map((item) => item.id).toList(),
         outfitId: widget.outfit.id,
       );
       _validateTryOn(result);
@@ -192,6 +207,28 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
             ),
           ),
           const SizedBox(height: NeraSpacing.xxl),
+          if (_itemsMissingImages.isNotEmpty) ...[
+            NeraCard(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    color: NeraColors.gold,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _tryOnItems.isEmpty
+                          ? 'Upload a photo for ${_itemsMissingImages.first.name} to use Virtual Try-On.'
+                          : '${_itemsMissingImages.map((item) => item.name).join(', ')} will be excluded from Virtual Try-On until you upload ${_itemsMissingImages.length == 1 ? 'a photo' : 'photos'}.',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: NeraSpacing.md),
+          ],
           NeraButton(
             label: 'Try On Me',
             icon: Icons.person_rounded,

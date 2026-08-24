@@ -115,4 +115,34 @@ void main() {
       ),
     );
   });
+
+  test('API errors retain the backend code and friendly message', () async {
+    final mockClient = MockClient(
+      (request) async => http.Response(
+        jsonEncode({
+          'error': {
+            'code': 'WARDROBE_ITEM_HAS_NO_IMAGE',
+            'message':
+                'Every item in a try-on look must have a photo. Product-link items without a photo can\'t be tried on yet.',
+          },
+        }),
+        400,
+        headers: {'content-type': 'application/json'},
+      ),
+    );
+    final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+
+    await expectLater(
+      backend.generateTryOn(wardrobeItemIds: const ['link-item']),
+      throwsA(
+        isA<NeraException>()
+            .having((error) => error.code, 'code', 'WARDROBE_ITEM_HAS_NO_IMAGE')
+            .having(
+              (error) => error.message,
+              'message',
+              isNot(contains('server could not complete request')),
+            ),
+      ),
+    );
+  });
 }

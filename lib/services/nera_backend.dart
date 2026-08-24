@@ -50,8 +50,10 @@ abstract interface class NeraBackend {
 }
 
 class NeraException implements Exception {
-  const NeraException(this.message);
+  const NeraException(this.message, {this.code, this.statusCode});
   final String message;
+  final String? code;
+  final int? statusCode;
   @override
   String toString() => message;
 }

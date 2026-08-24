@@ -31,6 +31,17 @@ class WardrobeItem {
 
   bool get hasPhoto => imageUrl.isNotEmpty || imagePath.isNotEmpty;
 
+  /// Virtual try-on is a server feature, so a local placeholder/path is not
+  /// enough: the item must be an uploaded wardrobe item with a real URL that
+  /// the API issued for its stored image.
+  bool get canUseVirtualTryOn {
+    if (sourceType != 'upload') return false;
+    final uri = Uri.tryParse(imageUrl.trim());
+    return uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+  }
+
   factory WardrobeItem.fromJson(Map<String, dynamic> json) => WardrobeItem(
     id: json['id'] as String,
     name: json['name'] as String? ?? 'Wardrobe item',

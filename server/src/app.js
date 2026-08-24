@@ -238,6 +238,12 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     assert(garmentItems.every(Boolean), 404, "WARDROBE_ITEM_NOT_FOUND", "One or more wardrobe items were not found.");
     assert(garmentItems.every((item) => item.mediaAssetId && item.imageStorageKey), 400, "WARDROBE_ITEM_HAS_NO_IMAGE", "Every item in a try-on look must have a photo. Product-link items without a photo can't be tried on yet.");
 
+    // Resolve every selected garment URL before any provider work. This is a
+    // final guard against stale/broken asset metadata and guarantees Gemini
+    // is only called for a selection whose uploaded images are all usable.
+    const garmentImageUrls = await Promise.all(garmentItems.map((item) => assetStore.signedUrl(item.imageStorageKey)));
+    assert(garmentImageUrls.every(isValidImageUrl), 400, "WARDROBE_ITEM_HAS_NO_IMAGE", "Every item in a try-on look must have a valid uploaded photo. Product-link items without a photo can't be tried on yet.");
+
     const profile = await repository.getProfile(request.auth.user.id);
     assert(profile?.profileImageAssetId && profile.profileImageStorageKey, 400, "PROFILE_PHOTO_REQUIRED", "Analyze your style profile with a full-body photo before using virtual try-on.");
 
@@ -288,7 +294,11 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     if (error instanceof multer.MulterError) error = new ApiError(error.code === "LIMIT_FILE_SIZE" ? 413 : 400, error.code, error.code === "LIMIT_FILE_SIZE" ? "Images must be 5 MB or smaller." : error.message);
     const status = error.status || 500;
     if (status >= 500) console.error(error);
-    response.status(status).json({error: {code: error.code || "INTERNAL_ERROR", message: status >= 500 ? "The server could not complete the request." : error.message, ...(error.details ? {details: error.details} : {})}});
+    if (config.env === "development") console.error(`[NERA API ${error.code || "INTERNAL_ERROR"}]`, error.message);
+    const message = error.code === "WARDROBE_ITEM_HAS_NO_IMAGE" || status < 500
+      ? error.message
+      : "The server could not complete the request.";
+    response.status(status).json({error: {code: error.code || "INTERNAL_ERROR", message, ...(error.details ? {details: error.details} : {})}});
   });
   return app;
 }
@@ -335,6 +345,15 @@ const computeMatchScore = (wardrobeItemIds, affinity) => {
 };
 const cleanTags = (value) => Array.isArray(value) ? [...new Set(value.filter((tag) => typeof tag === "string").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 12) : [];
 const cleanStringArray = (value, max = 6) => Array.isArray(value) ? [...new Set(value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean))].slice(0, max) : [];
+const isValidImageUrl = (value) => {
+  if (typeof value !== "string" || !value.trim()) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && !!url.hostname;
+  } catch (_) {
+    return false;
+  }
+};
 // The suggested purchase comes from the styling AI, not a trusted product
 // catalog: keep only a plain name/type pair (never a URL) so nothing it
 // hallucinates can be surfaced as a clickable link to the client.

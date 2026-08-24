@@ -35,20 +35,36 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
 
   Future<void> _regenerate({List<String>? ids}) async {
     final nextIds = ids ?? _selectedIds;
+    final invalidItem = widget.wardrobe
+        .where((item) => nextIds.contains(item.id))
+        .where((item) => !item.canUseVirtualTryOn)
+        .firstOrNull;
+    final validIds = widget.wardrobe
+        .where((item) => nextIds.contains(item.id) && item.canUseVirtualTryOn)
+        .map((item) => item.id)
+        .toList();
+    if (invalidItem != null || validIds.length != nextIds.toSet().length) {
+      setState(
+        () => _error = invalidItem == null
+            ? 'One or more selected wardrobe items are unavailable. Choose another item.'
+            : 'Upload a photo for ${invalidItem.name} to use Virtual Try-On.',
+      );
+      return;
+    }
     setState(() {
       _regenerating = true;
       _error = null;
     });
     try {
       final result = await widget.backend.generateTryOn(
-        wardrobeItemIds: nextIds,
+        wardrobeItemIds: validIds,
         outfitId: _result.outfitId,
       );
       _validate(result);
       if (mounted) {
         setState(() {
           _result = result;
-          _selectedIds = List.of(nextIds);
+          _selectedIds = List.of(validIds);
           _imageAttempt += 1;
         });
       }
@@ -79,6 +95,7 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
         .where(
           (item) =>
               item.category.toLowerCase() == category.toLowerCase() &&
+              item.canUseVirtualTryOn &&
               !_selectedIds.contains(item.id),
         )
         .toList();
