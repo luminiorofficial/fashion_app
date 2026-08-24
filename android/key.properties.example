@@ -1,0 +1,15 @@
+# Copy this file to android/key.properties (gitignored — never commit the
+# real file) and fill in the values for your release signing keystore.
+#
+# Generate a keystore once, keep it (and these passwords) somewhere safe and
+# backed up outside this repo: losing it means you can never publish an
+# update to an already-published Play Store app under the same listing.
+#
+#   keytool -genkey -v -keystore ~/nera-release.keystore -keyalg RSA \
+#     -keysize 2048 -validity 10000 -alias nera
+#
+# storeFile may be an absolute path or relative to the android/ directory.
+storeFile=/absolute/path/to/nera-release.keystore
+storePassword=replace-with-your-keystore-password
+keyAlias=nera
+keyPassword=replace-with-your-key-password

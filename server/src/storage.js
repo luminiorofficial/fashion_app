@@ -1,9 +1,11 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const {Readable} = require("node:stream");
 const sharp = require("sharp");
 const {S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand} = require("@aws-sdk/client-s3");
 const {getSignedUrl} = require("@aws-sdk/s3-request-presigner");
+const {v2: cloudinary} = require("cloudinary");
 const {ApiError} = require("./errors");
 
 const extensions = {
@@ -76,6 +78,15 @@ async function processUploadedFile(file) {
       processed: true,
     };
   } catch {
+    if (mimeType === "image/heic" || mimeType === "image/heif") {
+      // sharp's libvips build cannot always decode HEIC/HEIF (support varies
+      // by platform and is frequently unavailable). Falling back to the
+      // original, unconverted HEIC bytes would store a format the Postgres
+      // media_assets.mime_type check (jpeg/png/webp only) rejects, and that
+      // every storage backend otherwise assumes is always JPEG post-processing.
+      // Reject clearly here instead of persisting an inconsistent asset.
+      throw new ApiError(400, "IMAGE_PROCESSING_FAILED", "This photo's format (HEIC/HEIF) could not be processed. Please try a different photo, or convert it to JPEG first.");
+    }
     return normalizedFile;
   }
 }
@@ -153,4 +164,68 @@ class R2AssetStore {
   }
 }
 
-module.exports = {LocalAssetStore, R2AssetStore, validSignature, normalizeUploadedFile, processUploadedFile};
+// Private object storage backed by Cloudinary. Assets upload under delivery
+// type "authenticated" (never the public "upload" type), so nothing is
+// servable without a signed URL. signedUrl() always mints that URL on
+// demand rather than persisting one. When CLOUDINARY_AUTH_TOKEN_KEY is
+// configured (a token-based authentication key created in the Cloudinary
+// console under Settings > Security), the signed URL also carries a
+// short-lived expiring token, mirroring R2's presigned GetObject URLs;
+// without it, the URL is still signed/private but does not expire.
+class CloudinaryAssetStore {
+  // `cloudinaryClient` is injectable (defaulting to the real SDK) because
+  // the Cloudinary SDK is a configured module-level singleton rather than a
+  // per-instance client like the S3 SDK, so tests supply a fake instead of
+  // mutating shared global state.
+  constructor(config, cloudinaryClient = cloudinary) {
+    this.folder = (config.cloudinaryFolder || "nera").replace(/^\/+|\/+$/g, "");
+    this.signedUrlTtlSeconds = config.cloudinarySignedUrlTtlSeconds || 900;
+    this.authTokenKey = config.cloudinaryAuthTokenKey || "";
+    this.client = cloudinaryClient;
+    this.client.config({
+      cloud_name: config.cloudinaryCloudName,
+      api_key: config.cloudinaryApiKey,
+      api_secret: config.cloudinaryApiSecret,
+      secure: true,
+    });
+  }
+
+  async save(userId, file) {
+    const normalizedFile = file?.processed ? file : await processUploadedFile(file);
+    const mimeType = normalizedFile?.mimetype;
+    if (!normalizedFile || !normalizedFile.buffer || !mimeType || !extensions[mimeType] || !validSignature(normalizedFile.buffer, mimeType)) {
+      throw new ApiError(400, "INVALID_IMAGE", "Upload a valid JPG, JPEG, PNG, or HEIC image.");
+    }
+    const publicId = `${this.folder}/${userId}/${crypto.randomUUID()}`;
+    const uploaded = await new Promise((resolve, reject) => {
+      const uploadStream = this.client.uploader.upload_stream(
+        {public_id: publicId, type: "authenticated", resource_type: "image", overwrite: false},
+        (error, result) => (error ? reject(error) : resolve(result)),
+      );
+      uploadStream.on("error", reject);
+      Readable.from(normalizedFile.buffer).pipe(uploadStream);
+    });
+    return {storageProvider: "cloudinary", storageKey: uploaded.public_id, originalFilename: path.basename(normalizedFile.originalname || "image").slice(0, 255), mimeType, byteSize: normalizedFile.size, checksumSha256: crypto.createHash("sha256").update(normalizedFile.buffer).digest("hex")};
+  }
+
+  async remove(storageKey) {
+    if (!storageKey) return;
+    await this.client.uploader.destroy(storageKey, {type: "authenticated", resource_type: "image", invalidate: true});
+  }
+
+  // Every stored asset is re-encoded to JPEG by processUploadedFile() before
+  // it reaches save(), so the delivery format is always "jpg".
+  async signedUrl(storageKey) {
+    if (!storageKey) return "";
+    return this.client.url(storageKey, {
+      type: "authenticated",
+      resource_type: "image",
+      format: "jpg",
+      secure: true,
+      sign_url: true,
+      ...(this.authTokenKey ? {auth_token: {key: this.authTokenKey, duration: this.signedUrlTtlSeconds}} : {}),
+    });
+  }
+}
+
+module.exports = {LocalAssetStore, R2AssetStore, CloudinaryAssetStore, validSignature, normalizeUploadedFile, processUploadedFile};

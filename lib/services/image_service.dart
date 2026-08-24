@@ -53,25 +53,18 @@ class NeraImageService {
     return picked == null ? const [] : [picked];
   }
 
+  // _compressBelowLimit always re-encodes to CompressFormat.jpeg regardless
+  // of the source format (HEIC, PNG, ...), so the output is always JPEG.
+  // The file name must reflect that actual output format, not the original
+  // picked file's extension, or the declared Content-Type sent to the
+  // server (derived from this file name) would not match the real bytes.
   Future<PickedImageData> _toPickedImage(XFile picked, int index) async {
     final original = await picked.readAsBytes();
     final compressed = await _compressBelowLimit(original);
     return PickedImageData(
       bytes: compressed,
-      fileName:
-          '${DateTime.now().millisecondsSinceEpoch}-$index.${_extensionFor(picked.name)}',
+      fileName: '${DateTime.now().millisecondsSinceEpoch}-$index.jpg',
     );
-  }
-
-  String _extensionFor(String fileName) {
-    final baseName = fileName.toLowerCase();
-    final dotIndex = baseName.lastIndexOf('.');
-    if (dotIndex > 0 && dotIndex < baseName.length - 1) {
-      final ext = baseName.substring(dotIndex + 1);
-      if (ext == 'jpeg' || ext == 'jpg') return 'jpg';
-      if (ext == 'png' || ext == 'heic' || ext == 'heif') return ext;
-    }
-    return 'jpg';
   }
 
   Future<Uint8List> _compressBelowLimit(Uint8List original) async {

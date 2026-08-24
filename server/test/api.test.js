@@ -8,6 +8,7 @@ const {createApp} = require("../src/app");
 const {loadConfig} = require("../src/config");
 const {InMemoryRepository} = require("../src/repository");
 const {LocalAssetStore} = require("../src/storage");
+const {ApiError} = require("../src/errors");
 
 // A private object store double: unlike LocalAssetStore it never returns a
 // stored/static URL. signedUrl() mints a fresh, distinguishable URL on every
@@ -319,6 +320,55 @@ test("resolves the profile image through the asset store's signed URL", async ()
 
   const fetched = await request(app).get("/api/v1/profile").set("authorization", `Bearer ${token}`).expect(200);
   assert.match(fetched.body.profile.profileImageUrl, /^https:\/\/signed\.example\//);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("deletes the orphaned image and archives its asset when profile analysis rejects the photo after it was stored", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  const {app, repository, uploadDir} = await fixture({assetStore, analyzer: {
+    analyzeProfile: async () => { throw new ApiError(400, "FULL_LENGTH_PHOTO_REQUIRED", "Full-length photo required."); },
+  }});
+  const token = await register(app);
+
+  const response = await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(400);
+
+  assert.equal(response.body.error.code, "FULL_LENGTH_PHOTO_REQUIRED");
+  assert.equal(assetStore.objects.size, 0);
+  assert.equal(assetStore.removed.length, 1);
+  const profile = await repository.getProfile((await repository.findUserByPhone("+919876543210")).id);
+  assert.equal(profile.profileImageAssetId, undefined);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("deletes the orphaned image when a wardrobe analysis fails after the image is stored", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  const {app, uploadDir} = await fixture({assetStore, analyzer: {
+    analyzeWardrobe: async () => { throw new Error("the analysis service is down"); },
+  }});
+  const token = await register(app);
+
+  await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "blazer.jpg", contentType: "image/jpeg"}).expect(500);
+
+  assert.equal(assetStore.objects.size, 0);
+  assert.equal(assetStore.removed.length, 1);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("deletes the previous profile image once a re-analysis successfully replaces it", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  const {app, uploadDir} = await fixture({assetStore});
+  const token = await register(app);
+
+  const first = await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile-1.jpg", contentType: "image/jpeg"}).expect(201);
+  assert.equal(assetStore.objects.size, 1);
+  assert.equal(assetStore.removed.length, 0);
+  const [firstStorageKey] = assetStore.objects.keys();
+
+  const second = await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", png, {filename: "profile-2.jpg", contentType: "image/jpeg"}).expect(201);
+
+  assert.equal(assetStore.objects.size, 1);
+  assert.deepEqual(assetStore.removed, [firstStorageKey]);
+  assert.notEqual(second.body.profile.profileImageUrl, first.body.profile.profileImageUrl);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 

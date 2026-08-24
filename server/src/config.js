@@ -33,21 +33,39 @@ function loadConfig(overrides = {}) {
     r2Bucket: process.env.R2_BUCKET || "",
     r2Endpoint: process.env.R2_ENDPOINT || "",
     r2SignedUrlTtlSeconds: Number(process.env.R2_SIGNED_URL_TTL_SECONDS || 900),
+    cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
+    cloudinaryApiKey: process.env.CLOUDINARY_API_KEY || "",
+    cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET || "",
+    cloudinaryFolder: process.env.CLOUDINARY_FOLDER || "nera",
+    // Optional: a token-based authentication key created in the Cloudinary
+    // console (Settings > Security). Without it, signed Cloudinary URLs are
+    // still private/authenticated but do not expire.
+    cloudinaryAuthTokenKey: process.env.CLOUDINARY_AUTH_TOKEN_KEY || "",
+    cloudinarySignedUrlTtlSeconds: Number(process.env.CLOUDINARY_SIGNED_URL_TTL_SECONDS || 900),
     ...overrides,
   };
   const r2Fields = [config.r2AccountId, config.r2AccessKeyId, config.r2SecretAccessKey, config.r2Bucket];
   const r2Configured = r2Fields.every(Boolean);
   const r2PartiallyConfigured = r2Fields.some(Boolean) && !r2Configured;
-  config.imageStorageProvider = config.imageStorageProvider || (r2Configured ? "r2" : "local");
+  const cloudinaryFields = [config.cloudinaryCloudName, config.cloudinaryApiKey, config.cloudinaryApiSecret];
+  const cloudinaryConfigured = cloudinaryFields.every(Boolean);
+  const cloudinaryPartiallyConfigured = cloudinaryFields.some(Boolean) && !cloudinaryConfigured;
+  config.imageStorageProvider = config.imageStorageProvider || (r2Configured ? "r2" : cloudinaryConfigured ? "cloudinary" : "local");
 
-  if (!["local", "r2"].includes(config.imageStorageProvider)) {
-    throw new Error("IMAGE_STORAGE_PROVIDER must be either 'r2' or 'local'.");
+  if (!["local", "r2", "cloudinary"].includes(config.imageStorageProvider)) {
+    throw new Error("IMAGE_STORAGE_PROVIDER must be one of 'r2', 'cloudinary', or 'local'.");
   }
   if (r2PartiallyConfigured || (config.imageStorageProvider === "r2" && !r2Configured)) {
     throw new Error("R2 image storage requires R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET.");
   }
-  if (config.env === "production" && config.imageStorageProvider !== "r2") {
-    throw new Error("Production image storage must use private Cloudflare R2.");
+  if (cloudinaryPartiallyConfigured || (config.imageStorageProvider === "cloudinary" && !cloudinaryConfigured)) {
+    throw new Error("Cloudinary image storage requires CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.");
+  }
+  if (config.env === "production" && !["r2", "cloudinary"].includes(config.imageStorageProvider)) {
+    throw new Error("Production image storage must use private Cloudflare R2 or Cloudinary storage.");
+  }
+  if (config.env === "production" && !config.databaseUrl) {
+    throw new Error("Production requires DATABASE_URL; the in-memory repository is not allowed in production.");
   }
 
   return config;

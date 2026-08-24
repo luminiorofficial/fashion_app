@@ -1,4 +1,4 @@
-package com.example.fashion_app
+package com.luminiorofficial.nera
 
 import io.flutter.embedding.android.FlutterActivity
 

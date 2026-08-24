@@ -106,11 +106,21 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const file = await processUploadedFile(normalizeUploadedFile(request.file));
     assert(file, 400, "IMAGE_REQUIRED", "A full-body image is required.");
     const stored = await assetStore.save(request.auth.user.id, file);
-    const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "profile_analysis", ...stored});
-    const result = await analyzer.analyzeProfile(file);
-    const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "style_profile", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
-    const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageAssetId: asset.id, profileImageStorageKey: asset.storageKey, latestAnalysisJobId: job.id});
-    response.status(201).json({profile: await publicProfile(assetStore, profile), analysisJobId: job.id});
+    let asset;
+    try {
+      asset = await repository.createAsset({userId: request.auth.user.id, purpose: "profile_analysis", ...stored});
+      const result = await analyzer.analyzeProfile(file);
+      const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "style_profile", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
+      const previousProfile = await repository.getProfile(request.auth.user.id);
+      const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageAssetId: asset.id, profileImageStorageKey: asset.storageKey, latestAnalysisJobId: job.id});
+      if (previousProfile?.profileImageAssetId && previousProfile.profileImageAssetId !== asset.id) {
+        await cleanupOrphanedAsset(assetStore, repository, previousProfile.profileImageStorageKey, {id: previousProfile.profileImageAssetId});
+      }
+      response.status(201).json({profile: await publicProfile(assetStore, profile), analysisJobId: job.id});
+    } catch (error) {
+      await cleanupOrphanedAsset(assetStore, repository, stored.storageKey, asset);
+      throw error;
+    }
   });
 
   route.get("/wardrobe/items", authenticate, async (request, response) => {
@@ -121,10 +131,16 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const file = await processUploadedFile(normalizeUploadedFile(request.file));
     assert(file, 400, "IMAGE_REQUIRED", "A clothing or accessory image is required.");
     const stored = await assetStore.save(request.auth.user.id, file);
-    const asset = await repository.createAsset({userId: request.auth.user.id, purpose: "wardrobe_item", ...stored});
-    const result = await analyzer.analyzeWardrobe(file);
-    const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "wardrobe_item", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
-    response.status(201).json({draft: {assetId: asset.id, imageUrl: await assetStore.signedUrl(asset.storageKey), name: result.item_name, category: result.category, tags: result.tags, color: result.color ?? null, material: result.material ?? null, pattern: result.pattern ?? null, season: result.season || [], occasion: result.occasion || [], style: result.style || [], analysisJobId: job.id}});
+    let asset;
+    try {
+      asset = await repository.createAsset({userId: request.auth.user.id, purpose: "wardrobe_item", ...stored});
+      const result = await analyzer.analyzeWardrobe(file);
+      const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "wardrobe_item", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
+      response.status(201).json({draft: {assetId: asset.id, imageUrl: await assetStore.signedUrl(asset.storageKey), name: result.item_name, category: result.category, tags: result.tags, color: result.color ?? null, material: result.material ?? null, pattern: result.pattern ?? null, season: result.season || [], occasion: result.occasion || [], style: result.style || [], analysisJobId: job.id}});
+    } catch (error) {
+      await cleanupOrphanedAsset(assetStore, repository, stored.storageKey, asset);
+      throw error;
+    }
   });
   route.delete("/wardrobe/drafts/:assetId", authenticate, async (request, response) => {
     const asset = await repository.getAsset(request.params.assetId);
@@ -196,6 +212,16 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
   });
   return app;
 }
+
+// Best-effort cleanup for an asset that was stored but should not be kept:
+// either the request that created it failed after upload (a rejected
+// analysis, a DB error), or it is being superseded by a newly saved asset.
+// Storage/DB failures here are swallowed so cleanup never masks, or itself
+// becomes, the error the caller is already handling.
+const cleanupOrphanedAsset = async (assetStore, repository, storageKey, asset) => {
+  await assetStore.remove(storageKey).catch(() => {});
+  if (asset) await repository.archiveAsset(asset.id).catch(() => {});
+};
 
 const publicUser = (user) => ({id: user.id, name: user.name, dateOfBirth: user.dateOfBirth, phoneNumber: user.phoneNumber, phoneVerifiedAt: user.phoneVerifiedAt});
 const publicWardrobeItem = async (assetStore, item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: await assetStore.signedUrl(item.imageStorageKey), productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], createdAt: item.createdAt});
