@@ -209,14 +209,14 @@ test("suggestOutfit sends a text-only prompt (no image) naming only the user's w
       {id: "item-1", name: "Silk Blouse", category: "Top", primaryColor: "White", tags: ["silk"]},
       {id: "item-2", name: "Tailored Trouser", category: "Bottom"},
     ];
-    const result = await analyzer.suggestOutfit({eventType: "Work Meeting", profile: {bodyType: "Rectangle", skinTone: "Medium"}, wardrobe});
+    const result = await analyzer.suggestOutfit({eventType: "Meeting", profile: {bodyType: "Rectangle", skinTone: "Medium"}, wardrobe});
     assert.deepEqual(result.wardrobe_item_ids, ["item-1"]);
     assert.equal(result.rationale, "A polished work-appropriate look.");
     assert.deepEqual(result.suggested_purchase_item, {name: "Structured tote bag", type: "Accessory"});
 
     assert.equal(requestBody.contents[0].parts.length, 1);
     assert.ok(!("inlineData" in requestBody.contents[0].parts[0]));
-    assert.match(requestBody.contents[0].parts[0].text, /Work Meeting/);
+    assert.match(requestBody.contents[0].parts[0].text, /Meeting/);
     assert.match(requestBody.contents[0].parts[0].text, /item-1/);
     assert.match(requestBody.contents[0].parts[0].text, /item-2/);
     assert.equal(requestBody.generationConfig.responseJsonSchema.required.includes("suggested_purchase_item"), true);
@@ -232,9 +232,9 @@ test("suggestOutfit falls back to a deterministic pick from the wardrobe when no
     {id: "bottom-1", name: "Tailored Trouser", category: "Bottom"},
     {id: "shoes-1", name: "Loafers", category: "Shoes"},
   ];
-  const result = await analyzer.suggestOutfit({eventType: "Daily", profile: {}, wardrobe});
+  const result = await analyzer.suggestOutfit({eventType: "Casual", profile: {}, wardrobe});
   assert.deepEqual(new Set(result.wardrobe_item_ids), new Set(["top-1", "bottom-1", "shoes-1"]));
-  assert.match(result.rationale, /daily/i);
+  assert.match(result.rationale, /casual/i);
   assert.equal(result.suggested_purchase_item, null);
 });
 
@@ -244,7 +244,7 @@ test("suggestOutfit fallback suggests shoes when none are in the wardrobe", asyn
     {id: "top-1", name: "Silk Blouse", category: "Top"},
     {id: "bottom-1", name: "Tailored Trouser", category: "Bottom"},
   ];
-  const result = await analyzer.suggestOutfit({eventType: "Daily", profile: {}, wardrobe});
+  const result = await analyzer.suggestOutfit({eventType: "Casual", profile: {}, wardrobe});
   assert.deepEqual(result.suggested_purchase_item, {name: "Complementary shoes", type: "Shoes"});
 });
 

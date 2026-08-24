@@ -37,7 +37,7 @@ function productUrl(value) {
   return clean;
 }
 
-const outfitEventTypes = ["Daily", "Work Meeting", "Brunch", "Wedding"];
+const outfitEventTypes = ["Office", "Meeting", "Casual", "Date", "Party", "Wedding", "Travel", "Dinner", "Other"];
 
 function outfitEventType(value) {
   const clean = text(value, "eventType", {max: 40});
@@ -45,4 +45,19 @@ function outfitEventType(value) {
   return clean;
 }
 
-module.exports = {text, phone, birthDate, productUrl, wardrobeCategory, wardrobeCategories, outfitEventType, outfitEventTypes};
+const outfitReactions = ["love_it", "would_wear", "not_sure", "not_my_style"];
+
+function outfitReaction(value) {
+  const clean = text(value, "reaction", {max: 20});
+  assert(outfitReactions.includes(clean), 400, "INVALID_REACTION", `reaction must be one of: ${outfitReactions.join(", ")}.`);
+  return clean;
+}
+
+function wardrobeItemIdList(value) {
+  assert(Array.isArray(value) && value.length >= 1 && value.length <= 6, 400, "INVALID_WARDROBE_ITEM_IDS", "wardrobeItemIds must be an array of 1 to 6 item ids.");
+  const ids = value.map((id) => text(id, "wardrobeItemIds[]", {max: 100}));
+  assert(new Set(ids).size === ids.length, 400, "INVALID_WARDROBE_ITEM_IDS", "wardrobeItemIds must not contain duplicates.");
+  return ids;
+}
+
+module.exports = {text, phone, birthDate, productUrl, wardrobeCategory, wardrobeCategories, outfitEventType, outfitEventTypes, outfitReaction, outfitReactions, wardrobeItemIdList};

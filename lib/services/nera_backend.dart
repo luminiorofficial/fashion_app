@@ -34,6 +34,11 @@ abstract interface class NeraBackend {
     List<WardrobeItem> wardrobe,
     StyleProfile profile,
   );
+  Future<List<OutfitPlan>> listOutfitHistory();
+  Future<OutfitFeedback> submitOutfitFeedback(String outfitId, OutfitReaction reaction);
+  Future<OutfitFeedback> markOutfitWorn(String outfitId);
+  Future<TryOnResult> generateTryOn({required List<String> wardrobeItemIds, String? outfitId});
+  Future<TryOnResult> saveTryOnLook(String tryOnId);
   void dispose();
 }
 

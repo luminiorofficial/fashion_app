@@ -36,9 +36,14 @@ class FakePrivateAssetStore {
     this.signCalls.push(storageKey);
     return `https://signed.example/${storageKey}?expires=${this.signCalls.length}`;
   }
+  async readBytes(storageKey) {
+    const buffer = this.objects.get(storageKey);
+    if (!buffer) throw new ApiError(404, "ASSET_NOT_FOUND", "The stored image was not found.");
+    return {buffer, mimetype: "image/jpeg"};
+  }
 }
 
-async function fixture({smsProvider, analyzer, assetStore} = {}) {
+async function fixture({smsProvider, analyzer, assetStore, tryonProvider} = {}) {
   const uploadDir = await fs.mkdtemp(path.join(__dirname, ".tmp-"));
   const config = loadConfig({env: "test", uploadDir, publicBaseUrl: "http://test", otpHashSecret: "a-secure-test-secret-that-is-long-enough"});
   const repository = new InMemoryRepository();
@@ -47,8 +52,30 @@ async function fixture({smsProvider, analyzer, assetStore} = {}) {
     analyzeProfile: async () => ({body_shape: "Rectangle", skin_tone: "Medium", skin_undertone: "warm", hair_color: "brown", facial_structure: "oval", style_attributes: ["balanced"], styling_notes: "Structured layers work well."}),
     suggestOutfit: async ({wardrobe}) => ({wardrobe_item_ids: wardrobe.slice(0, 2).map((item) => item.id), rationale: "A polished, balanced look selected from your wardrobe."}),
   };
-  const app = createApp({config, repository, assetStore: assetStore || new LocalAssetStore(config), analyzer: {...defaultAnalyzer, ...analyzer}, smsProvider: smsProvider || {name: "test_console", exposeOtp: true, sendOtp: async () => ({messageId: null})}});
+  // Default double: echoes the profile photo back with developmentFallback,
+  // matching UnavailableVirtualTryOnProvider's real behavior when no Gemini
+  // API key is configured.
+  const defaultTryonProvider = {
+    generate: async ({profileFile}) => ({buffer: profileFile.buffer, mimeType: profileFile.mimetype, developmentFallback: true}),
+  };
+  const app = createApp({
+    config,
+    repository,
+    assetStore: assetStore || new LocalAssetStore(config),
+    analyzer: {...defaultAnalyzer, ...analyzer},
+    smsProvider: smsProvider || {name: "test_console", exposeOtp: true, sendOtp: async () => ({messageId: null})},
+    tryonProvider: tryonProvider || defaultTryonProvider,
+  });
   return {app, repository, uploadDir};
+}
+
+async function addWardrobePhoto(app, token, {name, category, filename = "item.jpg"} = {}) {
+  const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename, contentType: "image/jpeg"}).expect(201);
+  const draft = analyzed.body.draft;
+  const saved = await request(app).post("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`)
+    .send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: name || draft.name, category: category || draft.category, tags: draft.tags})
+    .expect(201);
+  return saved.body.item;
 }
 
 async function addWardrobeItem(app, token, {name, category, tags}) {
@@ -222,13 +249,13 @@ test("generates an outfit from the authenticated user's wardrobe and profile, an
   const bottom = await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
   await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
 
-  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Work Meeting"}).expect(201);
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Meeting"}).expect(201);
 
-  assert.equal(response.body.outfit.eventType, "Work Meeting");
+  assert.equal(response.body.outfit.eventType, "Meeting");
   assert.deepEqual(new Set(response.body.outfit.wardrobeItemIds), new Set([top.id, bottom.id]));
   assert.equal(response.body.outfit.rationale, "A polished work-appropriate look.");
   assert.ok(response.body.outfit.id);
-  assert.equal(receivedCalls[0].eventType, "Work Meeting");
+  assert.equal(receivedCalls[0].eventType, "Meeting");
   assert.equal(receivedCalls[0].profile.bodyType, "Rectangle");
   assert.equal(receivedCalls[0].wardrobe.length, 2);
   await fs.rm(uploadDir, {recursive: true, force: true});
@@ -242,7 +269,7 @@ test("returns and persists the AI's suggested Shop the Look purchase item", asyn
   await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
   await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
 
-  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Work Meeting"}).expect(201);
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Meeting"}).expect(201);
 
   assert.deepEqual(response.body.outfit.suggestedPurchaseItem, {name: "Structured tote bag", type: "Accessory"});
   await fs.rm(uploadDir, {recursive: true, force: true});
@@ -254,7 +281,7 @@ test("returns null for Shop the Look when the AI does not suggest a purchase", a
   await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
   await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
 
-  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Daily"}).expect(201);
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(201);
 
   assert.equal(response.body.outfit.suggestedPurchaseItem, null);
   await fs.rm(uploadDir, {recursive: true, force: true});
@@ -268,7 +295,7 @@ test("never surfaces a hallucinated purchase link, keeping only a sanitized name
   await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
   await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
 
-  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Daily"}).expect(201);
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(201);
 
   assert.deepEqual(response.body.outfit.suggestedPurchaseItem, {name: "Statement earrings", type: "Accessory"});
   await fs.rm(uploadDir, {recursive: true, force: true});
@@ -307,7 +334,7 @@ test("requires at least two wardrobe items before generating an outfit", async (
   const {app, uploadDir} = await fixture();
   const token = await register(app);
   await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
-  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Daily"}).expect(400);
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(400);
   assert.equal(response.body.error.code, "WARDROBE_TOO_SMALL");
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
@@ -319,7 +346,7 @@ test("drops wardrobe ids the AI hallucinated and keeps only real, owned wardrobe
   const token = await register(app);
   const top = await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
   await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
-  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Daily"}).expect(201);
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(201);
   assert.deepEqual(response.body.outfit.wardrobeItemIds, [top.id]);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
@@ -331,7 +358,7 @@ test("fails with a friendly error when the AI returns no valid wardrobe items", 
   const token = await register(app);
   await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
   await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
-  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Daily"}).expect(502);
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(502);
   assert.equal(response.body.error.code, "INVALID_OUTFIT_SELECTION");
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
@@ -342,7 +369,7 @@ test("does not let one user generate an outfit from another user's wardrobe", as
   const secondToken = await register(app, "+919876543211");
   await addWardrobeItem(app, firstToken, {name: "Silk Blouse", category: "Top"});
   await addWardrobeItem(app, firstToken, {name: "Tailored Trouser", category: "Bottom"});
-  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${secondToken}`).send({eventType: "Daily"}).expect(400);
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${secondToken}`).send({eventType: "Casual"}).expect(400);
   assert.equal(response.body.error.code, "WARDROBE_TOO_SMALL");
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
@@ -473,5 +500,113 @@ test("removes the underlying object from the asset store when a wardrobe draft i
 
   assert.equal(assetStore.objects.size, 0);
   assert.equal(assetStore.removed.length, 1);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("records a reaction on an outfit and surfaces it in outfit history", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
+  await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
+  const generated = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(201);
+  const outfitId = generated.body.outfit.id;
+
+  const feedback = await request(app).post(`/api/v1/outfits/${outfitId}/feedback`).set("authorization", `Bearer ${token}`).send({reaction: "love_it"}).expect(200);
+  assert.equal(feedback.body.feedback.reaction, "love_it");
+  assert.equal(feedback.body.feedback.wornAt, null);
+
+  const history = await request(app).get("/api/v1/outfits").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(history.body.outfits[0].id, outfitId);
+  assert.equal(history.body.outfits[0].feedback.reaction, "love_it");
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("marks an outfit as worn while preserving an existing reaction", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
+  await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
+  const generated = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(201);
+  const outfitId = generated.body.outfit.id;
+
+  await request(app).post(`/api/v1/outfits/${outfitId}/feedback`).set("authorization", `Bearer ${token}`).send({reaction: "would_wear"}).expect(200);
+  const worn = await request(app).post(`/api/v1/outfits/${outfitId}/wear`).set("authorization", `Bearer ${token}`).expect(200);
+
+  assert.equal(worn.body.feedback.reaction, "would_wear");
+  assert.ok(worn.body.feedback.wornAt);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("rejects feedback with an invalid reaction and for another user's outfit", async () => {
+  const {app, uploadDir} = await fixture();
+  const firstToken = await register(app, "+919876543210");
+  const secondToken = await register(app, "+919876543211");
+  await addWardrobeItem(app, firstToken, {name: "Silk Blouse", category: "Top"});
+  await addWardrobeItem(app, firstToken, {name: "Tailored Trouser", category: "Bottom"});
+  const generated = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${firstToken}`).send({eventType: "Casual"}).expect(201);
+  const outfitId = generated.body.outfit.id;
+
+  const invalid = await request(app).post(`/api/v1/outfits/${outfitId}/feedback`).set("authorization", `Bearer ${firstToken}`).send({reaction: "obsessed"}).expect(400);
+  assert.equal(invalid.body.error.code, "INVALID_REACTION");
+
+  const forbidden = await request(app).post(`/api/v1/outfits/${outfitId}/feedback`).set("authorization", `Bearer ${secondToken}`).send({reaction: "love_it"}).expect(404);
+  assert.equal(forbidden.body.error.code, "OUTFIT_NOT_FOUND");
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("raises the personalized match score for an item with positive feedback history", async () => {
+  const {app, uploadDir} = await fixture({
+    analyzer: {suggestOutfit: async ({wardrobe}) => ({wardrobe_item_ids: [wardrobe[0].id], rationale: "A simple pick."})},
+  });
+  const token = await register(app);
+  await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
+  await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
+
+  const first = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(201);
+  assert.equal(first.body.outfit.matchScore, 60);
+  await request(app).post(`/api/v1/outfits/${first.body.outfit.id}/feedback`).set("authorization", `Bearer ${token}`).send({reaction: "love_it"}).expect(200);
+  await request(app).post(`/api/v1/outfits/${first.body.outfit.id}/wear`).set("authorization", `Bearer ${token}`).expect(200);
+
+  const second = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(201);
+  assert.ok(second.body.outfit.matchScore > 60, `expected matchScore above the neutral baseline, got ${second.body.outfit.matchScore}`);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("generates a virtual try-on image from wardrobe items and the analyzed profile photo", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+
+  const tryOn = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id]}).expect(201);
+  assert.equal(tryOn.body.tryOn.status, "completed");
+  assert.equal(tryOn.body.tryOn.developmentFallback, true);
+  assert.equal(tryOn.body.tryOn.isSaved, false);
+  assert.deepEqual(tryOn.body.tryOn.wardrobeItemIds, [top.id]);
+  assert.ok(tryOn.body.tryOn.imageUrl);
+
+  const saved = await request(app).post(`/api/v1/tryon/${tryOn.body.tryOn.id}/save`).set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(saved.body.tryOn.isSaved, true);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("requires an analyzed profile photo before generating a try-on", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
+
+  const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id]}).expect(400);
+  assert.equal(response.body.error.code, "PROFILE_PHOTO_REQUIRED");
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("rejects a try-on for a wardrobe item that has no photo", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  const link = await addWardrobeItem(app, token, {name: "Leather Tote", category: "Accessory"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+
+  const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [link.id]}).expect(400);
+  assert.equal(response.body.error.code, "WARDROBE_ITEM_HAS_NO_IMAGE");
   await fs.rm(uploadDir, {recursive: true, force: true});
 });

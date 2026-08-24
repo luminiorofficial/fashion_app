@@ -1,14 +1,15 @@
 const express = require("express");
 const multer = require("multer");
 const {ApiError, assert} = require("./errors");
-const {phone, birthDate, text, productUrl, wardrobeCategory, outfitEventType} = require("./validation");
+const {phone, birthDate, text, productUrl, wardrobeCategory, outfitEventType, outfitReaction, wardrobeItemIdList} = require("./validation");
 const {createId, createOtp, createToken, hashOtp, safeEqual, sha256} = require("./security");
 const {assertRepositoryContract} = require("./repository");
 const {normalizeUploadedFile, processUploadedFile} = require("./storage");
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_FETCHED_ASSET_BYTES = 8 * 1024 * 1024;
 
-function createApp({config, repository, assetStore, analyzer, smsProvider}) {
+function createApp({config, repository, assetStore, analyzer, smsProvider, tryonProvider}) {
   assertRepositoryContract(repository);
   const app = express();
   const upload = multer({storage: multer.memoryStorage(), limits: {fileSize: MAX_IMAGE_BYTES, files: 1}});
@@ -194,13 +195,91 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const wardrobe = await repository.listWardrobe(request.auth.user.id);
     assert(wardrobe.length >= 2, 400, "WARDROBE_TOO_SMALL", "Add at least 2 wardrobe items before generating an outfit.");
     const profile = await repository.getProfile(request.auth.user.id);
-    const suggestion = await analyzer.suggestOutfit({eventType, profile, wardrobe});
+    const affinity = await repository.getWardrobeAffinity(request.auth.user.id);
+    const suggestion = await analyzer.suggestOutfit({eventType, profile, wardrobe, affinityNotes: buildAffinityNotes(wardrobe, affinity)});
     const wardrobeIds = new Set(wardrobe.map((item) => item.id));
     const wardrobeItemIds = [...new Set(suggestion.wardrobe_item_ids || [])].filter((id) => wardrobeIds.has(id));
     assert(wardrobeItemIds.length > 0, 502, "INVALID_OUTFIT_SELECTION", "The styling AI did not return a valid outfit from your wardrobe.");
     const suggestedPurchaseItem = sanitizeSuggestedPurchase(suggestion.suggested_purchase_item);
     const outfit = await repository.createOutfit(request.auth.user.id, {eventType, rationale: suggestion.rationale, wardrobeItemIds, suggestedPurchaseItem, analysisContext: {wardrobeItemCount: wardrobe.length}});
-    response.status(201).json({outfit: publicOutfit(outfit)});
+    response.status(201).json({outfit: {...publicOutfit(outfit), matchScore: computeMatchScore(wardrobeItemIds, affinity)}});
+  });
+
+  route.get("/outfits", authenticate, async (request, response) => {
+    const outfits = await repository.listOutfits(request.auth.user.id, {limit: 30});
+    response.json({outfits: outfits.map((outfit) => ({...publicOutfit(outfit), feedback: outfit.feedback || null}))});
+  });
+
+  route.post("/outfits/:outfitId/feedback", authenticate, async (request, response) => {
+    const outfit = await repository.getOutfit(request.params.outfitId);
+    assert(outfit && outfit.userId === request.auth.user.id, 404, "OUTFIT_NOT_FOUND", "The outfit was not found.");
+    const reaction = outfitReaction(request.body?.reaction);
+    const feedback = await repository.upsertOutfitFeedback(request.auth.user.id, outfit.id, {reaction});
+    response.status(200).json({feedback: publicFeedback(feedback)});
+  });
+
+  route.post("/outfits/:outfitId/wear", authenticate, async (request, response) => {
+    const outfit = await repository.getOutfit(request.params.outfitId);
+    assert(outfit && outfit.userId === request.auth.user.id, 404, "OUTFIT_NOT_FOUND", "The outfit was not found.");
+    const feedback = await repository.upsertOutfitFeedback(request.auth.user.id, outfit.id, {wornAt: new Date().toISOString()});
+    response.status(200).json({feedback: publicFeedback(feedback)});
+  });
+
+  route.post("/tryon/generate", authenticate, async (request, response) => {
+    const wardrobeItemIds = wardrobeItemIdList(request.body?.wardrobeItemIds);
+    const outfitId = request.body?.outfitId ? text(request.body.outfitId, "outfitId", {max: 100}) : null;
+    if (outfitId) {
+      const outfit = await repository.getOutfit(outfitId);
+      assert(outfit && outfit.userId === request.auth.user.id, 404, "OUTFIT_NOT_FOUND", "The outfit was not found.");
+    }
+    const wardrobe = await repository.listWardrobe(request.auth.user.id);
+    const wardrobeById = new Map(wardrobe.map((item) => [item.id, item]));
+    const garmentItems = wardrobeItemIds.map((itemId) => wardrobeById.get(itemId));
+    assert(garmentItems.every(Boolean), 404, "WARDROBE_ITEM_NOT_FOUND", "One or more wardrobe items were not found.");
+    assert(garmentItems.every((item) => item.mediaAssetId && item.imageStorageKey), 400, "WARDROBE_ITEM_HAS_NO_IMAGE", "Every item in a try-on look must have a photo. Product-link items without a photo can't be tried on yet.");
+
+    const profile = await repository.getProfile(request.auth.user.id);
+    assert(profile?.profileImageAssetId && profile.profileImageStorageKey, 400, "PROFILE_PHOTO_REQUIRED", "Analyze your style profile with a full-body photo before using virtual try-on.");
+
+    const profileFile = await assetStore.readBytes(profile.profileImageStorageKey);
+    const garmentFiles = await Promise.all(garmentItems.map((item) => assetStore.readBytes(item.imageStorageKey)));
+    for (const file of [profileFile, ...garmentFiles]) {
+      assert(file.buffer.length <= MAX_FETCHED_ASSET_BYTES, 502, "ASSET_TOO_LARGE", "A stored image is too large to process.");
+    }
+
+    const generation = await tryonProvider.generate({
+      profileFile,
+      garmentFiles,
+      notes: garmentItems.map((item) => `${item.category}: ${item.name}`).join("; "),
+    });
+    const processed = await processUploadedFile({buffer: generation.buffer, mimetype: generation.mimeType, originalname: "tryon-result.jpg", size: generation.buffer.length});
+    const stored = await assetStore.save(request.auth.user.id, processed);
+    let resultAsset;
+    try {
+      resultAsset = await repository.createAsset({userId: request.auth.user.id, purpose: "tryon_result", ...stored});
+      const tryOn = await repository.createTryOnRequest(request.auth.user.id, {
+        outfitId,
+        wardrobeItemIds,
+        profileMediaAssetId: profile.profileImageAssetId,
+        resultMediaAssetId: resultAsset.id,
+        status: "completed",
+        provider: generation.developmentFallback ? "development_fallback" : "gemini",
+        model: generation.developmentFallback ? null : config.geminiImageModel,
+        completedAt: new Date().toISOString(),
+      });
+      response.status(201).json({tryOn: await publicTryOn(assetStore, tryOn, stored.storageKey, generation.developmentFallback)});
+    } catch (error) {
+      await cleanupOrphanedAsset(assetStore, repository, stored.storageKey, resultAsset);
+      throw error;
+    }
+  });
+
+  route.post("/tryon/:id/save", authenticate, async (request, response) => {
+    const tryOn = await repository.getTryOnRequest(request.params.id);
+    assert(tryOn && tryOn.userId === request.auth.user.id, 404, "TRYON_NOT_FOUND", "The try-on result was not found.");
+    const saved = await repository.markTryOnSaved(tryOn.id);
+    const resultAsset = await repository.getAsset(saved.resultMediaAssetId);
+    response.json({tryOn: await publicTryOn(assetStore, saved, resultAsset?.storageKey || "", false)});
   });
 
   app.use("/api/v1", route);
@@ -228,6 +307,32 @@ const publicUser = (user) => ({id: user.id, name: user.name, dateOfBirth: user.d
 const publicWardrobeItem = async (assetStore, item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: await assetStore.signedUrl(item.imageStorageKey), productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], createdAt: item.createdAt});
 const publicProfile = async (assetStore, profile) => ({...profile, profileImageUrl: await assetStore.signedUrl(profile.profileImageStorageKey)});
 const publicOutfit = (outfit) => ({id: outfit.id, eventType: outfit.eventType, wardrobeItemIds: outfit.wardrobeItemIds, rationale: outfit.rationale, suggestedPurchaseItem: outfit.suggestedPurchaseItem || null, createdAt: outfit.createdAt});
+const publicFeedback = (feedback) => ({outfitId: feedback.outfitId, reaction: feedback.reaction || null, wornAt: feedback.wornAt || null, updatedAt: feedback.updatedAt});
+const publicTryOn = async (assetStore, tryOn, resultStorageKey, developmentFallback) => ({id: tryOn.id, outfitId: tryOn.outfitId || null, wardrobeItemIds: tryOn.wardrobeItemIds, imageUrl: await assetStore.signedUrl(resultStorageKey), status: tryOn.status, isSaved: tryOn.isSaved, developmentFallback: !!developmentFallback, createdAt: tryOn.createdAt});
+
+// Surfaces a compact preference summary (not the whole history) to the
+// styling AI so it can lean toward previously liked/worn items; this is a
+// hint, not a hard filter — the local matchScore below is the source of
+// truth for "personalized score" shown to the user.
+const buildAffinityNotes = (wardrobe, affinity) => {
+  const entries = wardrobe
+    .map((item) => ({id: item.id, name: item.name, score: affinity[item.id] || 0}))
+    .filter((entry) => entry.score !== 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .map((entry) => ({id: entry.id, name: entry.name, affinity: entry.score > 0 ? "positive" : "negative"}));
+  return entries.length ? entries : null;
+};
+
+// A simple, local (non-AI) 0-100 personalization score for a chosen outfit:
+// items with no feedback history sit at a neutral baseline, and each past
+// reaction/wear nudges their contribution up or down.
+const computeMatchScore = (wardrobeItemIds, affinity) => {
+  if (!wardrobeItemIds.length) return null;
+  const neutral = 60;
+  const scores = wardrobeItemIds.map((id) => Math.max(0, Math.min(100, neutral + (affinity[id] || 0) * 8)));
+  return Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length);
+};
 const cleanTags = (value) => Array.isArray(value) ? [...new Set(value.filter((tag) => typeof tag === "string").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 12) : [];
 const cleanStringArray = (value, max = 6) => Array.isArray(value) ? [...new Set(value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean))].slice(0, max) : [];
 // The suggested purchase comes from the styling AI, not a trusted product

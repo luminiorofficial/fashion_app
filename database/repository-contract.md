@@ -17,6 +17,10 @@ implement every method exported in `repositoryMethods` from
 | `userId` on assets | `media_assets.owner_user_id` |
 | `bodyType` | `user_style_profiles.body_shape` |
 | `category` | lookup of `wardrobe_categories.display_name` |
+| `reaction` on outfit feedback | `outfit_feedback.reaction` |
+| `wornAt` | `outfit_feedback.worn_at` |
+| `wardrobeItemIds` on a try-on | `tryon_requests.wardrobe_item_ids` |
+| `resultMediaAssetId` | `tryon_requests.result_media_asset_id` |
 
 ## Required transactions
 
@@ -39,6 +43,20 @@ implement every method exported in `repositoryMethods` from
   transaction, with `position` set to each item's order in the array. The
   composite `outfit_item_wardrobe_owner_fk` re-validates that every wardrobe
   item id belongs to the same user at the database layer.
+- `upsertOutfitFeedback` inserts or updates the single `outfit_feedback` row
+  for an outfit (`UNIQUE (outfit_id)`), setting only the field(s) provided
+  (`reaction` and/or `worn_at`) and leaving the other untouched.
+- `getWardrobeAffinity` aggregates `outfit_feedback` joined through
+  `outfit_items` into a per-wardrobe-item weighted score (see
+  `server/src/postgres_repository.js` for the exact weights), used both to
+  bias future `suggestOutfit` prompts and to compute the outfit response's
+  local `matchScore`.
+- `createTryOnRequest` inserts one `tryon_requests` row referencing the
+  wardrobe items composited, the source profile photo asset, and the
+  generated result asset (`media_assets.purpose = 'tryon_result'`). The
+  `tryon_wardrobe_items_context` trigger re-validates that every id in
+  `wardrobe_item_ids` belongs to the same user, since array columns cannot
+  carry a real foreign key.
 
 Images remain outside PostgreSQL. The adapter stores only metadata and storage
 keys in `media_assets`; `LocalAssetStore` can later be replaced by Cloudinary or an

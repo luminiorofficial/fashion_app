@@ -213,6 +213,49 @@ class RemoteNeraBackend implements NeraBackend {
   }
 
   @override
+  Future<List<OutfitPlan>> listOutfitHistory() async {
+    final response = await _api.get('/outfits');
+    return (response['outfits'] as List? ?? const [])
+        .map((outfit) => OutfitPlan.fromJson(outfit as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  Future<OutfitFeedback> submitOutfitFeedback(
+    String outfitId,
+    OutfitReaction reaction,
+  ) async {
+    final response = await _api.post('/outfits/$outfitId/feedback', {
+      'reaction': reaction.wireValue,
+    });
+    return OutfitFeedback.fromJson(response['feedback'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<OutfitFeedback> markOutfitWorn(String outfitId) async {
+    final response = await _api.post('/outfits/$outfitId/wear', const {});
+    return OutfitFeedback.fromJson(response['feedback'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<TryOnResult> generateTryOn({
+    required List<String> wardrobeItemIds,
+    String? outfitId,
+  }) async {
+    final response = await _api.post('/tryon/generate', {
+      'wardrobeItemIds': wardrobeItemIds,
+      if (outfitId != null) 'outfitId': outfitId,
+    });
+    return TryOnResult.fromJson(response['tryOn'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<TryOnResult> saveTryOnLook(String tryOnId) async {
+    final response = await _api.post('/tryon/$tryOnId/save', const {});
+    return TryOnResult.fromJson(response['tryOn'] as Map<String, dynamic>);
+  }
+
+  @override
   void dispose() {
     _api.close();
     _userId.dispose();

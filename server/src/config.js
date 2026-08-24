@@ -23,6 +23,12 @@ function loadConfig(overrides = {}) {
     geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
     geminiMaxRetries: Number(process.env.GEMINI_MAX_RETRIES || 3),
     geminiRetryBaseDelayMs: Number(process.env.GEMINI_RETRY_BASE_DELAY_MS || 500),
+    // Virtual try-on uses a separate, image-capable model family from the
+    // text/JSON analysis calls above, with its own fallback model.
+    geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image",
+    geminiImageFallbackModel: process.env.GEMINI_IMAGE_FALLBACK_MODEL || "gemini-3.1-flash-image",
+    geminiImageSize: process.env.GEMINI_IMAGE_SIZE || "1K",
+    geminiImageAspectRatio: process.env.GEMINI_IMAGE_ASPECT_RATIO || "3:4",
     databaseUrl: process.env.DATABASE_URL || "",
     databasePoolMax: Number(process.env.DATABASE_POOL_MAX || 10),
     databaseSsl: process.env.DATABASE_SSL === "true",

@@ -10,10 +10,15 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const UNAVAILABLE_STATUSES = new Set([500, 502, 503, 504]);
 
 const eventGuidance = {
-  Daily: "Everyday casual comfort suitable for running errands or a relaxed day.",
-  "Work Meeting": "Polished, professional, and conservative for a business setting.",
-  Brunch: "Relaxed but put-together daytime social wear.",
+  Office: "Polished, professional, and conservative for a business setting.",
+  Meeting: "Sharp and put-together, slightly more formal than a normal office day.",
+  Casual: "Everyday comfort suitable for running errands or a relaxed day out.",
+  Date: "Attractive and confident, thoughtfully put-together without being overdressed.",
+  Party: "Fun, expressive, and a little bold — statement pieces are welcome.",
   Wedding: "Elevated, formal attire appropriate for a wedding guest.",
+  Travel: "Comfortable, easy to move in, and low-maintenance for a full day of travel.",
+  Dinner: "Refined evening wear appropriate for a nice restaurant.",
+  Other: "A versatile, well-balanced look appropriate for a general occasion.",
 };
 
 function summarizeProfile(profile) {
@@ -95,7 +100,7 @@ class FashionAnalyzer {
   // owns. Text-only Gemini call (no image), so it shares call()/callModel()
   // with the image-analysis methods to reuse the same retry/fallback and
   // friendly-error behavior.
-  async suggestOutfit({eventType, profile, wardrobe}) {
+  async suggestOutfit({eventType, profile, wardrobe, affinityNotes}) {
     if (!this.config.geminiApiKey) return this.fallbackOutfit(eventType, wardrobe);
 
     const catalog = wardrobe.map((item) => ({
@@ -116,6 +121,7 @@ class FashionAnalyzer {
       eventGuidance[eventType] ? `Event guidance: ${eventGuidance[eventType]}` : "",
       "Never invent an item or id that is not in the wardrobe list. Prefer 2 to 5 complementary items that form a coherent outfit for the event.",
       profileSummary ? `User's style profile: ${JSON.stringify(profileSummary)}` : "No style profile is available yet; style conservatively.",
+      affinityNotes ? `Learned preferences from the user's past reactions to outfits (higher affinity = they liked or wore similar items before, lower/negative = they disliked or rejected similar items): ${JSON.stringify(affinityNotes)}. Lean toward items with positive affinity and away from items with negative affinity when a few choices would otherwise be equally valid.` : "",
       `Wardrobe items (JSON array): ${JSON.stringify(catalog)}`,
       "Return wardrobe_item_ids as the chosen items' ids (each must exactly match an id from the wardrobe list) and a short rationale (2-3 sentences) explaining the choice for this event and profile.",
       "If one complementary piece is genuinely missing from the wardrobe and would elevate this outfit for the event (for example a bag, shoes, a belt, or jewelry), set suggested_purchase_item to a short generic item name and its category type. Do not invent a specific brand, product, or store. Only suggest a purchase when a piece is genuinely missing; otherwise set suggested_purchase_item to null.",

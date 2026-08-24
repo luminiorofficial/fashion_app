@@ -31,6 +31,8 @@ class MemoryNeraBackend implements NeraBackend {
   final _wardrobeController = StreamController<List<WardrobeItem>>.broadcast();
   final _profileController = StreamController<StyleProfile>.broadcast();
   final List<WardrobeItem> _items = [];
+  final List<OutfitPlan> _outfits = [];
+  int _tryOnSequence = 0;
   late StyleProfile _styleProfile;
   @override
   ValueListenable<String?> get userId => _userId;
@@ -174,12 +176,77 @@ class MemoryNeraBackend implements NeraBackend {
     String eventType,
     List<WardrobeItem> wardrobe,
     StyleProfile profile,
-  ) async => OutfitPlan(
-    id: 'preview-outfit',
-    eventType: eventType,
-    wardrobeItemIds: wardrobe.take(3).map((item) => item.id).toList(),
-    rationale: 'A polished, balanced look selected from your wardrobe.',
+  ) async {
+    final outfit = OutfitPlan(
+      id: 'preview-outfit-${_outfits.length}',
+      eventType: eventType,
+      wardrobeItemIds: wardrobe.take(3).map((item) => item.id).toList(),
+      rationale: 'A polished, balanced look selected from your wardrobe.',
+      matchScore: 60,
+      createdAt: DateTime.now(),
+    );
+    _outfits.insert(0, outfit);
+    return outfit;
+  }
+
+  @override
+  Future<List<OutfitPlan>> listOutfitHistory() async => List.unmodifiable(_outfits);
+
+  @override
+  Future<OutfitFeedback> submitOutfitFeedback(
+    String outfitId,
+    OutfitReaction reaction,
+  ) async {
+    final feedback = OutfitFeedback(outfitId: outfitId, reaction: reaction);
+    _applyFeedback(outfitId, feedback);
+    return feedback;
+  }
+
+  @override
+  Future<OutfitFeedback> markOutfitWorn(String outfitId) async {
+    final index = _outfits.indexWhere((outfit) => outfit.id == outfitId);
+    final existing = index == -1 ? null : _outfits[index].feedback;
+    final feedback = (existing ?? OutfitFeedback(outfitId: outfitId)).copyWith(
+      wornAt: DateTime.now(),
+    );
+    _applyFeedback(outfitId, feedback);
+    return feedback;
+  }
+
+  void _applyFeedback(String outfitId, OutfitFeedback feedback) {
+    final index = _outfits.indexWhere((outfit) => outfit.id == outfitId);
+    if (index != -1) _outfits[index] = _outfits[index].copyWith(feedback: feedback);
+  }
+
+  @override
+  Future<TryOnResult> generateTryOn({
+    required List<String> wardrobeItemIds,
+    String? outfitId,
+  }) async {
+    _tryOnSequence += 1;
+    return TryOnResult(
+      id: 'preview-tryon-$_tryOnSequence',
+      wardrobeItemIds: wardrobeItemIds,
+      imageUrl: _profileValue.value?.profileImageUrl ?? '',
+      status: 'completed',
+      isSaved: false,
+      developmentFallback: true,
+      outfitId: outfitId,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<TryOnResult> saveTryOnLook(String tryOnId) async => TryOnResult(
+    id: tryOnId,
+    wardrobeItemIds: const [],
+    imageUrl: _profileValue.value?.profileImageUrl ?? '',
+    status: 'completed',
+    isSaved: true,
+    developmentFallback: true,
+    createdAt: DateTime.now(),
   );
+
   @override
   void dispose() {
     _userId.dispose();

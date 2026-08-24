@@ -142,6 +142,27 @@ function outfitFromRow(row, wardrobeItemIds) {
   };
 }
 
+function tryOnFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    outfitId: row.outfit_id,
+    wardrobeItemIds: row.wardrobe_item_ids || [],
+    profileMediaAssetId: row.profile_media_asset_id,
+    resultMediaAssetId: row.result_media_asset_id,
+    resultStorageKey: row.result_storage_key || null,
+    status: row.status,
+    provider: row.provider,
+    model: row.model,
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    isSaved: row.is_saved,
+    createdAt: iso(row.created_at),
+    completedAt: iso(row.completed_at),
+  };
+}
+
 const wardrobeSelect = `
   SELECT item.*, category.display_name AS category,
     (SELECT media.media_asset_id
@@ -422,6 +443,83 @@ class PostgresRepository {
       }
       return outfitFromRow(outfit, wardrobeItemIds);
     });
+  }
+
+  async getOutfit(outfitId) {
+    const outfitResult = await this.pool.query("SELECT * FROM outfits WHERE id = $1", [outfitId]);
+    if (!outfitResult.rows[0]) return null;
+    const itemsResult = await this.pool.query("SELECT wardrobe_item_id FROM outfit_items WHERE outfit_id = $1 ORDER BY position", [outfitId]);
+    return outfitFromRow(outfitResult.rows[0], itemsResult.rows.map((row) => row.wardrobe_item_id));
+  }
+
+  async listOutfits(userId, {limit = 50} = {}) {
+    const result = await this.pool.query(`
+      SELECT o.*, f.reaction, f.worn_at,
+        COALESCE(array_agg(oi.wardrobe_item_id ORDER BY oi.position) FILTER (WHERE oi.wardrobe_item_id IS NOT NULL), '{}') AS wardrobe_item_ids
+        FROM outfits o
+        LEFT JOIN outfit_feedback f ON f.outfit_id = o.id
+        LEFT JOIN outfit_items oi ON oi.outfit_id = o.id
+       WHERE o.user_id = $1
+       GROUP BY o.id, f.reaction, f.worn_at
+       ORDER BY o.created_at DESC
+       LIMIT $2`, [userId, limit]);
+    return result.rows.map((row) => ({
+      ...outfitFromRow(row, row.wardrobe_item_ids || []),
+      feedback: row.reaction || row.worn_at ? {reaction: row.reaction, wornAt: iso(row.worn_at)} : null,
+    }));
+  }
+
+  async upsertOutfitFeedback(userId, outfitId, {reaction = null, wornAt = null} = {}) {
+    const result = await this.pool.query(`
+      INSERT INTO outfit_feedback (user_id, outfit_id, reaction, worn_at)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (outfit_id) DO UPDATE SET
+        reaction = COALESCE($3, outfit_feedback.reaction),
+        worn_at = COALESCE($4, outfit_feedback.worn_at)
+      RETURNING *`, [userId, outfitId, reaction, wornAt]);
+    const row = result.rows[0];
+    return {id: row.id, userId: row.user_id, outfitId: row.outfit_id, reaction: row.reaction, wornAt: iso(row.worn_at), createdAt: iso(row.created_at), updatedAt: iso(row.updated_at)};
+  }
+
+  async getWardrobeAffinity(userId) {
+    const weightedScore = `
+      SUM(
+        CASE f.reaction WHEN 'love_it' THEN 3 WHEN 'would_wear' THEN 1 WHEN 'not_sure' THEN 0 WHEN 'not_my_style' THEN -3 ELSE 0 END
+        + CASE WHEN f.worn_at IS NOT NULL THEN 2 ELSE 0 END
+      )::int`;
+    const result = await this.pool.query(`
+      SELECT oi.wardrobe_item_id AS item_id, ${weightedScore} AS score
+        FROM outfit_feedback f
+        JOIN outfit_items oi ON oi.outfit_id = f.outfit_id
+       WHERE f.user_id = $1
+       GROUP BY oi.wardrobe_item_id
+      HAVING ${weightedScore} != 0`, [userId]);
+    return Object.fromEntries(result.rows.map((row) => [row.item_id, row.score]));
+  }
+
+  async createTryOnRequest(userId, request) {
+    const result = await this.pool.query(`
+      INSERT INTO tryon_requests
+        (user_id, outfit_id, wardrobe_item_ids, profile_media_asset_id, result_media_asset_id, status, provider, model, error_code, error_message, completed_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING *`, [userId, request.outfitId || null, request.wardrobeItemIds, request.profileMediaAssetId,
+      request.resultMediaAssetId || null, request.status, request.provider || null, request.model || null,
+      request.errorCode || null, request.errorMessage || null, request.completedAt || null]);
+    return tryOnFromRow(result.rows[0]);
+  }
+
+  async getTryOnRequest(tryOnId) {
+    const result = await this.pool.query(`
+      SELECT t.*, asset.storage_key AS result_storage_key
+        FROM tryon_requests t
+        LEFT JOIN media_assets asset ON asset.id = t.result_media_asset_id
+       WHERE t.id = $1`, [tryOnId]);
+    return tryOnFromRow(result.rows[0]);
+  }
+
+  async markTryOnSaved(tryOnId) {
+    const result = await this.pool.query("UPDATE tryon_requests SET is_saved = true WHERE id = $1 RETURNING *", [tryOnId]);
+    return tryOnFromRow(result.rows[0]);
   }
 }
 

@@ -119,6 +119,23 @@ class LocalAssetStore {
   async signedUrl(storageKey) {
     return storageKey ? `${this.publicBaseUrl}/uploads/${storageKey}` : "";
   }
+
+  // Reads a previously stored asset's raw bytes directly from disk, for
+  // server-side reuse (e.g. feeding it to the virtual try-on model) without
+  // an unnecessary self-referential HTTP round trip through publicBaseUrl.
+  async readBytes(storageKey) {
+    const target = path.resolve(this.uploadDir, storageKey || "");
+    if (!storageKey || !target.startsWith(`${this.uploadDir}${path.sep}`)) {
+      throw new ApiError(404, "ASSET_NOT_FOUND", "The stored image was not found.");
+    }
+    let buffer;
+    try {
+      buffer = await fs.readFile(target);
+    } catch (_) {
+      throw new ApiError(404, "ASSET_NOT_FOUND", "The stored image was not found.");
+    }
+    return {buffer, mimetype: inferMimeType(buffer) || "image/jpeg"};
+  }
 }
 
 // Private object storage backed by Cloudinary. Assets upload under delivery
@@ -182,6 +199,24 @@ class CloudinaryAssetStore {
       sign_url: true,
       ...(this.authTokenKey ? {auth_token: {key: this.authTokenKey, duration: this.signedUrlTtlSeconds}} : {}),
     });
+  }
+
+  // Cloudinary's authenticated delivery URL is a real external HTTPS
+  // endpoint regardless of what host this server itself is reachable on, so
+  // (unlike LocalAssetStore) fetching it back over the network is correct.
+  async readBytes(storageKey) {
+    const url = await this.signedUrl(storageKey);
+    if (!url) throw new ApiError(404, "ASSET_NOT_FOUND", "The stored image was not found.");
+    let response;
+    try {
+      response = await fetch(url, {signal: AbortSignal.timeout(20_000)});
+    } catch (_) {
+      throw new ApiError(502, "ASSET_FETCH_FAILED", "The stored image could not be retrieved.");
+    }
+    if (!response.ok) throw new ApiError(502, "ASSET_FETCH_FAILED", "The stored image could not be retrieved.");
+    const arrayBuffer = await response.arrayBuffer();
+    const contentType = (response.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+    return {buffer: Buffer.from(arrayBuffer), mimetype: contentType};
   }
 }
 

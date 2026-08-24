@@ -9,7 +9,9 @@ const repositoryMethods = Object.freeze([
   "createAsset", "getAsset", "archiveAsset",
   "createAnalysisJob", "getAnalysisJob", "saveProfile", "getProfile",
   "listWardrobe", "createWardrobeItem", "getWardrobeItem", "deleteWardrobeItem",
-  "createOutfit",
+  "createOutfit", "getOutfit", "listOutfits",
+  "upsertOutfitFeedback", "getWardrobeAffinity",
+  "createTryOnRequest", "getTryOnRequest", "markTryOnSaved",
 ]);
 
 function assertRepositoryContract(repository) {
@@ -29,6 +31,8 @@ class InMemoryRepository {
     this.profiles = new Map();
     this.wardrobe = new Map();
     this.outfits = new Map();
+    this.outfitFeedback = new Map();
+    this.tryOnRequests = new Map();
   }
 
   async findUserByPhone(phoneNumber) {
@@ -143,6 +147,66 @@ class InMemoryRepository {
     const value = {id: id(), userId, createdAt: new Date().toISOString(), ...outfit};
     this.outfits.set(value.id, value);
     return value;
+  }
+
+  async getOutfit(outfitId) { return this.outfits.get(outfitId) || null; }
+
+  async listOutfits(userId, {limit = 50} = {}) {
+    return [...this.outfits.values()]
+      .filter((outfit) => outfit.userId === userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit)
+      .map((outfit) => ({...outfit, feedback: this.outfitFeedback.get(outfit.id) || null}));
+  }
+
+  async upsertOutfitFeedback(userId, outfitId, {reaction, wornAt} = {}) {
+    const now = new Date().toISOString();
+    const existing = this.outfitFeedback.get(outfitId);
+    const value = {
+      id: existing?.id || id(),
+      userId,
+      outfitId,
+      reaction: reaction !== undefined && reaction !== null ? reaction : existing?.reaction ?? null,
+      wornAt: wornAt !== undefined && wornAt !== null ? wornAt : existing?.wornAt ?? null,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    this.outfitFeedback.set(outfitId, value);
+    return value;
+  }
+
+  // Weighted sum of past feedback per wardrobe item: positive reactions and
+  // wears raise an item's affinity, negative reactions lower it. Items with
+  // no signal are simply absent from the returned map.
+  async getWardrobeAffinity(userId) {
+    const weights = {love_it: 3, would_wear: 1, not_sure: 0, not_my_style: -3};
+    const scores = {};
+    for (const feedback of this.outfitFeedback.values()) {
+      if (feedback.userId !== userId) continue;
+      const outfit = this.outfits.get(feedback.outfitId);
+      if (!outfit) continue;
+      const weight = (weights[feedback.reaction] || 0) + (feedback.wornAt ? 2 : 0);
+      if (weight === 0) continue;
+      for (const itemId of outfit.wardrobeItemIds || []) {
+        scores[itemId] = (scores[itemId] || 0) + weight;
+      }
+    }
+    return scores;
+  }
+
+  async createTryOnRequest(userId, request) {
+    const now = new Date().toISOString();
+    const value = {id: id(), userId, isSaved: false, createdAt: now, ...request};
+    this.tryOnRequests.set(value.id, value);
+    return value;
+  }
+
+  async getTryOnRequest(tryOnId) { return this.tryOnRequests.get(tryOnId) || null; }
+
+  async markTryOnSaved(tryOnId) {
+    const value = this.tryOnRequests.get(tryOnId);
+    if (value) value.isSaved = true;
+    return value || null;
   }
 }
 
