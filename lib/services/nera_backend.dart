@@ -22,6 +22,10 @@ abstract interface class NeraBackend {
   Future<void> logout();
   Future<WardrobeDraft> analyzeWardrobeImage(Uint8List bytes, String fileName);
   Future<void> saveWardrobeDraft(WardrobeDraft draft);
+
+  /// Saves multiple reviewed drafts in one batch, refreshing the wardrobe
+  /// only once afterward (rather than once per item).
+  Future<void> saveWardrobeDrafts(List<WardrobeDraft> drafts);
   Future<void> discardWardrobeDraft(WardrobeDraft draft);
   Future<void> addWardrobeLink({
     required String name,
@@ -46,6 +50,8 @@ abstract interface class NeraBackend {
     String? outfitId,
   });
   Future<TryOnResult> saveTryOnLook(String tryOnId);
+  Future<List<TryOnResult>> listSavedLooks();
+  Future<TryOnResult> unsaveTryOnLook(String tryOnId);
   void dispose();
 }
 

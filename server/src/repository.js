@@ -11,7 +11,9 @@ const repositoryMethods = Object.freeze([
   "listWardrobe", "createWardrobeItem", "getWardrobeItem", "deleteWardrobeItem",
   "createOutfit", "getOutfit", "listOutfits",
   "upsertOutfitFeedback", "getWardrobeAffinity",
-  "createTryOnRequest", "getTryOnRequest", "markTryOnSaved",
+  "createTryOnRequest", "getTryOnRequest", "markTryOnSaved", "listSavedTryOns", "unsaveTryOn",
+  "deleteExpiredOtpChallenges", "deleteOldSessions", "deleteOrphanedAnalysisJobs",
+  "listExpiredUnsavedTryOns", "deleteTryOnRequest", "deleteOldDeletedMediaAssets",
 ]);
 
 function assertRepositoryContract(repository) {
@@ -138,9 +140,14 @@ class InMemoryRepository {
   }
 
   async getWardrobeItem(itemId) { return this.wardrobe.get(itemId) || null; }
+  // Soft-deletes the item (kept so past outfit history stays intact — see
+  // outfit_items' FK RESTRICT in the schema) but also drops its now-useless
+  // AI analysis result, since nothing references it once the item is gone.
   async deleteWardrobeItem(itemId) {
     const item = this.wardrobe.get(itemId);
-    if (item) item.deletedAt = new Date().toISOString();
+    if (!item) return;
+    item.deletedAt = new Date().toISOString();
+    if (item.analysisJobId) this.analysisJobs.delete(item.analysisJobId);
   }
 
   async createOutfit(userId, outfit) {
@@ -207,6 +214,73 @@ class InMemoryRepository {
     const value = this.tryOnRequests.get(tryOnId);
     if (value) value.isSaved = true;
     return value || null;
+  }
+
+  async listSavedTryOns(userId) {
+    return [...this.tryOnRequests.values()]
+      .filter((tryOn) => tryOn.userId === userId && tryOn.isSaved && tryOn.status === "completed")
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((tryOn) => ({...tryOn, resultStorageKey: this.assets.get(tryOn.resultMediaAssetId)?.storageKey || null}));
+  }
+
+  async unsaveTryOn(tryOnId) {
+    const value = this.tryOnRequests.get(tryOnId);
+    if (value) value.isSaved = false;
+    return value || null;
+  }
+
+  // --- Periodic housekeeping (see src/cleanup.js) ---
+
+  async deleteExpiredOtpChallenges(beforeIso) {
+    let count = 0;
+    for (const [id, challenge] of this.challenges) {
+      if (challenge.createdAt < beforeIso) { this.challenges.delete(id); count += 1; }
+    }
+    return count;
+  }
+
+  async deleteOldSessions(beforeIso) {
+    let count = 0;
+    for (const [key, session] of this.sessions) {
+      const expired = session.revokedAt || new Date(session.expiresAt) <= new Date();
+      if (expired && session.createdAt < beforeIso) { this.sessions.delete(key); count += 1; }
+    }
+    return count;
+  }
+
+  async deleteOrphanedAnalysisJobs(beforeIso) {
+    const referenced = new Set();
+    for (const item of this.wardrobe.values()) if (item.analysisJobId) referenced.add(item.analysisJobId);
+    for (const profile of this.profiles.values()) if (profile.latestAnalysisJobId) referenced.add(profile.latestAnalysisJobId);
+    let count = 0;
+    for (const [id, job] of this.analysisJobs) {
+      if (!referenced.has(id) && job.createdAt < beforeIso) { this.analysisJobs.delete(id); count += 1; }
+    }
+    return count;
+  }
+
+  async listExpiredUnsavedTryOns(beforeIso) {
+    return [...this.tryOnRequests.values()]
+      .filter((tryOn) => !tryOn.isSaved && tryOn.createdAt < beforeIso)
+      .map((tryOn) => ({...tryOn, resultStorageKey: this.assets.get(tryOn.resultMediaAssetId)?.storageKey || null}));
+  }
+
+  async deleteTryOnRequest(tryOnId) { this.tryOnRequests.delete(tryOnId); }
+
+  async deleteOldDeletedMediaAssets(beforeIso) {
+    const referenced = new Set();
+    for (const item of this.wardrobe.values()) if (item.mediaAssetId) referenced.add(item.mediaAssetId);
+    for (const job of this.analysisJobs.values()) if (job.mediaAssetId) referenced.add(job.mediaAssetId);
+    for (const profile of this.profiles.values()) if (profile.profileImageAssetId) referenced.add(profile.profileImageAssetId);
+    for (const tryOn of this.tryOnRequests.values()) {
+      if (tryOn.profileMediaAssetId) referenced.add(tryOn.profileMediaAssetId);
+      if (tryOn.resultMediaAssetId) referenced.add(tryOn.resultMediaAssetId);
+    }
+    let count = 0;
+    for (const [id, asset] of this.assets) {
+      if (asset.deletedAt && asset.deletedAt < beforeIso && !referenced.has(id)) { this.assets.delete(id); count += 1; }
+    }
+    return count;
   }
 }
 

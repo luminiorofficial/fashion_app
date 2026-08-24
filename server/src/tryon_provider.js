@@ -1,3 +1,4 @@
+const sharp = require("sharp");
 const {ApiError} = require("./errors");
 
 // Statuses worth retrying/falling back to the next model, mirroring
@@ -33,19 +34,29 @@ const IMAGE_SIZE_ENUMS = {
 class GeminiVirtualTryOnProvider {
   constructor(config) {
     this.config = config;
-    this.maxRetries = config.geminiMaxRetries ?? 3;
+    this.apiKey = config.geminiImageApiKey || config.geminiApiKey || "";
+    this.maxRetries = config.geminiImageMaxRetries ?? config.geminiMaxRetries ?? 1;
     this.retryBaseDelayMs = config.geminiRetryBaseDelayMs ?? 500;
+    this.maxInputDimension = config.geminiImageMaxInputPx || 1024;
   }
 
   // profileFile/garmentFiles are multer-style {buffer, mimetype} objects.
   async generate({profileFile, garmentFiles, notes}) {
+    // Shrink inputs once up front (not per retry/model attempt) to cut the
+    // paid model's input image size/token cost; the larger originals stay
+    // in Cloudinary for display and are untouched by this.
+    const [shrunkProfile, shrunkGarments] = await Promise.all([
+      this.shrinkForModel(profileFile),
+      Promise.all(garmentFiles.map((file) => this.shrinkForModel(file))),
+    ]);
+
     const models = [this.config.geminiImageModel, this.config.geminiImageFallbackModel]
       .filter((model, index, all) => model && all.indexOf(model) === index);
     let lastError;
 
     for (const model of models) {
       try {
-        return await this.callModel(model, profileFile, garmentFiles, notes);
+        return await this.callModel(model, shrunkProfile, shrunkGarments, notes);
       } catch (error) {
         lastError = error;
         const canTryNextModel = RETRYABLE_STATUSES.has(error.status) || error.status === 404 || error.status === 400;
@@ -54,6 +65,31 @@ class GeminiVirtualTryOnProvider {
     }
 
     throw this.friendlyError(lastError);
+  }
+
+  // Downscales an already-stored (up to ~1800px) image to a smaller longest
+  // side before it is sent to the paid image model. Falls back to the
+  // original bytes if the buffer can't be decoded as an image, so a
+  // decode failure here never blocks generation.
+  async shrinkForModel(file) {
+    try {
+      const image = sharp(file.buffer).rotate();
+      const metadata = await image.metadata();
+      const longestSide = Math.max(metadata.width || 0, metadata.height || 0);
+      if (longestSide <= this.maxInputDimension) return file;
+      const scale = this.maxInputDimension / longestSide;
+      const buffer = await image
+        .resize({
+          width: Math.max(1, Math.round((metadata.width || this.maxInputDimension) * scale)),
+          height: Math.max(1, Math.round((metadata.height || this.maxInputDimension) * scale)),
+          fit: "inside",
+        })
+        .jpeg({quality: 80})
+        .toBuffer();
+      return {...file, buffer, mimetype: "image/jpeg"};
+    } catch {
+      return file;
+    }
   }
 
   async callModel(model, profileFile, garmentFiles, notes) {
@@ -74,10 +110,9 @@ class GeminiVirtualTryOnProvider {
 
   async attemptModel(endpoint, model, profileFile, garmentFiles, notes) {
     const instruction = [
-      "You are a virtual try-on compositor. The first image is a real person (the subject). Every image after it is a single garment or accessory from their wardrobe.",
-      "Generate one photorealistic image of the SAME person wearing all of the given garments together as a single coherent outfit.",
-      "Preserve the subject's face, hair, skin tone, body proportions, and pose as closely as possible — this must still clearly be the same person. Do not change their identity.",
-      "Replace only the clothing implied by the garments shown (for example a top garment replaces their existing top). Keep a clean, well-lit, full-body studio-style presentation with a neutral background.",
+      "Virtual try-on compositor. Image 1 is the subject (a real person); each image after it is one wardrobe garment/accessory.",
+      "Generate one photorealistic image of the SAME person wearing all given garments as one coherent outfit. Preserve face, hair, skin tone, body proportions, and pose — same identity.",
+      "Replace only the implied clothing (e.g. a top garment replaces their existing top). Clean, well-lit, full-body studio look, neutral background.",
       notes ? `Styling notes: ${notes}` : "",
     ].filter(Boolean).join("\n");
 
@@ -91,11 +126,13 @@ class GeminiVirtualTryOnProvider {
     try {
       response = await fetch(endpoint, {
         method: "POST",
-        headers: {"content-type": "application/json", "x-goog-api-key": this.config.geminiApiKey},
+        headers: {"content-type": "application/json", "x-goog-api-key": this.apiKey},
         body: JSON.stringify({
           contents: [{parts}],
           generationConfig: {
-            responseModalities: ["TEXT", "IMAGE"],
+            // IMAGE only (not TEXT + IMAGE): a text caption isn't used, and
+            // dropping it reduces the paid model's output cost/latency.
+            responseModalities: ["IMAGE"],
             responseFormat: {
               image: {
                 aspectRatio: IMAGE_ASPECT_RATIO_ENUMS[this.config.geminiImageAspectRatio],

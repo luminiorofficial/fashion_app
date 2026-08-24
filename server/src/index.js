@@ -6,6 +6,7 @@ const {LocalAssetStore, CloudinaryAssetStore} = require("./storage");
 const {FashionAnalyzer} = require("./analyzer");
 const {GeminiVirtualTryOnProvider, UnavailableVirtualTryOnProvider} = require("./tryon_provider");
 const {createSmsProvider} = require("./sms");
+const {runCleanup} = require("./cleanup");
 
 async function start() {
   const config = loadConfig();
@@ -23,12 +24,25 @@ async function start() {
     console.warn("Image storage is not configured for Cloudinary; images will be stored on local disk (development only).");
   }
   const analyzer = new FashionAnalyzer(config);
-  const tryonProvider = config.geminiApiKey ? new GeminiVirtualTryOnProvider(config) : new UnavailableVirtualTryOnProvider();
+  const tryonProvider = config.geminiImageApiKey ? new GeminiVirtualTryOnProvider(config) : new UnavailableVirtualTryOnProvider();
   const smsProvider = createSmsProvider(config);
   const app = createApp({config, repository, assetStore, analyzer, smsProvider, tryonProvider});
   const server = app.listen(config.port, config.host, () => console.info(`NERA API listening on ${config.publicBaseUrl}/api/v1`));
 
+  // Periodic DB/Cloudinary housekeeping. Only meaningful against a real
+  // database; skipped for the temporary in-memory dev adapter.
+  let cleanupTimer;
+  if (repository instanceof PostgresRepository) {
+    const runAndLog = () => runCleanup({repository, assetStore, config})
+      .then((summary) => { if (config.env === "development") console.info("[NERA cleanup]", summary); })
+      .catch((error) => console.error("NERA cleanup failed:", error.message));
+    runAndLog();
+    cleanupTimer = setInterval(runAndLog, config.cleanupIntervalMinutes * 60_000);
+    cleanupTimer.unref();
+  }
+
   const shutdown = () => server.close(async () => {
+    clearInterval(cleanupTimer);
     await repository.close?.();
     process.exit(0);
   });

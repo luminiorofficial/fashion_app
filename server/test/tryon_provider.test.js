@@ -26,7 +26,7 @@ test("requests IMAGE output and sends the profile photo followed by each garment
     assert.equal(result.buffer.toString(), "generated-image");
     assert.ok(!result.developmentFallback);
 
-    assert.deepEqual(requestBody.generationConfig.responseModalities, ["TEXT", "IMAGE"]);
+    assert.deepEqual(requestBody.generationConfig.responseModalities, ["IMAGE"]);
     assert.deepEqual(requestBody.generationConfig.responseFormat.image, {
       aspectRatio: "ASPECT_RATIO_THREE_BY_FOUR",
       imageSize: "IMAGE_SIZE_ONE_K",

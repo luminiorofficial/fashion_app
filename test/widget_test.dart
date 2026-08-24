@@ -139,19 +139,17 @@ void main() {
     expect(find.text('Choose from gallery'), findsOneWidget);
 
     await tester.tap(find.text('Choose from gallery'));
-    // The upload card intentionally animates while the review dialog is open.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Review AI details'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('Review 1 items'), findsOneWidget);
     expect(find.text('Black Silk Blazer'), findsOneWidget);
 
-    await tester.tap(find.text('Save item'));
+    await tester.tap(find.text('Save All (1)'));
     await tester.pumpAndSettle();
     expect(find.text('Black Silk Blazer'), findsOneWidget);
     expect(find.text('Outerwear'), findsNWidgets(2));
   });
 
-  testWidgets('gallery uploads and saves each selected wardrobe image', (
+  testWidgets('gallery uploads and saves every selected wardrobe image in one batch', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -170,14 +168,14 @@ void main() {
     await tester.tap(find.text('Upload Wardrobe'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Choose from gallery'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Review AI details'), findsOneWidget);
-    await tester.tap(find.text('Save item'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Review AI details'), findsOneWidget);
-    await tester.tap(find.text('Save item'));
+    await tester.pumpAndSettle();
+
+    // Both images are analyzed first and shown together on one review
+    // screen, not confirmed one at a time.
+    expect(find.text('Review 2 items'), findsOneWidget);
+    expect(find.text('Black Silk Blazer'), findsNWidgets(2));
+
+    await tester.tap(find.text('Save All (2)'));
     await tester.pumpAndSettle();
 
     expect(find.text('Black Silk Blazer'), findsNWidgets(2));
@@ -197,7 +195,7 @@ void main() {
 
       await tester.enterText(find.byType(TextFormField).at(0), 'Ada Lovelace');
       await tester.enterText(find.byType(TextFormField).at(1), '1815-12-10');
-      await tester.enterText(find.byType(TextFormField).at(2), '+919876543210');
+      await tester.enterText(find.byType(TextFormField).at(2), '9876543210');
       await tester.tap(find.text('Send OTP'));
       await tester.pumpAndSettle();
 

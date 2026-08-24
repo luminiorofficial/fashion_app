@@ -75,13 +75,16 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
     }
   }
 
-  Future<void> _save() async {
+  Future<void> _toggleSave() async {
+    final wasSaved = _result.isSaved;
     setState(() => _saving = true);
     try {
-      final saved = await widget.backend.saveTryOnLook(_result.id);
+      final updated = wasSaved
+          ? await widget.backend.unsaveTryOnLook(_result.id)
+          : await widget.backend.saveTryOnLook(_result.id);
       if (mounted) {
-        setState(() => _result = _result.copyWith(isSaved: saved.isSaved));
-        showNeraSnackBar(context, 'Look saved.');
+        setState(() => _result = _result.copyWith(isSaved: updated.isSaved));
+        showNeraSnackBar(context, wasSaved ? 'Look removed.' : 'Look saved.');
       }
     } catch (error) {
       if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
@@ -171,8 +174,8 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
       title: const Text('Virtual Try-On'),
       actions: [
         IconButton(
-          tooltip: 'Save Look',
-          onPressed: _saving || _result.isSaved ? null : _save,
+          tooltip: _result.isSaved ? 'Remove Look' : 'Save Look',
+          onPressed: _saving ? null : _toggleSave,
           icon: Icon(
             _result.isSaved
                 ? Icons.bookmark_rounded
@@ -246,13 +249,13 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
                             Expanded(
                               child: NeraButton(
                                 label: _result.isSaved
-                                    ? 'Look Saved'
+                                    ? 'Remove from Saved'
                                     : 'Save Look',
                                 icon: _result.isSaved
-                                    ? Icons.check_rounded
+                                    ? Icons.bookmark_remove_rounded
                                     : Icons.bookmark_add_rounded,
                                 loading: _saving,
-                                onPressed: _result.isSaved ? null : _save,
+                                onPressed: _toggleSave,
                               ),
                             ),
                             const SizedBox(width: 10),

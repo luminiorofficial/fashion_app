@@ -30,12 +30,13 @@ function summarizeProfile(profile) {
 class FashionAnalyzer {
   constructor(config) {
     this.config = config;
-    this.maxRetries = config.geminiMaxRetries ?? 3;
+    this.apiKey = config.geminiTextApiKey || config.geminiApiKey || "";
+    this.maxRetries = config.geminiTextMaxRetries ?? config.geminiMaxRetries ?? 3;
     this.retryBaseDelayMs = config.geminiRetryBaseDelayMs ?? 500;
   }
 
   async analyzeWardrobe(file) {
-    if (!this.config.geminiApiKey) return {item_name: "Wardrobe item", category: "Accessory", tags: ["pending-ai-review"], color: null, material: null, pattern: null, season: [], occasion: [], style: []};
+    if (!this.apiKey) return {item_name: "Wardrobe item", category: "Accessory", tags: ["pending-ai-review"], color: null, material: null, pattern: null, season: [], occasion: [], style: []};
     return this.call([
       "Analyze this single fashion item. Return an accurate concise catalog name, one allowed category, up to six styling tags, and structured attributes.",
       `Allowed categories: ${categories.join(", ")}.`,
@@ -55,7 +56,7 @@ class FashionAnalyzer {
   }
 
   async validateFullLengthPhoto(file) {
-    if (!this.config.geminiApiKey) return {is_full_length: true, reasons: []};
+    if (!this.apiKey) return {is_full_length: true, reasons: []};
     return this.call([
       "Validate whether this image is a clear, full-length photo of exactly one person from head to feet.",
       "Do not perform a fashion style analysis yet. Only determine if the image is suitable for a full-body profile analysis.",
@@ -73,7 +74,7 @@ class FashionAnalyzer {
   }
 
   async analyzeProfile(file) {
-    if (!this.config.geminiApiKey) return {body_shape: "Pending AI configuration", skin_tone: "Pending AI configuration", skin_undertone: null, hair_color: null, facial_structure: null, style_attributes: [], styling_notes: "Configure GEMINI_API_KEY to enable visual analysis."};
+    if (!this.apiKey) return {body_shape: "Pending AI configuration", skin_tone: "Pending AI configuration", skin_undertone: null, hair_color: null, facial_structure: null, style_attributes: [], styling_notes: "Configure GEMINI_TEXT_API_KEY (or GEMINI_API_KEY) to enable visual analysis."};
 
     const validation = await this.validateFullLengthPhoto(file);
     if (!validation.is_full_length) {
@@ -101,7 +102,7 @@ class FashionAnalyzer {
   // with the image-analysis methods to reuse the same retry/fallback and
   // friendly-error behavior.
   async suggestOutfit({eventType, profile, wardrobe, affinityNotes}) {
-    if (!this.config.geminiApiKey) return this.fallbackOutfit(eventType, wardrobe);
+    if (!this.apiKey) return this.fallbackOutfit(eventType, wardrobe);
 
     const catalog = wardrobe.map((item) => ({
       id: item.id,
@@ -204,7 +205,7 @@ class FashionAnalyzer {
     const parts = file ? [{text: prompt}, {inlineData: {mimeType: file.mimetype, data: file.buffer.toString("base64")}}] : [{text: prompt}];
     let response;
     try {
-      response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", "x-goog-api-key": this.config.geminiApiKey}, body: JSON.stringify({contents: [{parts}], generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema}}), signal: AbortSignal.timeout(45_000)});
+      response = await fetch(endpoint, {method: "POST", headers: {"content-type": "application/json", "x-goog-api-key": this.apiKey}, body: JSON.stringify({contents: [{parts}], generationConfig: {responseMimeType: "application/json", responseJsonSchema: schema}}), signal: AbortSignal.timeout(45_000)});
     } catch (_) {
       return {ok: false, error: new ApiError(504, "ANALYSIS_TIMEOUT", "The analysis service timed out. Please retry.")};
     }

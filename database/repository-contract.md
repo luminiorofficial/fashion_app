@@ -37,7 +37,19 @@ implement every method exported in `repositoryMethods` from
 - `saveProfile` must upsert the style profile together with the matching profile
   asset and completed analysis job.
 - `archiveAsset` and `deleteWardrobeItem` are soft deletes. Analysis and audit
-  history remains referentially valid.
+  history remains referentially valid. `deleteWardrobeItem` additionally hard
+  deletes the item's `wardrobe_item_tags` rows and its `analysis_jobs` row
+  (nothing else can reference either once the item is gone); it does not
+  touch `wardrobe_item_media`, since the `wardrobe_media_source` constraint
+  trigger still requires a soft-deleted upload item to keep exactly one
+  primary media row.
+- `listSavedTryOns`/`unsaveTryOn` back the Saved Looks feature (`is_saved`
+  on `tryon_requests`).
+- `deleteExpiredOtpChallenges`, `deleteOldSessions`, `deleteOrphanedAnalysisJobs`,
+  `listExpiredUnsavedTryOns`, `deleteTryOnRequest`, and
+  `deleteOldDeletedMediaAssets` back the periodic housekeeping in
+  `server/src/cleanup.js`. The orphaned/dangling checks must stay in sync
+  with every table that can reference `analysis_jobs`/`media_assets`.
 - `createOutfit` must insert one `outfits` row (status `completed`, `completed_at`
   set) and one `outfit_items` row per selected wardrobe item id, in one
   transaction, with `position` set to each item's order in the array. The

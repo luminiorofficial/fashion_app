@@ -180,6 +180,7 @@ class _NeraShellState extends State<NeraShell> {
             imageService: widget.imageService,
             user: widget.backend.currentUser.value,
             profile: profile,
+            wardrobe: wardrobe,
             loading: loading,
             error: error,
             onRetry: _retry,

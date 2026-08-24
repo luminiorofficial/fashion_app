@@ -477,6 +477,22 @@ test("removes the underlying object from the asset store when a wardrobe item is
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
+test("drops the analysis job for a wardrobe item once it is deleted", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  const {app, repository, uploadDir} = await fixture({assetStore});
+  const token = await register(app);
+
+  const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "blazer.jpg", contentType: "image/jpeg"}).expect(201);
+  const draft = analyzed.body.draft;
+  const saved = await request(app).post("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: draft.name, category: draft.category, tags: draft.tags}).expect(201);
+  assert.ok(await repository.getAnalysisJob(draft.analysisJobId));
+
+  await request(app).delete(`/api/v1/wardrobe/items/${saved.body.item.id}`).set("authorization", `Bearer ${token}`).expect(204);
+
+  assert.equal(await repository.getAnalysisJob(draft.analysisJobId), null);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
 test("deleting a product-link wardrobe item (no image) does not touch the asset store", async () => {
   const assetStore = new FakePrivateAssetStore();
   const {app, uploadDir} = await fixture({assetStore});
@@ -588,6 +604,46 @@ test("generates a virtual try-on image from wardrobe items and the analyzed prof
 
   const saved = await request(app).post(`/api/v1/tryon/${tryOn.body.tryOn.id}/save`).set("authorization", `Bearer ${token}`).expect(200);
   assert.equal(saved.body.tryOn.isSaved, true);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("lists and unsaves saved looks", async () => {
+  const {app, uploadDir} = await fixture({assetStore: new FakePrivateAssetStore()});
+  const token = await register(app);
+  const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+  const tryOn = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id]}).expect(201);
+
+  const emptyBeforeSave = await request(app).get("/api/v1/tryon/saved").set("authorization", `Bearer ${token}`).expect(200);
+  assert.deepEqual(emptyBeforeSave.body.tryOns, []);
+
+  await request(app).post(`/api/v1/tryon/${tryOn.body.tryOn.id}/save`).set("authorization", `Bearer ${token}`).expect(200);
+  const savedList = await request(app).get("/api/v1/tryon/saved").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(savedList.body.tryOns.length, 1);
+  assert.equal(savedList.body.tryOns[0].id, tryOn.body.tryOn.id);
+  assert.equal(savedList.body.tryOns[0].isSaved, true);
+  assert.ok(savedList.body.tryOns[0].imageUrl);
+
+  const unsaved = await request(app).post(`/api/v1/tryon/${tryOn.body.tryOn.id}/unsave`).set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(unsaved.body.tryOn.isSaved, false);
+  const emptyAfterUnsave = await request(app).get("/api/v1/tryon/saved").set("authorization", `Bearer ${token}`).expect(200);
+  assert.deepEqual(emptyAfterUnsave.body.tryOns, []);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("does not let one user list or unsave another user's saved looks", async () => {
+  const {app, uploadDir} = await fixture({assetStore: new FakePrivateAssetStore()});
+  const firstToken = await register(app, "+919876543210");
+  const secondToken = await register(app, "+919876543211");
+  const top = await addWardrobePhoto(app, firstToken, {name: "Silk Blouse", category: "Top"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${firstToken}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+  const tryOn = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${firstToken}`).send({wardrobeItemIds: [top.id]}).expect(201);
+  await request(app).post(`/api/v1/tryon/${tryOn.body.tryOn.id}/save`).set("authorization", `Bearer ${firstToken}`).expect(200);
+
+  const secondUserList = await request(app).get("/api/v1/tryon/saved").set("authorization", `Bearer ${secondToken}`).expect(200);
+  assert.deepEqual(secondUserList.body.tryOns, []);
+  const forbidden = await request(app).post(`/api/v1/tryon/${tryOn.body.tryOn.id}/unsave`).set("authorization", `Bearer ${secondToken}`).expect(404);
+  assert.equal(forbidden.body.error.code, "TRYON_NOT_FOUND");
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 

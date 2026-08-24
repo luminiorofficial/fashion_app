@@ -19,17 +19,35 @@ function loadConfig(overrides = {}) {
     twilioMessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID || "",
     twilioFromNumber: process.env.TWILIO_FROM_NUMBER || "",
     sessionTtlDays: Number(process.env.SESSION_TTL_DAYS || 30),
+    // Legacy shared key/retry setting, kept as a fallback for whichever of
+    // the two split settings below isn't explicitly configured.
     geminiApiKey: process.env.GEMINI_API_KEY || "",
-    geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
     geminiMaxRetries: Number(process.env.GEMINI_MAX_RETRIES || 3),
+    geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
     geminiRetryBaseDelayMs: Number(process.env.GEMINI_RETRY_BASE_DELAY_MS || 500),
+    // Text/JSON analysis (wardrobe + profile analysis, outfit styling) and
+    // paid virtual try-on image generation are billed separately, so each
+    // gets its own API key and retry budget. Both fall back to the shared
+    // legacy settings above when unset, so a single-key setup keeps working.
+    geminiTextApiKey: process.env.GEMINI_TEXT_API_KEY || process.env.GEMINI_API_KEY || "",
+    geminiTextMaxRetries: Number(process.env.GEMINI_TEXT_MAX_RETRIES || process.env.GEMINI_MAX_RETRIES || 3),
+    geminiImageApiKey: process.env.GEMINI_IMAGE_API_KEY || process.env.GEMINI_API_KEY || "",
+    // Image generation retries are kept low by default so a failing try-on
+    // doesn't leave the user waiting through several slow paid attempts.
+    geminiImageMaxRetries: Number(process.env.GEMINI_IMAGE_MAX_RETRIES || 1),
     // Virtual try-on uses a separate, image-capable model family from the
-    // text/JSON analysis calls above, with its own fallback model.
-    geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image",
-    geminiImageFallbackModel: process.env.GEMINI_IMAGE_FALLBACK_MODEL || "gemini-3.1-flash-image",
+    // text/JSON analysis calls above. The default primary model is the
+    // faster/cheaper flash variant; the higher-quality pro model is only a
+    // fallback, keeping typical try-on cost and latency down.
+    geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image",
+    geminiImageFallbackModel: process.env.GEMINI_IMAGE_FALLBACK_MODEL || "gemini-3-pro-image",
     geminiImageSize: process.env.GEMINI_IMAGE_SIZE || "1K",
     geminiImageAspectRatio: process.env.GEMINI_IMAGE_ASPECT_RATIO || "3:4",
     geminiImageTimeoutMs: Number(process.env.GEMINI_IMAGE_TIMEOUT_MS || 120_000),
+    // Garment/profile images are downscaled to this longest side before
+    // being sent to the paid image model, independent of the (larger) size
+    // kept in Cloudinary for display, to cut input token/image cost.
+    geminiImageMaxInputPx: Number(process.env.GEMINI_IMAGE_MAX_INPUT_PX || 1024),
     databaseUrl: process.env.DATABASE_URL || "",
     databasePoolMax: Number(process.env.DATABASE_POOL_MAX || 10),
     databaseSsl: process.env.DATABASE_SSL === "true",
@@ -43,6 +61,18 @@ function loadConfig(overrides = {}) {
     // still private/authenticated but do not expire.
     cloudinaryAuthTokenKey: process.env.CLOUDINARY_AUTH_TOKEN_KEY || "",
     cloudinarySignedUrlTtlSeconds: Number(process.env.CLOUDINARY_SIGNED_URL_TTL_SECONDS || 900),
+    // Periodic housekeeping: how often the server purges expired/orphaned
+    // rows (and their Cloudinary objects, for unsaved try-on results) so
+    // Postgres storage doesn't grow unbounded. See src/cleanup.js.
+    cleanupIntervalMinutes: Number(process.env.CLEANUP_INTERVAL_MINUTES || 360),
+    otpRetentionDays: Number(process.env.OTP_RETENTION_DAYS || 7),
+    sessionRetentionDays: Number(process.env.SESSION_RETENTION_DAYS || 30),
+    analysisJobRetentionDays: Number(process.env.ANALYSIS_JOB_RETENTION_DAYS || 14),
+    mediaAssetRetentionDays: Number(process.env.MEDIA_ASSET_RETENTION_DAYS || 14),
+    // Generated virtual try-on images the user never saved are deleted
+    // (Cloudinary object + DB row) after this many hours. Saved looks
+    // (is_saved = true) are never touched by this cleanup.
+    tryonUnsavedRetentionHours: Number(process.env.TRYON_UNSAVED_RETENTION_HOURS || 24),
     ...overrides,
   };
   const cloudinaryFields = [config.cloudinaryCloudName, config.cloudinaryApiKey, config.cloudinaryApiSecret];

@@ -129,6 +129,25 @@ class MemoryNeraBackend implements NeraBackend {
   }
 
   @override
+  Future<void> saveWardrobeDrafts(List<WardrobeDraft> drafts) async {
+    for (final draft in drafts) {
+      _items.insert(
+        0,
+        WardrobeItem(
+          id: draft.id,
+          name: draft.name,
+          category: draft.category,
+          imageUrl: draft.imageUrl,
+          imagePath: draft.imagePath,
+          tags: draft.tags,
+          createdAt: DateTime.now(),
+        ),
+      );
+    }
+    _wardrobeController.add(List.unmodifiable(_items));
+  }
+
+  @override
   Future<void> discardWardrobeDraft(WardrobeDraft draft) async {}
   @override
   Future<void> addWardrobeLink({
@@ -233,6 +252,15 @@ class MemoryNeraBackend implements NeraBackend {
 
   @override
   Future<TryOnResult> saveTryOnLook(String tryOnId) async =>
+      throw const NeraException(
+        'Virtual try-on is unavailable in preview mode.',
+      );
+
+  @override
+  Future<List<TryOnResult>> listSavedLooks() async => const [];
+
+  @override
+  Future<TryOnResult> unsaveTryOnLook(String tryOnId) async =>
       throw const NeraException(
         'Virtual try-on is unavailable in preview mode.',
       );

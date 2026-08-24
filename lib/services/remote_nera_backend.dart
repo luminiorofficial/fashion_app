@@ -169,6 +169,23 @@ class RemoteNeraBackend implements NeraBackend {
   }
 
   @override
+  Future<void> saveWardrobeDrafts(List<WardrobeDraft> drafts) async {
+    if (drafts.isEmpty) return;
+    await Future.wait(
+      drafts.map(
+        (draft) => _api.post('/wardrobe/items', {
+          'assetId': draft.id,
+          'name': draft.name,
+          'category': draft.category,
+          'tags': draft.tags,
+          'analysisJobId': draft.analysisJobId,
+        }),
+      ),
+    );
+    await _refresh();
+  }
+
+  @override
   Future<void> discardWardrobeDraft(WardrobeDraft draft) =>
       _api.delete('/wardrobe/drafts/${draft.id}');
   @override
@@ -273,6 +290,20 @@ class RemoteNeraBackend implements NeraBackend {
   @override
   Future<TryOnResult> saveTryOnLook(String tryOnId) async {
     final response = await _api.post('/tryon/$tryOnId/save', const {});
+    return TryOnResult.fromJson(response['tryOn'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<List<TryOnResult>> listSavedLooks() async {
+    final response = await _api.get('/tryon/saved');
+    return (response['tryOns'] as List? ?? const [])
+        .map((tryOn) => TryOnResult.fromJson(tryOn as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  Future<TryOnResult> unsaveTryOnLook(String tryOnId) async {
+    final response = await _api.post('/tryon/$tryOnId/unsave', const {});
     return TryOnResult.fromJson(response['tryOn'] as Map<String, dynamic>);
   }
 

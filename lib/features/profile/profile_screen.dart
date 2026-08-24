@@ -7,6 +7,7 @@ import '../../models/nera_models.dart';
 import '../../services/image_service.dart';
 import '../../services/nera_backend.dart';
 import 'full_body_photo_flow.dart';
+import 'saved_looks_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -15,6 +16,7 @@ class ProfileScreen extends StatefulWidget {
     required this.imageService,
     required this.user,
     required this.profile,
+    required this.wardrobe,
     required this.loading,
     required this.onRetry,
     this.error,
@@ -24,6 +26,7 @@ class ProfileScreen extends StatefulWidget {
   final NeraImageService imageService;
   final NeraUser? user;
   final StyleProfile profile;
+  final List<WardrobeItem> wardrobe;
   final bool loading;
   final String? error;
   final VoidCallback onRetry;
@@ -54,6 +57,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (error) {
       if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
     }
+  }
+
+  void _openSavedLooks() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => SavedLooksScreen(
+          backend: widget.backend,
+          wardrobe: widget.wardrobe,
+        ),
+      ),
+    );
   }
 
   @override
@@ -166,6 +180,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
         const SizedBox(height: NeraSpacing.xxl),
+        NeraButton(
+          label: 'Saved Looks',
+          icon: Icons.bookmark_rounded,
+          style: NeraButtonStyleType.secondary,
+          onPressed: _openSavedLooks,
+        ),
+        const SizedBox(height: NeraSpacing.md),
         NeraButton(
           label: 'Sign out',
           icon: Icons.logout_rounded,

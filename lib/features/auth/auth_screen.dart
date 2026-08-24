@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/errors/friendly_error.dart';
 import '../../core/theme/theme.dart';
@@ -25,7 +26,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _birthDate = TextEditingController();
-  final _phone = TextEditingController(text: '+91 ');
+  final _phone = TextEditingController();
   final _otp = TextEditingController();
   OtpChallenge? _challenge;
   _AuthMode _mode = _AuthMode.choice;
@@ -65,7 +66,7 @@ class _AuthScreenState extends State<AuthScreen> {
           dateOfBirth: _mode == _AuthMode.register
               ? _birthDate.text.trim()
               : null,
-          phoneNumber: _phone.text.replaceAll(RegExp(r'[\s()-]'), ''),
+          phoneNumber: '+91${_phone.text.trim()}',
         );
         if (!mounted) return;
         if (_mode == _AuthMode.register && challenge.purpose == 'login') {
@@ -130,7 +131,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   const SizedBox(height: NeraSpacing.sm),
                   Text(
                     _challenge != null
-                        ? 'Enter the code sent to ${_phone.text}.'
+                        ? 'Enter the code sent to +91 ${_phone.text}.'
                         : 'Private, personal styling secured with phone verification.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyLarge,
@@ -178,17 +179,19 @@ class _AuthScreenState extends State<AuthScreen> {
                     ],
                     TextFormField(
                       controller: _phone,
-                      keyboardType: TextInputType.phone,
+                      keyboardType: TextInputType.number,
+                      maxLength: 10,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       decoration: const InputDecoration(
                         labelText: 'Phone number',
-                        hintText: '+919876543210',
+                        hintText: '9876543210',
+                        prefixText: '+91  ',
+                        counterText: '',
                       ),
                       validator: (value) =>
-                          RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(
-                            value?.replaceAll(RegExp(r'[\s()-]'), '') ?? '',
-                          )
+                          RegExp(r'^\d{10}$').hasMatch(value?.trim() ?? '')
                           ? null
-                          : 'Include country code, for example +91.',
+                          : 'Enter a 10-digit mobile number.',
                     ),
                     const SizedBox(height: NeraSpacing.lg),
                     NeraButton(

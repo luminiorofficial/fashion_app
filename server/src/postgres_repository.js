@@ -432,8 +432,23 @@ class PostgresRepository {
     });
   }
 
+  // Soft-deletes the item (kept so past outfit history stays intact — see
+  // outfit_items' FK RESTRICT in the schema) but also drops its now-useless
+  // AI analysis result and tag links, since nothing references them once
+  // the item is gone. wardrobe_item_media is left alone: the schema's
+  // wardrobe_media_source constraint trigger still requires a soft-deleted
+  // upload item to keep exactly one primary media row, so that cleanup is
+  // just the existing Cloudinary removal + media_assets archive in app.js.
   async deleteWardrobeItem(itemId) {
-    await this.pool.query("UPDATE wardrobe_items SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL", [itemId]);
+    await this.transaction(async (client) => {
+      const updated = await client.query(
+        "UPDATE wardrobe_items SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING analysis_job_id",
+        [itemId],
+      );
+      await client.query("DELETE FROM wardrobe_item_tags WHERE wardrobe_item_id = $1", [itemId]);
+      const analysisJobId = updated.rows[0]?.analysis_job_id;
+      if (analysisJobId) await client.query("DELETE FROM analysis_jobs WHERE id = $1", [analysisJobId]);
+    });
   }
 
   async createOutfit(userId, {eventType, rationale, wardrobeItemIds, suggestedPurchaseItem, analysisContext}) {
@@ -529,6 +544,77 @@ class PostgresRepository {
   async markTryOnSaved(tryOnId) {
     const result = await this.pool.query("UPDATE tryon_requests SET is_saved = true WHERE id = $1 RETURNING *", [tryOnId]);
     return tryOnFromRow(result.rows[0]);
+  }
+
+  async listSavedTryOns(userId) {
+    const result = await this.pool.query(`
+      SELECT t.*, asset.storage_key AS result_storage_key
+        FROM tryon_requests t
+        LEFT JOIN media_assets asset ON asset.id = t.result_media_asset_id
+       WHERE t.user_id = $1 AND t.is_saved = true AND t.status = 'completed'
+       ORDER BY t.created_at DESC`, [userId]);
+    return result.rows.map(tryOnFromRow);
+  }
+
+  async unsaveTryOn(tryOnId) {
+    const result = await this.pool.query("UPDATE tryon_requests SET is_saved = false WHERE id = $1 RETURNING *", [tryOnId]);
+    return tryOnFromRow(result.rows[0]);
+  }
+
+  // --- Periodic housekeeping (see src/cleanup.js) ---
+
+  async deleteExpiredOtpChallenges(beforeIso) {
+    const result = await this.pool.query("DELETE FROM otp_challenges WHERE created_at < $1", [beforeIso]);
+    return result.rowCount;
+  }
+
+  async deleteOldSessions(beforeIso) {
+    const result = await this.pool.query(
+      "DELETE FROM auth_sessions WHERE (revoked_at IS NOT NULL OR expires_at < now()) AND created_at < $1",
+      [beforeIso],
+    );
+    return result.rowCount;
+  }
+
+  // Analysis jobs no longer referenced by the wardrobe item or style
+  // profile they were created for are pure duplicate AI JSON at that point
+  // (already normalized into wardrobe_items/user_style_profiles columns).
+  async deleteOrphanedAnalysisJobs(beforeIso) {
+    const result = await this.pool.query(`
+      DELETE FROM analysis_jobs j
+       WHERE j.created_at < $1
+         AND NOT EXISTS (SELECT 1 FROM wardrobe_items w WHERE w.analysis_job_id = j.id)
+         AND NOT EXISTS (SELECT 1 FROM user_style_profiles p WHERE p.latest_analysis_job_id = j.id)`,
+    [beforeIso]);
+    return result.rowCount;
+  }
+
+  async listExpiredUnsavedTryOns(beforeIso) {
+    const result = await this.pool.query(`
+      SELECT t.*, asset.storage_key AS result_storage_key
+        FROM tryon_requests t
+        LEFT JOIN media_assets asset ON asset.id = t.result_media_asset_id
+       WHERE t.is_saved = false AND t.created_at < $1`, [beforeIso]);
+    return result.rows.map(tryOnFromRow);
+  }
+
+  async deleteTryOnRequest(tryOnId) {
+    await this.pool.query("DELETE FROM tryon_requests WHERE id = $1", [tryOnId]);
+  }
+
+  // Purges media_assets rows already marked deleted (Cloudinary object
+  // already removed at delete time) once nothing else references them and
+  // they have sat past the retention window.
+  async deleteOldDeletedMediaAssets(beforeIso) {
+    const result = await this.pool.query(`
+      DELETE FROM media_assets m
+       WHERE m.deleted_at IS NOT NULL AND m.deleted_at < $1
+         AND NOT EXISTS (SELECT 1 FROM wardrobe_item_media wm WHERE wm.media_asset_id = m.id)
+         AND NOT EXISTS (SELECT 1 FROM analysis_jobs aj WHERE aj.media_asset_id = m.id)
+         AND NOT EXISTS (SELECT 1 FROM user_style_profiles sp WHERE sp.profile_image_asset_id = m.id)
+         AND NOT EXISTS (SELECT 1 FROM tryon_requests tr WHERE tr.profile_media_asset_id = m.id OR tr.result_media_asset_id = m.id)`,
+    [beforeIso]);
+    return result.rowCount;
   }
 }
 

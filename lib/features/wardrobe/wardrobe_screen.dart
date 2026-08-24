@@ -9,6 +9,7 @@ import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
 import '../../services/image_service.dart';
 import '../../services/nera_backend.dart';
+import 'wardrobe_batch_review_screen.dart';
 import 'wardrobe_item_image.dart';
 
 class WardrobeScreen extends StatefulWidget {
@@ -98,47 +99,66 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     }
   }
 
+  // Analyzes every picked image first, then shows one review screen with
+  // every detected item and a single "Save All" button — no per-item
+  // confirmation dialog. Saving happens in one batch call so the wardrobe
+  // list is refreshed only once, not after every individual item.
   Future<void> _upload(ImageSource source) async {
     setState(() {
       _processing = true;
       _progress = 'Selecting images…';
     });
-    var saved = 0;
+    final drafts = <WardrobeDraft>[];
     try {
       final images = await widget.imageService.pickMany(source);
       for (var index = 0; index < images.length; index += 1) {
-        WardrobeDraft? draft;
+        if (mounted) {
+          setState(
+            () => _progress = 'Analyzing ${index + 1}/${images.length}…',
+          );
+        }
         try {
-          if (mounted) {
-            setState(
-              () => _progress = '${index + 1}/${images.length} analyzing…',
-            );
-          }
           final image = images[index];
-          draft = await widget.backend.analyzeWardrobeImage(
+          final draft = await widget.backend.analyzeWardrobeImage(
             Uint8List.fromList(image.bytes),
             image.fileName,
           );
-          if (!mounted) return;
-          final reviewed = await _review(draft);
-          if (reviewed == null) {
-            await widget.backend.discardWardrobeDraft(draft);
-          } else {
-            await widget.backend.saveWardrobeDraft(reviewed);
-            saved += 1;
-          }
+          drafts.add(draft);
         } catch (error) {
-          if (draft != null) await widget.backend.discardWardrobeDraft(draft);
           if (mounted) {
             showNeraSnackBar(context, friendlyError(error), error: true);
           }
         }
       }
-      if (mounted && saved > 0) {
-        showNeraSnackBar(
-          context,
-          '$saved wardrobe ${saved == 1 ? 'item' : 'items'} added.',
-        );
+      if (!mounted || drafts.isEmpty) return;
+      setState(() {
+        _processing = false;
+        _progress = null;
+      });
+
+      final reviewed = await WardrobeBatchReviewScreen.review(
+        context,
+        drafts,
+      );
+      final keptIds = reviewed.map((draft) => draft.id).toSet();
+      final discarded = drafts.where(
+        (draft) => !keptIds.contains(draft.id),
+      );
+      await Future.wait(discarded.map(widget.backend.discardWardrobeDraft));
+
+      if (reviewed.isNotEmpty && mounted) {
+        setState(() {
+          _processing = true;
+          _progress = 'Saving ${reviewed.length} items…';
+        });
+        await widget.backend.saveWardrobeDrafts(reviewed);
+        if (mounted) {
+          showNeraSnackBar(
+            context,
+            '${reviewed.length} wardrobe '
+            '${reviewed.length == 1 ? 'item' : 'items'} added.',
+          );
+        }
       }
     } catch (error) {
       if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
@@ -150,65 +170,6 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         });
       }
     }
-  }
-
-  Future<WardrobeDraft?> _review(WardrobeDraft draft) async {
-    final name = TextEditingController(text: draft.name);
-    var category = wardrobeCategories.contains(draft.category)
-        ? draft.category
-        : 'Accessory';
-    final result = await showDialog<WardrobeDraft>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, update) => AlertDialog(
-          title: const Text('Review AI details'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'NERA identified this piece. Correct anything before saving.',
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: name,
-                decoration: const InputDecoration(labelText: 'Item name'),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: category,
-                decoration: const InputDecoration(labelText: 'Category'),
-                items: [
-                  for (final value in wardrobeCategories)
-                    DropdownMenuItem(value: value, child: Text(value)),
-                ],
-                onChanged: (value) {
-                  if (value != null) update(() => category = value);
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Discard'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (name.text.trim().isEmpty) return;
-                Navigator.pop(
-                  context,
-                  draft.copyWith(name: name.text.trim(), category: category),
-                );
-              },
-              child: const Text('Save item'),
-            ),
-          ],
-        ),
-      ),
-    );
-    name.dispose();
-    return result;
   }
 
   Future<void> _addLink() async {

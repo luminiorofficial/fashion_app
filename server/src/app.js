@@ -111,7 +111,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     try {
       asset = await repository.createAsset({userId: request.auth.user.id, purpose: "profile_analysis", ...stored});
       const result = await analyzer.analyzeProfile(file);
-      const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "style_profile", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
+      const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "style_profile", provider: config.geminiTextApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
       const previousProfile = await repository.getProfile(request.auth.user.id);
       const profile = await repository.saveProfile(request.auth.user.id, {bodyType: result.body_shape, skinTone: result.skin_tone, skinUndertone: result.skin_undertone, hairColor: result.hair_color, facialStructure: result.facial_structure, styleAttributes: result.style_attributes || [], stylingNotes: result.styling_notes, profileImageAssetId: asset.id, profileImageStorageKey: asset.storageKey, profileImageStorageProvider: asset.storageProvider, latestAnalysisJobId: job.id});
       if (previousProfile?.profileImageAssetId && previousProfile.profileImageAssetId !== asset.id) {
@@ -136,7 +136,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     try {
       asset = await repository.createAsset({userId: request.auth.user.id, purpose: "wardrobe_item", ...stored});
       const result = await analyzer.analyzeWardrobe(file);
-      const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "wardrobe_item", provider: config.geminiApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
+      const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "wardrobe_item", provider: config.geminiTextApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
       response.status(201).json({draft: {assetId: asset.id, imageUrl: await assetStore.signedUrl(asset.storageKey), name: result.item_name, category: result.category, tags: result.tags, color: result.color ?? null, material: result.material ?? null, pattern: result.pattern ?? null, season: result.season || [], occasion: result.occasion || [], style: result.style || [], analysisJobId: job.id}});
     } catch (error) {
       await cleanupOrphanedAsset(assetStore, repository, stored.storageKey, asset);
@@ -248,17 +248,19 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     logDevelopment(config, `try-on profile asset: id=${profile.profileImageAssetId} provider=${profile.profileImageStorageProvider || "missing"}`);
     assert(profile.profileImageStorageProvider === "cloudinary", 400, "PROFILE_ASSET_UNAVAILABLE", "Re-upload your full-body profile photo; it is not available in Cloudinary.");
 
-    const profileFile = await readTryOnAsset({config, assetStore, storageKey: profile.profileImageStorageKey, description: `profile id=${profile.profileImageAssetId}`, error: new ApiError(422, "PROFILE_ASSET_FETCH_FAILED", "Re-upload your full-body profile photo; the stored Cloudinary image could not be retrieved.")});
-    const garmentFiles = [];
-    for (const item of garmentItems) {
-      garmentFiles.push(await readTryOnAsset({
+    // Fetch the profile photo and every garment photo from Cloudinary
+    // concurrently rather than one at a time, since they're independent
+    // reads — this is the dominant latency cost before the Gemini call.
+    const [profileFile, garmentFiles] = await Promise.all([
+      readTryOnAsset({config, assetStore, storageKey: profile.profileImageStorageKey, description: `profile id=${profile.profileImageAssetId}`, error: new ApiError(422, "PROFILE_ASSET_FETCH_FAILED", "Re-upload your full-body profile photo; the stored Cloudinary image could not be retrieved.")}),
+      Promise.all(garmentItems.map((item) => readTryOnAsset({
         config,
         assetStore,
         storageKey: item.imageStorageKey,
         description: `wardrobe id=${item.id} name=${JSON.stringify(item.name)}`,
         error: new ApiError(422, "WARDROBE_ASSET_FETCH_FAILED", `Re-upload photo for ${item.name} (${item.id}); the stored Cloudinary image could not be retrieved.`),
-      }));
-    }
+      }))),
+    ]);
     for (const file of [profileFile, ...garmentFiles]) {
       assert(file.buffer.length <= MAX_FETCHED_ASSET_BYTES, 502, "ASSET_TOO_LARGE", "A stored image is too large to process.");
     }
@@ -296,6 +298,19 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     const saved = await repository.markTryOnSaved(tryOn.id);
     const resultAsset = await repository.getAsset(saved.resultMediaAssetId);
     response.json({tryOn: await publicTryOn(assetStore, saved, resultAsset?.storageKey || "", false)});
+  });
+
+  route.get("/tryon/saved", authenticate, async (request, response) => {
+    const items = await repository.listSavedTryOns(request.auth.user.id);
+    response.json({tryOns: await Promise.all(items.map((tryOn) => publicTryOn(assetStore, tryOn, tryOn.resultStorageKey || "", false)))});
+  });
+
+  route.post("/tryon/:id/unsave", authenticate, async (request, response) => {
+    const tryOn = await repository.getTryOnRequest(request.params.id);
+    assert(tryOn && tryOn.userId === request.auth.user.id, 404, "TRYON_NOT_FOUND", "The try-on result was not found.");
+    const unsaved = await repository.unsaveTryOn(tryOn.id);
+    const resultAsset = await repository.getAsset(unsaved.resultMediaAssetId);
+    response.json({tryOn: await publicTryOn(assetStore, unsaved, resultAsset?.storageKey || "", false)});
   });
 
   app.use("/api/v1", route);
