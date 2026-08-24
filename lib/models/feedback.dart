@@ -6,10 +6,15 @@ import '../core/theme/nera_colors.dart';
 /// signal captured on [OutfitFeedback.wornAt]. Matches the server's
 /// `outfit_reaction` enum exactly.
 enum OutfitReaction {
-  loveIt('love_it', 'Love It', '❤️', NeraColors.loveIt),
-  wouldWear('would_wear', 'Would Wear', '👍', NeraColors.wouldWear),
-  notSure('not_sure', 'Not Sure', '😐', NeraColors.notSure),
-  notMyStyle('not_my_style', 'Not My Style', '👎', NeraColors.notMyStyle);
+  loveIt('love_it', 'Love It', '\u2764\uFE0F', NeraColors.loveIt),
+  wouldWear('would_wear', 'Would Wear', '\u{1F44D}', NeraColors.wouldWear),
+  notSure('not_sure', 'Not Sure', '\u{1F610}', NeraColors.notSure),
+  notMyStyle(
+    'not_my_style',
+    'Not My Style',
+    '\u{1F44E}',
+    NeraColors.notMyStyle,
+  );
 
   const OutfitReaction(this.wireValue, this.label, this.emoji, this.color);
   final String wireValue;
@@ -34,15 +39,18 @@ class OutfitFeedback {
 
   bool get hasBeenWorn => wornAt != null;
 
-  OutfitFeedback copyWith({OutfitReaction? reaction, DateTime? wornAt}) => OutfitFeedback(
-    outfitId: outfitId,
-    reaction: reaction ?? this.reaction,
-    wornAt: wornAt ?? this.wornAt,
-  );
+  OutfitFeedback copyWith({OutfitReaction? reaction, DateTime? wornAt}) =>
+      OutfitFeedback(
+        outfitId: outfitId,
+        reaction: reaction ?? this.reaction,
+        wornAt: wornAt ?? this.wornAt,
+      );
 
   factory OutfitFeedback.fromJson(Map<String, dynamic> json) => OutfitFeedback(
     outfitId: json['outfitId'] as String,
     reaction: OutfitReaction.fromWire(json['reaction'] as String?),
-    wornAt: json['wornAt'] != null ? DateTime.tryParse(json['wornAt'] as String) : null,
+    wornAt: json['wornAt'] != null
+        ? DateTime.tryParse(json['wornAt'] as String)
+        : null,
   );
 }

@@ -27,7 +27,7 @@ class NeraSectionHeader extends StatelessWidget {
           ],
         ),
       ),
-      if (action != null) action!,
+      ?action,
     ],
   );
 }
@@ -53,30 +53,52 @@ class NeraEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: NeraSpacing.xxl, horizontal: NeraSpacing.lg),
+    padding: const EdgeInsets.symmetric(
+      vertical: NeraSpacing.xxl,
+      horizontal: NeraSpacing.lg,
+    ),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 64,
           height: 64,
-          decoration: BoxDecoration(color: NeraColors.surfaceElevated, shape: BoxShape.circle),
+          decoration: BoxDecoration(
+            color: NeraColors.surfaceElevated,
+            shape: BoxShape.circle,
+          ),
           child: Icon(icon, color: iconColor, size: 28),
         ),
         const SizedBox(height: NeraSpacing.lg),
-        Text(title, style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleLarge,
+          textAlign: TextAlign.center,
+        ),
         if (message != null) ...[
           const SizedBox(height: NeraSpacing.sm),
-          Text(message!, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+          Text(
+            message!,
+            style: Theme.of(context).textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
         ],
-        if (action != null) ...[const SizedBox(height: NeraSpacing.lg), action!],
+        if (action != null) ...[
+          const SizedBox(height: NeraSpacing.lg),
+          action!,
+        ],
       ],
     ),
   );
 }
 
 class NeraErrorState extends StatelessWidget {
-  const NeraErrorState({super.key, required this.message, this.onRetry, this.title = 'Something went wrong'});
+  const NeraErrorState({
+    super.key,
+    required this.message,
+    this.onRetry,
+    this.title = 'Something went wrong',
+  });
 
   final String message;
   final String title;
@@ -95,7 +117,12 @@ class NeraErrorState extends StatelessWidget {
 }
 
 class NeraSkeleton extends StatelessWidget {
-  const NeraSkeleton({super.key, this.width, this.height = 16, this.radius = 8});
+  const NeraSkeleton({
+    super.key,
+    this.width,
+    this.height = 16,
+    this.radius = 8,
+  });
 
   final double? width;
   final double height;
@@ -108,7 +135,10 @@ class NeraSkeleton extends StatelessWidget {
     child: Container(
       width: width,
       height: height,
-      decoration: BoxDecoration(color: NeraColors.surfaceElevated, borderRadius: BorderRadius.circular(radius)),
+      decoration: BoxDecoration(
+        color: NeraColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(radius),
+      ),
     ),
   );
 }
@@ -116,7 +146,11 @@ class NeraSkeleton extends StatelessWidget {
 /// Fades and lifts [child] in on entry, with an optional stagger [delay] so
 /// lists read as a gentle cascade rather than popping in all at once.
 class NeraFadeIn extends StatefulWidget {
-  const NeraFadeIn({super.key, required this.child, this.delay = Duration.zero});
+  const NeraFadeIn({
+    super.key,
+    required this.child,
+    this.delay = Duration.zero,
+  });
 
   final Widget child;
   final Duration delay;
@@ -125,7 +159,8 @@ class NeraFadeIn extends StatefulWidget {
   State<NeraFadeIn> createState() => _NeraFadeInState();
 }
 
-class _NeraFadeInState extends State<NeraFadeIn> with SingleTickerProviderStateMixin {
+class _NeraFadeInState extends State<NeraFadeIn>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 420),
@@ -147,25 +182,37 @@ class _NeraFadeInState extends State<NeraFadeIn> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    final curved = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    final curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
     return AnimatedBuilder(
       animation: curved,
       child: widget.child,
       builder: (context, child) => Opacity(
         opacity: curved.value.clamp(0, 1),
-        child: Transform.translate(offset: Offset(0, (1 - curved.value) * 14), child: child),
+        child: Transform.translate(
+          offset: Offset(0, (1 - curved.value) * 14),
+          child: child,
+        ),
       ),
     );
   }
 }
 
-void showNeraSnackBar(BuildContext context, String message, {bool error = false}) {
+void showNeraSnackBar(
+  BuildContext context,
+  String message, {
+  bool error = false,
+}) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: error ? NeraColors.errorSurface : NeraColors.surfaceElevated,
+        backgroundColor: error
+            ? NeraColors.errorSurface
+            : NeraColors.surfaceElevated,
       ),
     );
 }

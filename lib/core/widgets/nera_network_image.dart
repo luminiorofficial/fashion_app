@@ -32,8 +32,12 @@ class NeraNetworkImage extends StatelessWidget {
             imageUrl: url,
             fit: fit,
             fadeInDuration: const Duration(milliseconds: 220),
-            placeholder: (context, url) => const NeraSkeleton(width: double.infinity, height: double.infinity, radius: 0),
-            errorWidget: (context, url, error) => _placeholder(),
+            placeholder: (context, url) => const NeraSkeleton(
+              width: double.infinity,
+              height: double.infinity,
+              radius: 0,
+            ),
+            errorBuilder: (context, url, error) => _placeholder(),
           ),
   );
 

@@ -1,6 +1,4 @@
-/// Barrel export so existing `import '../models/nera_models.dart'` call
-/// sites keep working after the domain models were split into one file per
-/// concern (user, wardrobe, style_profile, outfit, feedback, tryon).
+// Barrel export for the split domain model files.
 export 'feedback.dart';
 export 'outfit.dart';
 export 'picked_image.dart';

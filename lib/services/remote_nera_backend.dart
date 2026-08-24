@@ -20,6 +20,8 @@ class RemoteNeraBackend implements NeraBackend {
   NeraUser? _lastKnownUser;
   final _wardrobe = StreamController<List<WardrobeItem>>.broadcast();
   final _profile = StreamController<StyleProfile>.broadcast();
+  List<WardrobeItem> _wardrobeCache = const [];
+  StyleProfile _profileCache = const StyleProfile();
 
   @override
   ValueListenable<String?> get userId => _userId;
@@ -46,13 +48,13 @@ class RemoteNeraBackend implements NeraBackend {
 
   @override
   Stream<List<WardrobeItem>> watchWardrobe() async* {
-    yield const [];
+    yield _wardrobeCache;
     yield* _wardrobe.stream;
   }
 
   @override
   Stream<StyleProfile> watchProfile() async* {
-    yield const StyleProfile();
+    yield _profileCache;
     yield* _profile.stream;
   }
 
@@ -104,14 +106,14 @@ class RemoteNeraBackend implements NeraBackend {
       _api.get('/wardrobe/items'),
       _api.get('/profile'),
     ]);
-    _wardrobe.add(
-      (results[0]['items'] as List? ?? const [])
-          .map((item) => WardrobeItem.fromJson(item as Map<String, dynamic>))
-          .toList(),
-    );
+    _wardrobeCache = (results[0]['items'] as List? ?? const [])
+        .map((item) => WardrobeItem.fromJson(item as Map<String, dynamic>))
+        .toList();
+    _wardrobe.add(_wardrobeCache);
     final fetchedProfile = StyleProfile.fromJson(
       results[1]['profile'] as Map<String, dynamic>?,
     );
+    _profileCache = fetchedProfile;
     _profile.add(fetchedProfile);
     _profileValue.value = fetchedProfile;
   }
@@ -130,6 +132,8 @@ class RemoteNeraBackend implements NeraBackend {
     _currentUser.value = _lastKnownUser;
     _wardrobe.add(const []);
     _profile.add(const StyleProfile());
+    _wardrobeCache = const [];
+    _profileCache = const StyleProfile();
     _profileValue.value = null;
   }
 
@@ -195,6 +199,7 @@ class RemoteNeraBackend implements NeraBackend {
     final profile = StyleProfile.fromJson(
       response['profile'] as Map<String, dynamic>,
     );
+    _profileCache = profile;
     _profile.add(profile);
     _profileValue.value = profile;
     return profile;
@@ -228,13 +233,17 @@ class RemoteNeraBackend implements NeraBackend {
     final response = await _api.post('/outfits/$outfitId/feedback', {
       'reaction': reaction.wireValue,
     });
-    return OutfitFeedback.fromJson(response['feedback'] as Map<String, dynamic>);
+    return OutfitFeedback.fromJson(
+      response['feedback'] as Map<String, dynamic>,
+    );
   }
 
   @override
   Future<OutfitFeedback> markOutfitWorn(String outfitId) async {
     final response = await _api.post('/outfits/$outfitId/wear', const {});
-    return OutfitFeedback.fromJson(response['feedback'] as Map<String, dynamic>);
+    return OutfitFeedback.fromJson(
+      response['feedback'] as Map<String, dynamic>,
+    );
   }
 
   @override
@@ -244,9 +253,19 @@ class RemoteNeraBackend implements NeraBackend {
   }) async {
     final response = await _api.post('/tryon/generate', {
       'wardrobeItemIds': wardrobeItemIds,
-      if (outfitId != null) 'outfitId': outfitId,
+      'outfitId': ?outfitId,
     });
-    return TryOnResult.fromJson(response['tryOn'] as Map<String, dynamic>);
+    final result = TryOnResult.fromJson(
+      response['tryOn'] as Map<String, dynamic>,
+    );
+    if (result.developmentFallback ||
+        result.imageUrl.trim().isEmpty ||
+        result.status != 'completed') {
+      throw const NeraException(
+        'Our virtual try-on service is currently unavailable. No generated image was returned.',
+      );
+    }
+    return result;
   }
 
   @override

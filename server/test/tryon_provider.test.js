@@ -103,10 +103,14 @@ test("rejects a response that carries no image part, surfaced as the generic una
   }
 });
 
-test("the unavailable provider echoes the profile photo back and marks it a development fallback", async () => {
+test("the unavailable provider returns a real service error", async () => {
   const provider = new UnavailableVirtualTryOnProvider();
-  const result = await provider.generate({profileFile, garmentFiles});
-  assert.equal(result.buffer, profileFile.buffer);
-  assert.equal(result.mimeType, profileFile.mimetype);
-  assert.equal(result.developmentFallback, true);
+  await assert.rejects(
+    () => provider.generate({profileFile, garmentFiles}),
+    (error) => {
+      assert.equal(error.status, 503);
+      assert.equal(error.code, "TRYON_SERVICE_UNAVAILABLE");
+      return true;
+    },
+  );
 });

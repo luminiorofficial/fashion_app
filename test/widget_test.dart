@@ -85,7 +85,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Upload Wardrobe'), findsOneWidget);
+    expect(find.text('Dress Me Today'), findsOneWidget);
     expect(find.text('Create Profile'), findsNothing);
   });
 
@@ -102,15 +102,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('NERA'), findsOneWidget);
-    expect(find.text('Upload Wardrobe'), findsOneWidget);
-    expect(find.text('AI Styling Suggestions'), findsOneWidget);
+    expect(find.text('Dress Me Today'), findsOneWidget);
     expect(find.text('Wedding'), findsOneWidget);
 
-    await tester.drag(find.byType(ListView).first, const Offset(0, -900));
+    await tester.tap(find.text('Wardrobe'));
     await tester.pumpAndSettle();
     expect(find.text('Your closet is empty!'), findsOneWidget);
 
-    await tester.drag(find.byType(ListView).first, const Offset(0, -700));
+    await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
     expect(find.text('My Style Profile'), findsOneWidget);
     expect(find.text('Hourglass'), findsOneWidget);
@@ -131,6 +130,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Wardrobe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Upload Wardrobe'));
     await tester.pumpAndSettle();
     expect(find.text('Take a photo'), findsOneWidget);
@@ -145,10 +146,8 @@ void main() {
 
     await tester.tap(find.text('Save item'));
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView).first, const Offset(0, -1000));
-    await tester.pumpAndSettle();
     expect(find.text('Black Silk Blazer'), findsOneWidget);
-    expect(find.text('Outerwear'), findsOneWidget);
+    expect(find.text('Outerwear'), findsNWidgets(2));
   });
 
   testWidgets('gallery uploads and saves each selected wardrobe image', (
@@ -165,6 +164,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Wardrobe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Upload Wardrobe'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Choose from gallery'));
@@ -178,8 +179,6 @@ void main() {
     await tester.tap(find.text('Save item'));
     await tester.pumpAndSettle();
 
-    await tester.drag(find.byType(ListView).first, const Offset(0, -1000));
-    await tester.pumpAndSettle();
     expect(find.text('Black Silk Blazer'), findsNWidgets(2));
   });
 
@@ -236,10 +235,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // The profile is now analyzed, so the app has moved on to home.
-      expect(find.text('Upload Wardrobe'), findsOneWidget);
+      expect(find.text('Dress Me Today'), findsOneWidget);
       expect(find.text('Create Profile'), findsNothing);
 
-      await tester.drag(find.byType(ListView).first, const Offset(0, -1500));
+      await tester.tap(find.text('Profile'));
       await tester.pumpAndSettle();
       expect(find.text('Hourglass'), findsOneWidget);
       expect(find.text('Warm golden undertones'), findsOneWidget);
@@ -272,6 +271,10 @@ void main() {
       NeraApp(backend: backend, imageService: _FakeImageService()),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Style'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, -180));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Wedding'));
     await tester.pumpAndSettle();
 
@@ -280,5 +283,18 @@ void main() {
       find.text('A polished, balanced look selected from your wardrobe.'),
       findsOneWidget,
     );
+    expect(find.text('60%'), findsOneWidget);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -350));
+    await tester.pumpAndSettle();
+    expect(find.text('Love It'), findsOneWidget);
+    expect(find.text('Would Wear'), findsOneWidget);
+    expect(find.text('Not Sure'), findsOneWidget);
+    expect(find.text('Not My Style'), findsOneWidget);
+    expect(find.text('I Wore This'), findsOneWidget);
+    expect(find.text('Try On Me'), findsOneWidget);
+
+    await tester.tap(find.text('Try On Me'));
+    await tester.pumpAndSettle();
+    expect(find.text('Virtual try-on unavailable'), findsOneWidget);
   });
 }

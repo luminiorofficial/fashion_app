@@ -84,4 +84,35 @@ void main() {
       );
     },
   );
+
+  test('generateTryOn rejects a development fallback image', () async {
+    final mockClient = MockClient(
+      (request) async => http.Response(
+        jsonEncode({
+          'tryOn': {
+            'id': 'tryon-1',
+            'wardrobeItemIds': ['item-1'],
+            'imageUrl': 'https://example.test/profile.jpg',
+            'status': 'completed',
+            'isSaved': false,
+            'developmentFallback': true,
+          },
+        }),
+        201,
+        headers: {'content-type': 'application/json'},
+      ),
+    );
+    final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+
+    await expectLater(
+      backend.generateTryOn(wardrobeItemIds: const ['item-1']),
+      throwsA(
+        isA<NeraException>().having(
+          (error) => error.message,
+          'message',
+          contains('currently unavailable'),
+        ),
+      ),
+    );
+  });
 }

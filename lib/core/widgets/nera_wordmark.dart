@@ -16,14 +16,26 @@ class NeraWordmark extends StatelessWidget {
     mainAxisSize: MainAxisSize.min,
     children: [
       ShaderMask(
-        shaderCallback: (bounds) => NeraColors.goldGradient.createShader(bounds),
-        child: Text('NERA', style: NeraTheme.display(size, color: Colors.white, letterSpacing: -1.5)),
+        shaderCallback: (bounds) =>
+            NeraColors.goldGradient.createShader(bounds),
+        child: Text(
+          'NERA',
+          style: NeraTheme.display(
+            size,
+            color: Colors.white,
+            letterSpacing: -1.5,
+          ),
+        ),
       ),
       if (showTagline) ...[
         const SizedBox(height: 6),
         Text(
           'PERSONAL STYLIST AI',
-          style: TextStyle(color: NeraColors.blue, fontSize: size * 0.32, letterSpacing: 3),
+          style: TextStyle(
+            color: NeraColors.blue,
+            fontSize: size * 0.32,
+            letterSpacing: 3,
+          ),
         ),
       ],
     ],

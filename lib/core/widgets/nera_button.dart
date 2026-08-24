@@ -26,16 +26,24 @@ class NeraButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final spinnerColor = style == NeraButtonStyleType.primary ? const Color(0xFF241A0B) : NeraColors.gold;
+    final spinnerColor = style == NeraButtonStyleType.primary
+        ? const Color(0xFF241A0B)
+        : NeraColors.gold;
     final child = loading
         ? SizedBox.square(
             dimension: 18,
-            child: CircularProgressIndicator(strokeWidth: 2, color: spinnerColor),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: spinnerColor,
+            ),
           )
         : Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (icon != null) ...[Icon(icon, size: 18), const SizedBox(width: 8)],
+              if (icon != null) ...[
+                Icon(icon, size: 18),
+                const SizedBox(width: 8),
+              ],
               Text(label),
             ],
           );
@@ -43,11 +51,20 @@ class NeraButton extends StatelessWidget {
     final Widget button;
     switch (style) {
       case NeraButtonStyleType.primary:
-        button = FilledButton(onPressed: loading ? null : onPressed, child: child);
+        button = FilledButton(
+          onPressed: loading ? null : onPressed,
+          child: child,
+        );
       case NeraButtonStyleType.secondary:
-        button = OutlinedButton(onPressed: loading ? null : onPressed, child: child);
+        button = OutlinedButton(
+          onPressed: loading ? null : onPressed,
+          child: child,
+        );
       case NeraButtonStyleType.text:
-        button = TextButton(onPressed: loading ? null : onPressed, child: child);
+        button = TextButton(
+          onPressed: loading ? null : onPressed,
+          child: child,
+        );
     }
     return expand ? SizedBox(width: double.infinity, child: button) : button;
   }

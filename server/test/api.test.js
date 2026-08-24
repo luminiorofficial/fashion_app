@@ -52,11 +52,10 @@ async function fixture({smsProvider, analyzer, assetStore, tryonProvider} = {}) 
     analyzeProfile: async () => ({body_shape: "Rectangle", skin_tone: "Medium", skin_undertone: "warm", hair_color: "brown", facial_structure: "oval", style_attributes: ["balanced"], styling_notes: "Structured layers work well."}),
     suggestOutfit: async ({wardrobe}) => ({wardrobe_item_ids: wardrobe.slice(0, 2).map((item) => item.id), rationale: "A polished, balanced look selected from your wardrobe."}),
   };
-  // Default double: echoes the profile photo back with developmentFallback,
-  // matching UnavailableVirtualTryOnProvider's real behavior when no Gemini
-  // API key is configured.
+  // Successful configured-provider double. Provider-unavailable behavior is
+  // covered separately and must never echo a profile photo as a try-on.
   const defaultTryonProvider = {
-    generate: async ({profileFile}) => ({buffer: profileFile.buffer, mimeType: profileFile.mimetype, developmentFallback: true}),
+    generate: async ({profileFile}) => ({buffer: profileFile.buffer, mimeType: profileFile.mimetype, developmentFallback: false}),
   };
   const app = createApp({
     config,
@@ -580,7 +579,7 @@ test("generates a virtual try-on image from wardrobe items and the analyzed prof
 
   const tryOn = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id]}).expect(201);
   assert.equal(tryOn.body.tryOn.status, "completed");
-  assert.equal(tryOn.body.tryOn.developmentFallback, true);
+  assert.equal(tryOn.body.tryOn.developmentFallback, false);
   assert.equal(tryOn.body.tryOn.isSaved, false);
   assert.deepEqual(tryOn.body.tryOn.wardrobeItemIds, [top.id]);
   assert.ok(tryOn.body.tryOn.imageUrl);

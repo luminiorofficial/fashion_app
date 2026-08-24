@@ -30,16 +30,21 @@ enum OccasionType {
 }
 
 class SuggestedPurchase {
-  const SuggestedPurchase({required this.name, required this.type, this.buyUrl});
+  const SuggestedPurchase({
+    required this.name,
+    required this.type,
+    this.buyUrl,
+  });
   final String name;
   final String type;
   final String? buyUrl;
 
-  factory SuggestedPurchase.fromMap(Map<String, dynamic> data) => SuggestedPurchase(
-    name: data['name'] as String? ?? 'Complementary piece',
-    type: data['type'] as String? ?? 'Accessory',
-    buyUrl: data['buyUrl'] as String?,
-  );
+  factory SuggestedPurchase.fromMap(Map<String, dynamic> data) =>
+      SuggestedPurchase(
+        name: data['name'] as String? ?? 'Complementary piece',
+        type: data['type'] as String? ?? 'Accessory',
+        buyUrl: data['buyUrl'] as String?,
+      );
 
   Map<String, dynamic> toMap() => {
     'name': name,
@@ -82,10 +87,14 @@ class OutfitPlan {
   factory OutfitPlan.fromJson(Map<String, dynamic> json) => OutfitPlan(
     id: json['id'] as String,
     eventType: json['eventType'] as String? ?? '',
-    wardrobeItemIds: List<String>.from(json['wardrobeItemIds'] as List? ?? const []),
+    wardrobeItemIds: List<String>.from(
+      json['wardrobeItemIds'] as List? ?? const [],
+    ),
     rationale: json['rationale'] as String? ?? '',
     suggestedPurchaseItem: json['suggestedPurchaseItem'] != null
-        ? SuggestedPurchase.fromMap(json['suggestedPurchaseItem'] as Map<String, dynamic>)
+        ? SuggestedPurchase.fromMap(
+            json['suggestedPurchaseItem'] as Map<String, dynamic>,
+          )
         : null,
     matchScore: json['matchScore'] as int?,
     feedback: json['feedback'] != null

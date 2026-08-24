@@ -11,7 +11,8 @@ class MemoryNeraBackend implements NeraBackend {
   }) {
     _userId.value = initialUser?.id ?? (authenticated ? 'preview-user' : null);
     _authenticated.value = authenticated;
-    _currentUser.value = initialUser ??
+    _currentUser.value =
+        initialUser ??
         (authenticated
             ? const NeraUser(
                 id: 'preview-user',
@@ -32,7 +33,6 @@ class MemoryNeraBackend implements NeraBackend {
   final _profileController = StreamController<StyleProfile>.broadcast();
   final List<WardrobeItem> _items = [];
   final List<OutfitPlan> _outfits = [];
-  int _tryOnSequence = 0;
   late StyleProfile _styleProfile;
   @override
   ValueListenable<String?> get userId => _userId;
@@ -64,7 +64,9 @@ class MemoryNeraBackend implements NeraBackend {
   }) async => OtpChallenge(
     id: 'preview-challenge',
     developmentOtp: '123456',
-    purpose: ((name ?? '').trim().isNotEmpty && (dateOfBirth ?? '').trim().isNotEmpty)
+    purpose:
+        ((name ?? '').trim().isNotEmpty &&
+            (dateOfBirth ?? '').trim().isNotEmpty)
         ? 'registration'
         : 'login',
   );
@@ -190,7 +192,8 @@ class MemoryNeraBackend implements NeraBackend {
   }
 
   @override
-  Future<List<OutfitPlan>> listOutfitHistory() async => List.unmodifiable(_outfits);
+  Future<List<OutfitPlan>> listOutfitHistory() async =>
+      List.unmodifiable(_outfits);
 
   @override
   Future<OutfitFeedback> submitOutfitFeedback(
@@ -215,37 +218,24 @@ class MemoryNeraBackend implements NeraBackend {
 
   void _applyFeedback(String outfitId, OutfitFeedback feedback) {
     final index = _outfits.indexWhere((outfit) => outfit.id == outfitId);
-    if (index != -1) _outfits[index] = _outfits[index].copyWith(feedback: feedback);
+    if (index != -1) {
+      _outfits[index] = _outfits[index].copyWith(feedback: feedback);
+    }
   }
 
   @override
   Future<TryOnResult> generateTryOn({
     required List<String> wardrobeItemIds,
     String? outfitId,
-  }) async {
-    _tryOnSequence += 1;
-    return TryOnResult(
-      id: 'preview-tryon-$_tryOnSequence',
-      wardrobeItemIds: wardrobeItemIds,
-      imageUrl: _profileValue.value?.profileImageUrl ?? '',
-      status: 'completed',
-      isSaved: false,
-      developmentFallback: true,
-      outfitId: outfitId,
-      createdAt: DateTime.now(),
-    );
-  }
+  }) async => throw const NeraException(
+    'Virtual try-on is unavailable in preview mode. Connect to the configured try-on service and try again.',
+  );
 
   @override
-  Future<TryOnResult> saveTryOnLook(String tryOnId) async => TryOnResult(
-    id: tryOnId,
-    wardrobeItemIds: const [],
-    imageUrl: _profileValue.value?.profileImageUrl ?? '',
-    status: 'completed',
-    isSaved: true,
-    developmentFallback: true,
-    createdAt: DateTime.now(),
-  );
+  Future<TryOnResult> saveTryOnLook(String tryOnId) async =>
+      throw const NeraException(
+        'Virtual try-on is unavailable in preview mode.',
+      );
 
   @override
   void dispose() {

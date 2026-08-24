@@ -34,7 +34,10 @@ class NeraCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        child: Padding(padding: padding ?? const EdgeInsets.all(NeraSpacing.lg), child: child),
+        child: Padding(
+          padding: padding ?? const EdgeInsets.all(NeraSpacing.lg),
+          child: child,
+        ),
       ),
     ),
   );

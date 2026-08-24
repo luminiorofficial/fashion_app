@@ -32,7 +32,9 @@ class TryOnResult {
 
   factory TryOnResult.fromJson(Map<String, dynamic> json) => TryOnResult(
     id: json['id'] as String,
-    wardrobeItemIds: List<String>.from(json['wardrobeItemIds'] as List? ?? const []),
+    wardrobeItemIds: List<String>.from(
+      json['wardrobeItemIds'] as List? ?? const [],
+    ),
     imageUrl: json['imageUrl'] as String? ?? '',
     status: json['status'] as String? ?? 'completed',
     isSaved: json['isSaved'] as bool? ?? false,

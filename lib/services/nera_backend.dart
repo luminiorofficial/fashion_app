@@ -5,6 +5,7 @@ abstract interface class NeraBackend {
   ValueListenable<String?> get userId;
   ValueListenable<bool> get isAuthenticated;
   ValueListenable<NeraUser?> get currentUser;
+
   /// Null while the profile hasn't been fetched yet for the current
   /// session. Once known, callers use [StyleProfile.isAnalyzed] to decide
   /// between showing profile creation or the home screen.
@@ -35,9 +36,15 @@ abstract interface class NeraBackend {
     StyleProfile profile,
   );
   Future<List<OutfitPlan>> listOutfitHistory();
-  Future<OutfitFeedback> submitOutfitFeedback(String outfitId, OutfitReaction reaction);
+  Future<OutfitFeedback> submitOutfitFeedback(
+    String outfitId,
+    OutfitReaction reaction,
+  );
   Future<OutfitFeedback> markOutfitWorn(String outfitId);
-  Future<TryOnResult> generateTryOn({required List<String> wardrobeItemIds, String? outfitId});
+  Future<TryOnResult> generateTryOn({
+    required List<String> wardrobeItemIds,
+    String? outfitId,
+  });
   Future<TryOnResult> saveTryOnLook(String tryOnId);
   void dispose();
 }

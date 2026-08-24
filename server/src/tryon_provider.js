@@ -130,12 +130,16 @@ class GeminiVirtualTryOnProvider {
   }
 }
 
-// Used when GEMINI_API_KEY is unset, mirroring the plain fallbacks used by
-// FashionAnalyzer: the feature stays usable end-to-end (something renders)
-// instead of failing outright, clearly marked as a development fallback.
+// A missing image-generation provider must be a real error. Echoing the
+// profile image would make clients present an unchanged photo as a successful
+// virtual try-on.
 class UnavailableVirtualTryOnProvider {
-  async generate({profileFile}) {
-    return {buffer: profileFile.buffer, mimeType: profileFile.mimetype, developmentFallback: true};
+  async generate() {
+    throw new ApiError(
+      503,
+      "TRYON_SERVICE_UNAVAILABLE",
+      "Our virtual try-on service is unavailable because it is not configured.",
+    );
   }
 }
 
