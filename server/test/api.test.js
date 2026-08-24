@@ -234,6 +234,65 @@ test("generates an outfit from the authenticated user's wardrobe and profile, an
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
+test("returns and persists the AI's suggested Shop the Look purchase item", async () => {
+  const {app, uploadDir} = await fixture({analyzer: {
+    suggestOutfit: async (args) => ({wardrobe_item_ids: [args.wardrobe[0].id, args.wardrobe[1].id], rationale: "A polished work-appropriate look.", suggested_purchase_item: {name: "Structured tote bag", type: "Accessory"}}),
+  }});
+  const token = await register(app);
+  await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
+  await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
+
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Work Meeting"}).expect(201);
+
+  assert.deepEqual(response.body.outfit.suggestedPurchaseItem, {name: "Structured tote bag", type: "Accessory"});
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("returns null for Shop the Look when the AI does not suggest a purchase", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
+  await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
+
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Daily"}).expect(201);
+
+  assert.equal(response.body.outfit.suggestedPurchaseItem, null);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("never surfaces a hallucinated purchase link, keeping only a sanitized name and type", async () => {
+  const {app, uploadDir} = await fixture({analyzer: {
+    suggestOutfit: async (args) => ({wardrobe_item_ids: [args.wardrobe[0].id, args.wardrobe[1].id], rationale: "A relaxed look.", suggested_purchase_item: {name: "  Statement earrings  ", type: "Accessory", buyUrl: "https://not-a-real-shop.example/item"}}),
+  }});
+  const token = await register(app);
+  await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
+  await addWardrobeItem(app, token, {name: "Tailored Trouser", category: "Bottom"});
+
+  const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Daily"}).expect(201);
+
+  assert.deepEqual(response.body.outfit.suggestedPurchaseItem, {name: "Statement earrings", type: "Accessory"});
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("wardrobe and style profile persist across logout and a fresh login", async () => {
+  const {app, uploadDir} = await fixture();
+  const firstToken = await register(app);
+  await addWardrobeItem(app, firstToken, {name: "Silk Blouse", category: "Top"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${firstToken}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+
+  await request(app).post("/api/v1/auth/logout").set("authorization", `Bearer ${firstToken}`).expect(204);
+  await request(app).get("/api/v1/me").set("authorization", `Bearer ${firstToken}`).expect(401);
+
+  const secondToken = await register(app);
+  const wardrobe = await request(app).get("/api/v1/wardrobe/items").set("authorization", `Bearer ${secondToken}`).expect(200);
+  const profile = await request(app).get("/api/v1/profile").set("authorization", `Bearer ${secondToken}`).expect(200);
+
+  assert.equal(wardrobe.body.items.length, 1);
+  assert.equal(wardrobe.body.items[0].name, "Silk Blouse");
+  assert.equal(profile.body.profile.bodyType, "Rectangle");
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
 test("rejects an unsupported event type", async () => {
   const {app, uploadDir} = await fixture();
   const token = await register(app);

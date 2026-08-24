@@ -2,13 +2,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {loadConfig} = require("../src/config");
 
-const r2 = {
-  r2AccountId: "account",
-  r2AccessKeyId: "access-key",
-  r2SecretAccessKey: "secret-key",
-  r2Bucket: "private-images",
-};
-
 const cloudinary = {
   cloudinaryCloudName: "nera-cloud",
   cloudinaryApiKey: "api-key",
@@ -22,26 +15,9 @@ test("uses local image storage by default outside production", () => {
   assert.equal(config.imageStorageProvider, "local");
 });
 
-test("selects R2 when all private storage credentials are configured", () => {
-  const config = loadConfig({env: "production", ...r2, databaseUrl});
-  assert.equal(config.imageStorageProvider, "r2");
-});
-
-test("selects Cloudinary when all private storage credentials are configured and R2 is not", () => {
+test("selects Cloudinary when all private storage credentials are configured", () => {
   const config = loadConfig({env: "production", ...cloudinary, databaseUrl});
   assert.equal(config.imageStorageProvider, "cloudinary");
-});
-
-test("prefers R2 over Cloudinary when both are fully configured and no provider is set explicitly", () => {
-  const config = loadConfig({env: "production", ...r2, ...cloudinary, databaseUrl});
-  assert.equal(config.imageStorageProvider, "r2");
-});
-
-test("rejects partially configured R2 credentials", () => {
-  assert.throws(
-    () => loadConfig({env: "development", r2Bucket: "private-images"}),
-    /R2 image storage requires/,
-  );
 });
 
 test("rejects partially configured Cloudinary credentials", () => {
@@ -53,8 +29,8 @@ test("rejects partially configured Cloudinary credentials", () => {
 
 test("rejects local image storage in production", () => {
   assert.throws(
-    () => loadConfig({env: "production", imageStorageProvider: "local", r2AccountId: "", r2AccessKeyId: "", r2SecretAccessKey: "", r2Bucket: "", databaseUrl}),
-    /Production image storage must use private Cloudflare R2 or Cloudinary storage/,
+    () => loadConfig({env: "production", imageStorageProvider: "local", databaseUrl}),
+    /Production image storage must use Cloudinary/,
   );
 });
 
@@ -67,7 +43,7 @@ test("rejects an unknown image storage provider", () => {
 
 test("rejects production without DATABASE_URL, refusing to fall back to the in-memory repository", () => {
   assert.throws(
-    () => loadConfig({env: "production", ...r2, databaseUrl: ""}),
+    () => loadConfig({env: "production", ...cloudinary, databaseUrl: ""}),
     /Production requires DATABASE_URL/,
   );
 });

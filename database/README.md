@@ -55,11 +55,11 @@ do not make the API login a database owner.
 
 Images do not live in PostgreSQL. `media_assets` stores their object/local storage
 key, checksum, dimensions, MIME type, and lifecycle status. This keeps the schema
-compatible with local disk, S3, Cloudflare R2, or another object store. The R2
-bucket is private, so `public_url` is no longer populated for new assets — the
-API resolves a short-lived signed URL from `storage_key` on every read instead
-of persisting a permanent one. The column is kept only for backward compatibility
-with rows written before this change.
+compatible with local disk, Cloudinary, or another object store. Cloudinary assets
+upload under the private "authenticated" delivery type, so `public_url` is no
+longer populated for new assets — the API resolves a short-lived signed URL from
+`storage_key` on every read instead of persisting a permanent one. The column is
+kept only for backward compatibility with rows written before this change.
 
 Exact weight is intentionally stored only in `user_measurements` as a value the
 user provides. Image analysis stores visible body shape and styling attributes;

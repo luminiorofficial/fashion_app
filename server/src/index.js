@@ -2,7 +2,7 @@ const {loadConfig} = require("./config");
 const {createApp} = require("./app");
 const {InMemoryRepository} = require("./repository");
 const {PostgresRepository} = require("./postgres_repository");
-const {LocalAssetStore, R2AssetStore, CloudinaryAssetStore} = require("./storage");
+const {LocalAssetStore, CloudinaryAssetStore} = require("./storage");
 const {FashionAnalyzer} = require("./analyzer");
 const {createSmsProvider} = require("./sms");
 
@@ -15,15 +15,11 @@ async function start() {
   } else {
     console.warn("DATABASE_URL is not configured; data will use temporary in-memory storage.");
   }
-  const assetStore = config.imageStorageProvider === "r2" ? new R2AssetStore(config)
-    : config.imageStorageProvider === "cloudinary" ? new CloudinaryAssetStore(config)
-    : new LocalAssetStore(config);
-  if (assetStore instanceof R2AssetStore) {
-    console.info(`Using Cloudflare R2 bucket "${config.r2Bucket}" for private image storage.`);
-  } else if (assetStore instanceof CloudinaryAssetStore) {
+  const assetStore = config.imageStorageProvider === "cloudinary" ? new CloudinaryAssetStore(config) : new LocalAssetStore(config);
+  if (assetStore instanceof CloudinaryAssetStore) {
     console.info(`Using Cloudinary (cloud "${config.cloudinaryCloudName}") for private image storage.`);
   } else {
-    console.warn("Image storage is not configured for R2 or Cloudinary; images will be stored on local disk (development only).");
+    console.warn("Image storage is not configured for Cloudinary; images will be stored on local disk (development only).");
   }
   const analyzer = new FashionAnalyzer(config);
   const smsProvider = createSmsProvider(config);

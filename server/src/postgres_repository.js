@@ -135,6 +135,7 @@ function outfitFromRow(row, wardrobeItemIds) {
     eventType: row.event_type,
     status: row.status,
     rationale: row.rationale,
+    suggestedPurchaseItem: row.suggested_purchase || null,
     wardrobeItemIds,
     createdAt: iso(row.created_at),
     completedAt: iso(row.completed_at),
@@ -405,12 +406,12 @@ class PostgresRepository {
     await this.pool.query("UPDATE wardrobe_items SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL", [itemId]);
   }
 
-  async createOutfit(userId, {eventType, rationale, wardrobeItemIds, analysisContext}) {
+  async createOutfit(userId, {eventType, rationale, wardrobeItemIds, suggestedPurchaseItem, analysisContext}) {
     return this.transaction(async (client) => {
       const inserted = await client.query(`
-        INSERT INTO outfits (user_id, event_type, status, rationale, analysis_context, completed_at)
-        VALUES ($1, $2, 'completed', $3, $4, now())
-        RETURNING *`, [userId, eventType, rationale, JSON.stringify(analysisContext || {})]);
+        INSERT INTO outfits (user_id, event_type, status, rationale, suggested_purchase, analysis_context, completed_at)
+        VALUES ($1, $2, 'completed', $3, $4, $5, now())
+        RETURNING *`, [userId, eventType, rationale, suggestedPurchaseItem ? JSON.stringify(suggestedPurchaseItem) : null, JSON.stringify(analysisContext || {})]);
       const outfit = inserted.rows[0];
       let position = 0;
       for (const wardrobeItemId of wardrobeItemIds) {

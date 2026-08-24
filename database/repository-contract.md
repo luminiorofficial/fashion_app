@@ -41,5 +41,5 @@ implement every method exported in `repositoryMethods` from
   item id belongs to the same user at the database layer.
 
 Images remain outside PostgreSQL. The adapter stores only metadata and storage
-keys in `media_assets`; `LocalAssetStore` can later be replaced by S3, R2, or an
+keys in `media_assets`; `LocalAssetStore` can later be replaced by Cloudinary or an
 equivalent object-storage implementation without changing the schema or routes.

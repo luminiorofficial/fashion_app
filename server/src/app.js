@@ -198,7 +198,8 @@ function createApp({config, repository, assetStore, analyzer, smsProvider}) {
     const wardrobeIds = new Set(wardrobe.map((item) => item.id));
     const wardrobeItemIds = [...new Set(suggestion.wardrobe_item_ids || [])].filter((id) => wardrobeIds.has(id));
     assert(wardrobeItemIds.length > 0, 502, "INVALID_OUTFIT_SELECTION", "The styling AI did not return a valid outfit from your wardrobe.");
-    const outfit = await repository.createOutfit(request.auth.user.id, {eventType, rationale: suggestion.rationale, wardrobeItemIds, analysisContext: {wardrobeItemCount: wardrobe.length}});
+    const suggestedPurchaseItem = sanitizeSuggestedPurchase(suggestion.suggested_purchase_item);
+    const outfit = await repository.createOutfit(request.auth.user.id, {eventType, rationale: suggestion.rationale, wardrobeItemIds, suggestedPurchaseItem, analysisContext: {wardrobeItemCount: wardrobe.length}});
     response.status(201).json({outfit: publicOutfit(outfit)});
   });
 
@@ -226,8 +227,17 @@ const cleanupOrphanedAsset = async (assetStore, repository, storageKey, asset) =
 const publicUser = (user) => ({id: user.id, name: user.name, dateOfBirth: user.dateOfBirth, phoneNumber: user.phoneNumber, phoneVerifiedAt: user.phoneVerifiedAt});
 const publicWardrobeItem = async (assetStore, item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: await assetStore.signedUrl(item.imageStorageKey), productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], createdAt: item.createdAt});
 const publicProfile = async (assetStore, profile) => ({...profile, profileImageUrl: await assetStore.signedUrl(profile.profileImageStorageKey)});
-const publicOutfit = (outfit) => ({id: outfit.id, eventType: outfit.eventType, wardrobeItemIds: outfit.wardrobeItemIds, rationale: outfit.rationale, createdAt: outfit.createdAt});
+const publicOutfit = (outfit) => ({id: outfit.id, eventType: outfit.eventType, wardrobeItemIds: outfit.wardrobeItemIds, rationale: outfit.rationale, suggestedPurchaseItem: outfit.suggestedPurchaseItem || null, createdAt: outfit.createdAt});
 const cleanTags = (value) => Array.isArray(value) ? [...new Set(value.filter((tag) => typeof tag === "string").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 12) : [];
 const cleanStringArray = (value, max = 6) => Array.isArray(value) ? [...new Set(value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean))].slice(0, max) : [];
+// The suggested purchase comes from the styling AI, not a trusted product
+// catalog: keep only a plain name/type pair (never a URL) so nothing it
+// hallucinates can be surfaced as a clickable link to the client.
+const sanitizeSuggestedPurchase = (value) => {
+  if (!value || typeof value !== "object") return null;
+  const name = typeof value.name === "string" ? value.name.trim().slice(0, 160) : "";
+  const type = typeof value.type === "string" ? value.type.trim().slice(0, 80) : "";
+  return name && type ? {name, type} : null;
+};
 
 module.exports = {createApp};

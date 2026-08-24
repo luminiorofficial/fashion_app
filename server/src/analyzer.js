@@ -118,6 +118,7 @@ class FashionAnalyzer {
       profileSummary ? `User's style profile: ${JSON.stringify(profileSummary)}` : "No style profile is available yet; style conservatively.",
       `Wardrobe items (JSON array): ${JSON.stringify(catalog)}`,
       "Return wardrobe_item_ids as the chosen items' ids (each must exactly match an id from the wardrobe list) and a short rationale (2-3 sentences) explaining the choice for this event and profile.",
+      "If one complementary piece is genuinely missing from the wardrobe and would elevate this outfit for the event (for example a bag, shoes, a belt, or jewelry), set suggested_purchase_item to a short generic item name and its category type. Do not invent a specific brand, product, or store. Only suggest a purchase when a piece is genuinely missing; otherwise set suggested_purchase_item to null.",
     ].filter(Boolean).join("\n");
 
     return this.call(prompt, null, {
@@ -125,8 +126,17 @@ class FashionAnalyzer {
       properties: {
         wardrobe_item_ids: {type: "array", items: {type: "string"}, minItems: 1, maxItems: 6},
         rationale: {type: "string"},
+        suggested_purchase_item: {
+          type: ["object", "null"],
+          properties: {
+            name: {type: "string"},
+            type: {type: "string"},
+          },
+          required: ["name", "type"],
+          additionalProperties: false,
+        },
       },
-      required: ["wardrobe_item_ids", "rationale"], additionalProperties: false,
+      required: ["wardrobe_item_ids", "rationale", "suggested_purchase_item"], additionalProperties: false,
     });
   }
 
@@ -139,9 +149,11 @@ class FashionAnalyzer {
       ? [dress, byCategory("Shoes"), byCategory("Outerwear")]
       : [byCategory("Top"), byCategory("Bottom"), byCategory("Shoes"), byCategory("Outerwear")];
     const ids = picks.filter(Boolean).map((item) => item.id);
+    const missingShoes = !byCategory("Shoes");
     return {
       wardrobe_item_ids: ids.length ? ids : wardrobe.slice(0, 2).map((item) => item.id),
       rationale: `A simple ${eventType.toLowerCase()} look put together from your wardrobe. Configure GEMINI_API_KEY to enable AI-personalized styling.`,
+      suggested_purchase_item: missingShoes ? {name: "Complementary shoes", type: "Shoes"} : null,
     };
   }
 

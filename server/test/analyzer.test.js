@@ -199,7 +199,7 @@ test("suggestOutfit sends a text-only prompt (no image) naming only the user's w
     return {
       ok: true,
       async json() {
-        return {candidates: [{content: {parts: [{text: JSON.stringify({wardrobe_item_ids: ["item-1"], rationale: "A polished work-appropriate look."})}]}}]};
+        return {candidates: [{content: {parts: [{text: JSON.stringify({wardrobe_item_ids: ["item-1"], rationale: "A polished work-appropriate look.", suggested_purchase_item: {name: "Structured tote bag", type: "Accessory"}})}]}}]};
       },
     };
   };
@@ -212,12 +212,14 @@ test("suggestOutfit sends a text-only prompt (no image) naming only the user's w
     const result = await analyzer.suggestOutfit({eventType: "Work Meeting", profile: {bodyType: "Rectangle", skinTone: "Medium"}, wardrobe});
     assert.deepEqual(result.wardrobe_item_ids, ["item-1"]);
     assert.equal(result.rationale, "A polished work-appropriate look.");
+    assert.deepEqual(result.suggested_purchase_item, {name: "Structured tote bag", type: "Accessory"});
 
     assert.equal(requestBody.contents[0].parts.length, 1);
     assert.ok(!("inlineData" in requestBody.contents[0].parts[0]));
     assert.match(requestBody.contents[0].parts[0].text, /Work Meeting/);
     assert.match(requestBody.contents[0].parts[0].text, /item-1/);
     assert.match(requestBody.contents[0].parts[0].text, /item-2/);
+    assert.equal(requestBody.generationConfig.responseJsonSchema.required.includes("suggested_purchase_item"), true);
   } finally {
     global.fetch = originalFetch;
   }
@@ -233,6 +235,17 @@ test("suggestOutfit falls back to a deterministic pick from the wardrobe when no
   const result = await analyzer.suggestOutfit({eventType: "Daily", profile: {}, wardrobe});
   assert.deepEqual(new Set(result.wardrobe_item_ids), new Set(["top-1", "bottom-1", "shoes-1"]));
   assert.match(result.rationale, /daily/i);
+  assert.equal(result.suggested_purchase_item, null);
+});
+
+test("suggestOutfit fallback suggests shoes when none are in the wardrobe", async () => {
+  const analyzer = new FashionAnalyzer({geminiApiKey: "", ...FAST_RETRY});
+  const wardrobe = [
+    {id: "top-1", name: "Silk Blouse", category: "Top"},
+    {id: "bottom-1", name: "Tailored Trouser", category: "Bottom"},
+  ];
+  const result = await analyzer.suggestOutfit({eventType: "Daily", profile: {}, wardrobe});
+  assert.deepEqual(result.suggested_purchase_item, {name: "Complementary shoes", type: "Shoes"});
 });
 
 test("rejects profile analysis when the image is not a full-length photo", async () => {
