@@ -80,6 +80,7 @@ class _NeraShellState extends State<NeraShell> {
         MaterialPageRoute<void>(
           builder: (context) => OutfitResultScreen(
             backend: widget.backend,
+            imageService: widget.imageService,
             outfit: outfit,
             wardrobe: wardrobe,
           ),
@@ -121,6 +122,7 @@ class _NeraShellState extends State<NeraShell> {
       MaterialPageRoute<void>(
         builder: (context) => OutfitResultScreen(
           backend: widget.backend,
+          imageService: widget.imageService,
           outfit: outfit,
           wardrobe: wardrobe,
         ),

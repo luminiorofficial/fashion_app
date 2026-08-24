@@ -1,13 +1,11 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../core/errors/friendly_error.dart';
 import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../services/image_service.dart';
 import '../../services/nera_backend.dart';
+import '../profile/full_body_photo_flow.dart';
 
 class ProfileCreationScreen extends StatefulWidget {
   const ProfileCreationScreen({
@@ -27,58 +25,24 @@ class _ProfileCreationScreenState extends State<ProfileCreationScreen> {
   String? _error;
 
   Future<void> _upload() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(
-                  Icons.camera_alt_rounded,
-                  color: NeraColors.gold,
-                ),
-                title: const Text('Take a photo'),
-                onTap: () => Navigator.pop(context, ImageSource.camera),
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.photo_library_rounded,
-                  color: NeraColors.gold,
-                ),
-                title: const Text('Choose from gallery'),
-                onTap: () => Navigator.pop(context, ImageSource.gallery),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (source == null || !mounted) return;
-    setState(() {
-      _processing = true;
-      _error = null;
-    });
     try {
-      final image = await widget.imageService.pick(source);
-      if (image == null) return;
-      await widget.backend.analyzeProfileImage(
-        Uint8List.fromList(image.bytes),
-        image.fileName,
+      final profile = await FullBodyPhotoFlow.start(
+        context: context,
+        backend: widget.backend,
+        imageService: widget.imageService,
+        onProcessingChanged: (processing) {
+          if (!mounted) return;
+          setState(() {
+            _processing = processing;
+            if (processing) _error = null;
+          });
+        },
       );
-      if (mounted) {
+      if (profile != null && mounted) {
         showNeraSnackBar(context, 'Analysis complete. Your profile is ready.');
       }
     } catch (error) {
       if (mounted) setState(() => _error = friendlyError(error));
-    } finally {
-      if (mounted) {
-        setState(() => _processing = false);
-      }
     }
   }
 
@@ -133,6 +97,14 @@ class _ProfileCreationScreenState extends State<ProfileCreationScreen> {
                   loading: _processing,
                   onPressed: _upload,
                 ),
+                if (_processing) ...[
+                  const SizedBox(height: NeraSpacing.sm),
+                  const Text(
+                    'Uploading photo and running AI analysis…',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: NeraColors.muted),
+                  ),
+                ],
                 const SizedBox(height: NeraSpacing.md),
                 const Text(
                   'Analysis is powered by Gemini AI',

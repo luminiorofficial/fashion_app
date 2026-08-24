@@ -4,7 +4,9 @@ import '../../core/errors/friendly_error.dart';
 import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
+import '../../services/image_service.dart';
 import '../../services/nera_backend.dart';
+import '../profile/full_body_photo_flow.dart';
 import '../try_on/try_on_result_screen.dart';
 import '../wardrobe/wardrobe_item_image.dart';
 
@@ -12,11 +14,13 @@ class OutfitResultScreen extends StatefulWidget {
   const OutfitResultScreen({
     super.key,
     required this.backend,
+    required this.imageService,
     required this.outfit,
     required this.wardrobe,
   });
 
   final NeraBackend backend;
+  final NeraImageService imageService;
   final OutfitPlan outfit;
   final List<WardrobeItem> wardrobe;
 
@@ -29,7 +33,9 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
   OutfitReaction? _savingReaction;
   bool _markingWorn = false;
   bool _tryingOn = false;
+  bool _updatingProfilePhoto = false;
   String? _tryOnError;
+  bool _profileAssetUnavailable = false;
 
   List<WardrobeItem> get _items => widget.wardrobe
       .where((item) => widget.outfit.wardrobeItemIds.contains(item.id))
@@ -88,6 +94,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
     setState(() {
       _tryingOn = true;
       _tryOnError = null;
+      _profileAssetUnavailable = false;
     });
     try {
       final result = await widget.backend.generateTryOn(
@@ -106,9 +113,44 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
         ),
       );
     } catch (error) {
-      if (mounted) setState(() => _tryOnError = friendlyError(error));
+      if (mounted) {
+        setState(() {
+          _tryOnError = friendlyError(error);
+          _profileAssetUnavailable =
+              error is NeraException &&
+              error.code == 'PROFILE_ASSET_UNAVAILABLE';
+        });
+      }
     } finally {
       if (mounted) setState(() => _tryingOn = false);
+    }
+  }
+
+  Future<void> _updateFullBodyPhoto() async {
+    try {
+      final profile = await FullBodyPhotoFlow.start(
+        context: context,
+        backend: widget.backend,
+        imageService: widget.imageService,
+        onProcessingChanged: (processing) {
+          if (mounted) setState(() => _updatingProfilePhoto = processing);
+        },
+      );
+      if (profile != null && mounted) {
+        setState(() {
+          _profileAssetUnavailable = false;
+          _tryOnError = null;
+        });
+        showNeraSnackBar(
+          context,
+          'Full-body photo updated. You can try this outfit on now.',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _tryOnError = friendlyError(error));
+        showNeraSnackBar(context, friendlyError(error), error: true);
+      }
     }
   }
 
@@ -240,7 +282,15 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
             NeraErrorState(
               title: 'Virtual try-on unavailable',
               message: _tryOnError!,
-              onRetry: _tryingOn ? null : _tryOn,
+              retryLabel: _profileAssetUnavailable
+                  ? 'Upload Full-Body Photo'
+                  : 'Try again',
+              retrying: _updatingProfilePhoto,
+              onRetry: _tryingOn
+                  ? null
+                  : _profileAssetUnavailable
+                  ? _updateFullBodyPhoto
+                  : _tryOn,
             ),
           ],
           const SizedBox(height: NeraSpacing.xxl),

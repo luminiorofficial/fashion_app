@@ -1,7 +1,4 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../core/errors/friendly_error.dart';
 import '../../core/theme/theme.dart';
@@ -9,6 +6,7 @@ import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
 import '../../services/image_service.dart';
 import '../../services/nera_backend.dart';
+import 'full_body_photo_flow.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -38,49 +36,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _analyzing = false;
 
   Future<void> _analyze() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(
-                Icons.camera_alt_rounded,
-                color: NeraColors.gold,
-              ),
-              title: const Text('Take a photo'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.photo_library_rounded,
-                color: NeraColors.gold,
-              ),
-              title: const Text('Choose from gallery'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-    if (source == null || !mounted) return;
-    setState(() => _analyzing = true);
     try {
-      final image = await widget.imageService.pick(source);
-      if (image == null) return;
-      await widget.backend.analyzeProfileImage(
-        Uint8List.fromList(image.bytes),
-        image.fileName,
+      final profile = await FullBodyPhotoFlow.start(
+        context: context,
+        backend: widget.backend,
+        imageService: widget.imageService,
+        onProcessingChanged: (processing) {
+          if (mounted) setState(() => _analyzing = processing);
+        },
       );
-      if (mounted) showNeraSnackBar(context, 'Your style profile is updated.');
+      if (profile != null && mounted) {
+        showNeraSnackBar(
+          context,
+          'Full-body photo updated. Your style profile is refreshed.',
+        );
+      }
     } catch (error) {
       if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
-    } finally {
-      if (mounted) setState(() => _analyzing = false);
     }
   }
 
@@ -121,12 +93,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
               if (widget.user != null) Text(widget.user!.phoneNumber),
               const SizedBox(height: NeraSpacing.lg),
               NeraButton(
-                label: 'Analyze Again',
+                label: 'Update Full-Body Photo',
                 icon: Icons.face_retouching_natural_rounded,
                 loading: _analyzing,
                 style: NeraButtonStyleType.secondary,
                 onPressed: _analyze,
               ),
+              if (_analyzing) ...[
+                const SizedBox(height: NeraSpacing.sm),
+                const Text(
+                  'Uploading photo and running AI analysis…',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: NeraColors.muted),
+                ),
+              ],
             ],
           ),
         ),

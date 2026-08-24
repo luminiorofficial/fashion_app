@@ -1,10 +1,23 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:fashion_app/features/outfits/outfit_result_screen.dart';
 import 'package:fashion_app/features/try_on/try_on_result_screen.dart';
 import 'package:fashion_app/models/nera_models.dart';
+import 'package:fashion_app/services/image_service.dart';
 import 'package:fashion_app/services/memory_nera_backend.dart';
 import 'package:fashion_app/services/nera_backend.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
+
+class _FakeImageService extends NeraImageService {
+  @override
+  Future<PickedImageData?> pick(ImageSource source) async => PickedImageData(
+    bytes: Uint8List.fromList(const [1, 2, 3]),
+    fileName: 'profile.jpg',
+  );
+}
 
 class _RecordingBackend extends MemoryNeraBackend {
   final List<List<String>> requests = [];
@@ -16,6 +29,33 @@ class _RecordingBackend extends MemoryNeraBackend {
   }) async {
     requests.add(List.of(wardrobeItemIds));
     throw const NeraException('Test stopped after recording the request.');
+  }
+}
+
+class _UnavailableProfileBackend extends MemoryNeraBackend {
+  int tryOnRequests = 0;
+  int profileUploads = 0;
+  final profileUpload = Completer<StyleProfile>();
+
+  @override
+  Future<TryOnResult> generateTryOn({
+    required List<String> wardrobeItemIds,
+    String? outfitId,
+  }) async {
+    tryOnRequests += 1;
+    if (tryOnRequests == 1) {
+      throw const NeraException(
+        'Re-upload your full-body profile photo.',
+        code: 'PROFILE_ASSET_UNAVAILABLE',
+      );
+    }
+    throw const NeraException('Test stopped after retrying.');
+  }
+
+  @override
+  Future<StyleProfile> analyzeProfileImage(Uint8List bytes, String fileName) {
+    profileUploads += 1;
+    return profileUpload.future;
   }
 }
 
@@ -80,6 +120,7 @@ void main() {
       MaterialApp(
         home: OutfitResultScreen(
           backend: backend,
+          imageService: _FakeImageService(),
           outfit: _outfit,
           wardrobe: const [_photoTop, _linkBottom],
         ),
@@ -111,6 +152,7 @@ void main() {
       MaterialApp(
         home: OutfitResultScreen(
           backend: backend,
+          imageService: _FakeImageService(),
           outfit: outfit,
           wardrobe: const [_linkBottom],
         ),
@@ -128,6 +170,56 @@ void main() {
       findsWidgets,
     );
   });
+
+  testWidgets(
+    'missing profile asset opens the shared upload flow and returns to outfit',
+    (tester) async {
+      final backend = _UnavailableProfileBackend();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OutfitResultScreen(
+            backend: backend,
+            imageService: _FakeImageService(),
+            outfit: const OutfitPlan(
+              id: 'outfit-profile-recovery',
+              eventType: 'Casual',
+              wardrobeItemIds: ['photo-top'],
+              rationale: 'The outfit stays open.',
+            ),
+            wardrobe: const [_photoTop],
+          ),
+        ),
+      );
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -700));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Try On Me'));
+      await tester.pump();
+
+      expect(find.text('Upload Full-Body Photo'), findsOneWidget);
+      await tester.tap(find.text('Upload Full-Body Photo'));
+      await tester.pumpAndSettle();
+      expect(find.text('Take a photo'), findsOneWidget);
+      expect(find.text('Choose from gallery'), findsOneWidget);
+
+      await tester.tap(find.text('Choose from gallery'));
+      await tester.pump();
+      expect(backend.profileUploads, 1);
+      expect(find.text('Uploading & analyzing…'), findsOneWidget);
+
+      backend.profileUpload.complete(
+        const StyleProfile(bodyType: 'Hourglass', skinTone: 'Warm'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Upload Full-Body Photo'), findsNothing);
+      expect(find.text('Try On Me'), findsOneWidget);
+      expect(find.text('The outfit stays open.'), findsOneWidget);
+
+      await tester.tap(find.text('Try On Me'));
+      await tester.pump();
+      expect(backend.tryOnRequests, 2);
+    },
+  );
 
   testWidgets('swap choices contain only items with real uploaded images', (
     tester,

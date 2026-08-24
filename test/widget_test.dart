@@ -114,6 +114,7 @@ void main() {
     expect(find.text('My Style Profile'), findsOneWidget);
     expect(find.text('Hourglass'), findsOneWidget);
     expect(find.text('Warm golden undertones'), findsOneWidget);
+    expect(find.text('Update Full-Body Photo'), findsOneWidget);
   });
 
   testWidgets('camera or gallery item can be reviewed and saved', (

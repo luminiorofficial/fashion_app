@@ -98,11 +98,15 @@ class NeraErrorState extends StatelessWidget {
     required this.message,
     this.onRetry,
     this.title = 'Something went wrong',
+    this.retryLabel = 'Try again',
+    this.retrying = false,
   });
 
   final String message;
   final String title;
   final VoidCallback? onRetry;
+  final String retryLabel;
+  final bool retrying;
 
   @override
   Widget build(BuildContext context) => NeraEmptyState(
@@ -112,7 +116,22 @@ class NeraErrorState extends StatelessWidget {
     message: message,
     action: onRetry == null
         ? null
-        : OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
+        : OutlinedButton(
+            onPressed: retrying ? null : onRetry,
+            child: retrying
+                ? const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Uploading & analyzing…'),
+                    ],
+                  )
+                : Text(retryLabel),
+          ),
   );
 }
 
