@@ -4,10 +4,14 @@ import 'package:google_fonts/google_fonts.dart';
 import 'nera_colors.dart';
 import 'nera_spacing.dart';
 
-/// The single source of truth for how NERA looks: a serif display face for
-/// the wordmark/headlines paired with a clean grotesque for everything else,
-/// laid over the dark editorial palette in [NeraColors].
+/// The single source of truth for how NERA looks: Plus Jakarta Sans across
+/// the app for a clean, modern, professional feel, with the Playfair
+/// Display serif reserved for the NERA wordmark and rare premium editorial
+/// moments, laid over the dark editorial palette in [NeraColors].
 abstract final class NeraTheme {
+  /// Playfair Display — the wordmark and rare premium editorial headings
+  /// only. Everything else in the app uses [heading] or the theme's
+  /// [ThemeData.textTheme].
   static TextStyle display(
     double size, {
     FontWeight weight = FontWeight.w600,
@@ -21,11 +25,26 @@ abstract final class NeraTheme {
     height: 1.05,
   );
 
+  /// Plus Jakarta Sans — the app's primary heading style, for screen titles
+  /// that aren't the rare editorial moments [display] is reserved for.
+  static TextStyle heading(
+    double size, {
+    FontWeight weight = FontWeight.w700,
+    Color? color,
+    double? letterSpacing,
+  }) => GoogleFonts.plusJakartaSans(
+    fontSize: size,
+    fontWeight: weight,
+    color: color ?? NeraColors.textPrimary,
+    letterSpacing: letterSpacing,
+    height: 1.1,
+  );
+
   static final ThemeData dark = _build();
 
   static ThemeData _build() {
     final base = ThemeData(useMaterial3: true, brightness: Brightness.dark);
-    final bodyFont = GoogleFonts.manropeTextTheme(base.textTheme);
+    final bodyFont = GoogleFonts.plusJakartaSansTextTheme(base.textTheme);
 
     final textTheme = bodyFont
         .apply(
@@ -33,9 +52,9 @@ abstract final class NeraTheme {
           displayColor: NeraColors.textPrimary,
         )
         .copyWith(
-          displayLarge: display(46, letterSpacing: -1.2),
-          displayMedium: display(34, letterSpacing: -0.6),
-          displaySmall: display(26),
+          displayLarge: heading(46, letterSpacing: -1.0),
+          displayMedium: heading(34, letterSpacing: -0.5),
+          displaySmall: heading(26, letterSpacing: -0.2),
           headlineMedium: bodyFont.headlineMedium?.copyWith(
             fontWeight: FontWeight.w700,
             fontSize: 22,
@@ -45,7 +64,7 @@ abstract final class NeraTheme {
             fontSize: 19,
           ),
           titleLarge: bodyFont.titleLarge?.copyWith(
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w600,
             fontSize: 17,
           ),
           titleMedium: bodyFont.titleMedium?.copyWith(
@@ -53,11 +72,13 @@ abstract final class NeraTheme {
             fontSize: 15,
           ),
           bodyLarge: bodyFont.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w400,
             fontSize: 15,
             height: 1.45,
             color: NeraColors.textSecondary,
           ),
           bodyMedium: bodyFont.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w400,
             fontSize: 13.5,
             height: 1.4,
             color: NeraColors.textSecondary,
@@ -66,7 +87,11 @@ abstract final class NeraTheme {
             fontWeight: FontWeight.w600,
             letterSpacing: 0.2,
           ),
+          labelMedium: bodyFont.labelMedium?.copyWith(
+            fontWeight: FontWeight.w500,
+          ),
           labelSmall: bodyFont.labelSmall?.copyWith(
+            fontWeight: FontWeight.w500,
             color: NeraColors.muted,
             letterSpacing: 0.6,
           ),

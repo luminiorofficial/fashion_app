@@ -59,7 +59,7 @@ class HomeScreen extends StatelessWidget {
               'Good to see you,',
               style: Theme.of(context).textTheme.bodyLarge,
             ),
-            Text(_firstName(user?.name), style: NeraTheme.display(36)),
+            Text(_firstName(user?.name), style: NeraTheme.heading(32)),
             const SizedBox(height: NeraSpacing.xxl),
             if (error != null)
               NeraErrorState(message: error!, onRetry: onRetry)

@@ -323,7 +323,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         children: [
           Row(
             children: [
-              Expanded(child: Text('Wardrobe', style: NeraTheme.display(38))),
+              Expanded(child: Text('Wardrobe', style: NeraTheme.heading(32))),
               IconButton.filled(
                 onPressed: _processing ? null : _chooseSource,
                 icon: const Icon(Icons.add_rounded),

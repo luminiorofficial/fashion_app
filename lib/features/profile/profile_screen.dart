@@ -75,7 +75,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     physics: const BouncingScrollPhysics(),
     padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
     children: [
-      Text('Profile', style: NeraTheme.display(38)),
+      Text('Profile', style: NeraTheme.heading(32)),
       const SizedBox(height: NeraSpacing.xl),
       if (widget.error != null)
         NeraErrorState(message: widget.error!, onRetry: widget.onRetry)

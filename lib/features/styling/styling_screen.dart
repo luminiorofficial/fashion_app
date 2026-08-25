@@ -41,7 +41,7 @@ class _StylingScreenState extends State<StylingScreen> {
     physics: const BouncingScrollPhysics(),
     padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
     children: [
-      Text('Styling', style: NeraTheme.display(38)),
+      Text('Styling', style: NeraTheme.heading(32)),
       const SizedBox(height: 6),
       Text(
         'Complete looks, personalized to you.',
