@@ -13,6 +13,11 @@ function loadConfig(overrides = {}) {
     otpMaxAttempts: Number(process.env.OTP_MAX_ATTEMPTS || 5),
     otpRateLimitWindowMinutes: Number(process.env.OTP_RATE_LIMIT_WINDOW_MINUTES || 15),
     otpRateLimitMax: Number(process.env.OTP_RATE_LIMIT_MAX || 5),
+    // Shared secret for api/cron/cleanup.js. Vercel sends
+    // `Authorization: Bearer <CRON_SECRET>` automatically on cron-triggered
+    // requests when this is set as a project env var; left blank locally
+    // since there's no cron caller to authenticate against.
+    cronSecret: process.env.CRON_SECRET || "",
     smsProvider: process.env.SMS_PROVIDER || "console",
     twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",

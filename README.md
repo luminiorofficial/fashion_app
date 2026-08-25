@@ -66,10 +66,23 @@ That local store is for development only; production should use private object
 storage with expiring signed URLs for full-body and wardrobe images.
 
 The Android emulator uses the default API URL `http://10.0.2.2:8080/api/v1`.
-Override it for iOS, web, a physical device, or a deployed server:
+Override it for iOS, web, a physical device, or a deployed server. `env/dev.json`
+and `env/prod.json` hold that value for reuse instead of retyping the flag:
 
 ```powershell
+flutter run --dart-define-from-file=env/dev.json
+# or ad-hoc, e.g. testing from a physical device over LAN:
 flutter run --dart-define=NERA_API_BASE_URL=http://192.168.1.20:8080/api/v1
+```
+
+Release builds have no built-in default and fail fast if `NERA_API_BASE_URL`
+isn't set. Point `env/prod.json` at your deployed API (see "Deploy the API to
+Vercel" below) and build with:
+
+```powershell
+flutter build apk --release --dart-define-from-file=env/prod.json
+flutter build appbundle --release --dart-define-from-file=env/prod.json
+flutter build ios --release --dart-define-from-file=env/prod.json
 ```
 
 ## API surface
@@ -110,6 +123,52 @@ PostgreSQL installations should keep `DATABASE_SSL=false`.
 
 See `database/README.md` for the covered entities, ownership rules, and storage
 model. PostgreSQL 16+ is required.
+
+## Deploy the API to Vercel
+
+The API is an Express app. `server/api/index.js` wraps it as a Vercel
+serverless function (`src/index.js` with `app.listen()` is for local dev
+only); `server/vercel.json` routes `/api/v1/*` to it and schedules
+`server/api/cron/cleanup.js` daily to replace the in-process cleanup timer,
+which doesn't run on serverless.
+
+This project is configured for the **Vercel Hobby plan**: `vercel.json` sets
+`maxDuration: 60` (Hobby's hard cap) and the cron runs once a day (Hobby only
+supports daily schedules). `GEMINI_IMAGE_TIMEOUT_MS` in `server/.env` is
+lowered to `55000` to fit inside that 60s window. If you move to Vercel Pro
+later, raise `maxDuration` (up to 300s+), `GEMINI_IMAGE_TIMEOUT_MS` (back
+toward 120000), and the cron schedule (e.g. `0 */6 * * *`) accordingly.
+
+1. In the Vercel dashboard, create a project from this repo and set its
+   **Root Directory** to `server`.
+2. Add every variable from `server/.env.example` as a Vercel **production**
+   environment variable — Vercel does not read `server/.env` (and it isn't
+   committed). At minimum: `DATABASE_URL`, `DATABASE_SSL=true`,
+   `DATABASE_SSL_REJECT_UNAUTHORIZED=false` (DigitalOcean managed Postgres
+   uses a cert Node doesn't trust by default; without this the API crashes
+   on every cold start with "self-signed certificate in certificate chain"),
+   `OTP_HASH_SECRET` (a new random value, not your local one),
+   `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`,
+   `IMAGE_STORAGE_PROVIDER=cloudinary`, `GEMINI_TEXT_API_KEY` and/or
+   `GEMINI_IMAGE_API_KEY`, `SMS_PROVIDER` (+ Twilio credentials for real SMS
+   in production — `console` mode returns OTPs in the API response, which is
+   fine for local testing but must not be used in production), `PUBLIC_BASE_URL`
+   (your Vercel domain), and `CRON_SECRET` (any random value; Vercel Cron
+   sends it back automatically as `Authorization: Bearer <value>`).
+3. Deploy. Confirm `https://<your-domain>/api/v1/health` returns
+   `database.adapter: "postgresql"`.
+4. Put that same URL + `/api/v1` into `env/prod.json` as `NERA_API_BASE_URL`,
+   then build the app per the release commands above.
+
+One thing worth knowing before you rely on this in production: with the 55s
+Gemini timeout, a slow primary-model attempt can eat the entire per-request
+budget, leaving no time left for the automatic fallback-model retry that
+normally kicks in when the primary model fails or is unavailable. In
+practice this means try-on requests that take longer than ~55 seconds now
+fail outright instead of succeeding (possibly on the fallback model) within
+the original 120s+120s budget. This is a real reliability trade-off for
+staying on Hobby, not just a formality — if virtual try-on failure rate
+matters to you in production, Vercel Pro (see above) removes it.
 
 ## Verification
 
