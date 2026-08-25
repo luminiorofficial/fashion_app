@@ -24,7 +24,17 @@ async function runCleanup({repository, assetStore, config}) {
     await repository.deleteTryOnRequest(tryOn.id).catch(() => {});
   }
 
-  const deletedMediaAssets = await repository.deleteOldDeletedMediaAssets(before(config.mediaAssetRetentionDays));
+  // Retry Cloudinary removal before purging each row: a wardrobe/profile/
+  // try-on delete may have already archived the DB row while its Cloudinary
+  // call failed (see the retry-safe delete flow in app.js), so this is the
+  // guaranteed second attempt. Cloudinary's destroy() is idempotent for an
+  // already-removed object, so re-calling it here is always safe.
+  const purgeableMediaAssets = await repository.listPurgeableMediaAssets(before(config.mediaAssetRetentionDays));
+  for (const asset of purgeableMediaAssets) {
+    if (asset.storageKey) await assetStore.remove(asset.storageKey).catch(() => {});
+    await repository.deleteMediaAssetRow(asset.id).catch(() => {});
+  }
+  const deletedMediaAssets = purgeableMediaAssets.length;
 
   return {
     deletedOtpChallenges,

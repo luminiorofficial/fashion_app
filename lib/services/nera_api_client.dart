@@ -89,7 +89,10 @@ class NeraApiClient {
         await streamed.stream.bytesToString(),
       );
     } on TimeoutException {
-      throw const NeraException('The server took too long to respond.');
+      throw const NeraException(
+        'The server took too long to respond.',
+        code: 'REQUEST_TIMEOUT',
+      );
     } on http.ClientException catch (error) {
       throw NeraException(
         'The NERA server could not be reached: ${error.message}',
@@ -149,7 +152,10 @@ class NeraApiClient {
       if (response.statusCode == 204) return const {};
       return _decode(response.statusCode, response.body);
     } on TimeoutException {
-      throw const NeraException('The server took too long to respond.');
+      throw const NeraException(
+        'The server took too long to respond.',
+        code: 'REQUEST_TIMEOUT',
+      );
     } on http.ClientException catch (error) {
       throw NeraException(
         'The NERA server could not be reached: ${error.message}',

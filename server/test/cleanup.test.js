@@ -101,7 +101,8 @@ test("purges old, unreferenced deleted media assets but keeps ones still referen
   stillReferenced.deletedAt = daysAgo(30);
   await repository.saveProfile("u1", {profileImageAssetId: stillReferenced.id});
 
-  const summary = await runCleanup({repository, assetStore: fakeAssetStore(), config});
+  const assetStore = fakeAssetStore();
+  const summary = await runCleanup({repository, assetStore, config});
 
   // getAsset() already treats any deleted row as absent, so check the
   // underlying store directly to confirm the row itself was purged (or
@@ -110,4 +111,8 @@ test("purges old, unreferenced deleted media assets but keeps ones still referen
   assert.equal(repository.assets.has(danglingOld.id), false);
   assert.equal(repository.assets.has(danglingRecent.id), true);
   assert.equal(repository.assets.has(stillReferenced.id), true);
+  // Cloudinary removal is retried here (best-effort) before the row is
+  // purged, in case an earlier request-time removal (e.g. during a wardrobe
+  // delete) failed and never actually removed the object.
+  assert.deepEqual(assetStore.removed, ["nera/u1/dangling"]);
 });

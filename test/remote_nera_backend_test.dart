@@ -123,6 +123,13 @@ void main() {
         RemoteNeraBackend.tryOnRequestTimeout,
         greaterThan(const Duration(seconds: 30)),
       );
+      // Must comfortably exceed the backend's worst case (2 models x one
+      // ~120s attempt each, with no same-model retry by default), or the
+      // client can cancel a generation the backend would have completed.
+      expect(
+        RemoteNeraBackend.tryOnRequestTimeout,
+        greaterThanOrEqualTo(const Duration(seconds: 240)),
+      );
       final mockClient = MockClient((request) async {
         await Future<void>.delayed(const Duration(milliseconds: 40));
         return http.Response(
@@ -152,6 +159,78 @@ void main() {
       );
 
       expect(result.id, 'tryon-slow');
+    },
+  );
+
+  test(
+    'generateTryOn surfaces a friendlier message on a request timeout',
+    () async {
+      final mockClient = MockClient((request) async {
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        return http.Response('', 200);
+      });
+      final backend = RemoteNeraBackend(
+        api: NeraApiClient(
+          client: mockClient,
+          requestTimeout: const Duration(milliseconds: 5),
+        ),
+      );
+
+      await expectLater(
+        backend.generateTryOn(wardrobeItemIds: const ['item-1']),
+        throwsA(
+          isA<NeraException>()
+              .having((error) => error.code, 'code', 'TRYON_TIMEOUT')
+              .having(
+                (error) => error.message,
+                'message',
+                contains('taking longer than usual'),
+              ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'saveWardrobeDrafts posts one batch request instead of one per item',
+    () async {
+      final captured = <http.Request>[];
+      final mockClient = MockClient((request) async {
+        captured.add(request);
+        return http.Response('{}', 201, headers: {
+          'content-type': 'application/json',
+        });
+      });
+      final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+
+      await backend.saveWardrobeDrafts(const [
+        WardrobeDraft(
+          id: 'asset-1',
+          name: 'Blazer',
+          category: 'Outerwear',
+          imageUrl: '',
+          imagePath: '',
+          tags: [],
+          analysisJobId: 'job-1',
+        ),
+        WardrobeDraft(
+          id: 'asset-2',
+          name: 'Shirt',
+          category: 'Top',
+          imageUrl: '',
+          imagePath: '',
+          tags: [],
+          analysisJobId: 'job-2',
+        ),
+      ]);
+
+      // One POST for the batch save, one GET for the follow-up wardrobe
+      // refresh — never one POST per item.
+      final posts = captured.where((request) => request.method == 'POST');
+      expect(posts, hasLength(1));
+      expect(posts.single.url.path, '/api/v1/wardrobe/items/batch');
+      final body = jsonDecode(posts.single.body) as Map<String, dynamic>;
+      expect((body['items'] as List), hasLength(2));
     },
   );
 

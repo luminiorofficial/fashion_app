@@ -204,6 +204,32 @@ test("stores the AI-analyzed color, material, pattern, season, occasion, and sty
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
+test("prunes the full analysis result once it's normalized into a saved wardrobe item, keeping the job row", async () => {
+  const {app, repository, uploadDir} = await fixture();
+  const token = await register(app);
+  const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "blazer.jpg", contentType: "image/jpeg"}).expect(201);
+  const draft = analyzed.body.draft;
+  const beforeSave = await repository.getAnalysisJob(draft.analysisJobId);
+  assert.ok(beforeSave.result);
+
+  await request(app).post("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: draft.name, category: draft.category, tags: draft.tags}).expect(201);
+
+  const afterSave = await repository.getAnalysisJob(draft.analysisJobId);
+  assert.equal(afterSave.result, null);
+  assert.equal(afterSave.provider, beforeSave.provider);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("prunes the full analysis result once a style profile is saved", async () => {
+  const {app, repository, uploadDir} = await fixture();
+  const token = await register(app);
+  const analyzed = await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+
+  const job = await repository.getAnalysisJob(analyzed.body.analysisJobId);
+  assert.equal(job.result, null);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
 test("soft archives a discarded analyzed draft while removing its file", async () => {
   const {app, uploadDir} = await fixture();
   const token = await register(app);
@@ -221,6 +247,47 @@ test("does not allow one user to claim another user's wardrobe analysis", async 
   const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${secondToken}`).attach("image", jpeg, {filename: "bag.jpg", contentType: "image/jpeg"}).expect(201);
   const draft = analyzed.body.draft;
   await request(app).post("/api/v1/wardrobe/items").set("authorization", `Bearer ${firstToken}`).send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: draft.name, category: draft.category, tags: draft.tags}).expect(404);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("saves multiple reviewed drafts in one batch request", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  const first = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "blazer.jpg", contentType: "image/jpeg"}).expect(201);
+  const second = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "shoes.jpg", contentType: "image/jpeg"}).expect(201);
+  const items = [first, second].map(({body}) => ({assetId: body.draft.assetId, analysisJobId: body.draft.analysisJobId, name: body.draft.name, category: body.draft.category, tags: body.draft.tags}));
+
+  const response = await request(app).post("/api/v1/wardrobe/items/batch").set("authorization", `Bearer ${token}`).send({items}).expect(201);
+
+  assert.equal(response.body.items.length, 2);
+  const listed = await request(app).get("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(listed.body.items.length, 2);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("rejects an entire batch (saving nothing) if any single item in it is invalid", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "blazer.jpg", contentType: "image/jpeg"}).expect(201);
+  const draft = analyzed.body.draft;
+  const items = [
+    {assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: draft.name, category: draft.category, tags: draft.tags},
+    {assetId: "does-not-exist", analysisJobId: "does-not-exist", name: "Ghost Item", category: "Accessory", tags: []},
+  ];
+
+  await request(app).post("/api/v1/wardrobe/items/batch").set("authorization", `Bearer ${token}`).send({items}).expect(404);
+
+  const listed = await request(app).get("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(listed.body.items.length, 0);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("rejects a batch with no items, or more than 20 items", async () => {
+  const {app, uploadDir} = await fixture();
+  const token = await register(app);
+  await request(app).post("/api/v1/wardrobe/items/batch").set("authorization", `Bearer ${token}`).send({items: []}).expect(400);
+  const tooMany = Array.from({length: 21}, (_, index) => ({assetId: `a${index}`, analysisJobId: `j${index}`, name: "x", category: "Accessory", tags: []}));
+  await request(app).post("/api/v1/wardrobe/items/batch").set("authorization", `Bearer ${token}`).send({items: tooMany}).expect(400);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
@@ -474,6 +541,27 @@ test("removes the underlying object from the asset store when a wardrobe item is
 
   assert.deepEqual(assetStore.removed, [storageKey]);
   assert.equal(assetStore.objects.size, 0);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("keeps the database consistent (item gone, media asset archived) even if Cloudinary removal fails during delete", async () => {
+  const assetStore = new FakePrivateAssetStore();
+  assetStore.remove = async () => { throw new Error("cloudinary is down"); };
+  const {app, repository, uploadDir} = await fixture({assetStore});
+  const token = await register(app);
+  const item = await addWardrobePhoto(app, token, {name: "Blazer", category: "Outerwear"});
+  const stored = await repository.getWardrobeItem(item.id);
+
+  // The request itself must still succeed (204) — Cloudinary removal is
+  // best-effort, not a precondition for the item disappearing.
+  await request(app).delete(`/api/v1/wardrobe/items/${item.id}`).set("authorization", `Bearer ${token}`).expect(204);
+
+  const listed = await request(app).get("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(listed.body.items.length, 0);
+  // The media asset is archived in the same DB transaction regardless of
+  // whether Cloudinary's removal succeeded, so it's picked up by the
+  // periodic cleanup sweep instead of leaking forever.
+  assert.equal(await repository.getAsset(stored.mediaAssetId), null);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 

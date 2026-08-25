@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -35,6 +36,10 @@ class WardrobeScreen extends StatefulWidget {
 }
 
 class _WardrobeScreenState extends State<WardrobeScreen> {
+  // Caps how many images are analyzed at once so a big multi-select doesn't
+  // fire dozens of simultaneous Gemini requests at once.
+  static const _maxAnalysisConcurrency = 3;
+
   bool _processing = false;
   String? _progress;
   String _filter = 'All';
@@ -99,37 +104,46 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     }
   }
 
-  // Analyzes every picked image first, then shows one review screen with
-  // every detected item and a single "Save All" button — no per-item
-  // confirmation dialog. Saving happens in one batch call so the wardrobe
-  // list is refreshed only once, not after every individual item.
+  // Analyzes every picked image first (up to _maxAnalysisConcurrency at a
+  // time, so Gemini never receives an unbounded burst of requests), then
+  // shows one review screen with every detected item and a single "Save
+  // All" button — no per-item confirmation dialog. Saving happens in one
+  // batch call so the wardrobe list is refreshed only once, not after every
+  // individual item.
   Future<void> _upload(ImageSource source) async {
     setState(() {
       _processing = true;
       _progress = 'Selecting images…';
     });
-    final drafts = <WardrobeDraft>[];
     try {
       final images = await widget.imageService.pickMany(source);
-      for (var index = 0; index < images.length; index += 1) {
-        if (mounted) {
-          setState(
-            () => _progress = 'Analyzing ${index + 1}/${images.length}…',
-          );
-        }
+      final total = images.length;
+      final results = List<WardrobeDraft?>.filled(total, null);
+      var completed = 0;
+      if (mounted && total > 0) {
+        setState(() => _progress = 'Analyzing 0/$total…');
+      }
+      await _runWithConcurrency(total, _maxAnalysisConcurrency, (
+        index,
+      ) async {
         try {
           final image = images[index];
-          final draft = await widget.backend.analyzeWardrobeImage(
+          results[index] = await widget.backend.analyzeWardrobeImage(
             Uint8List.fromList(image.bytes),
             image.fileName,
           );
-          drafts.add(draft);
         } catch (error) {
           if (mounted) {
             showNeraSnackBar(context, friendlyError(error), error: true);
           }
+        } finally {
+          completed += 1;
+          if (mounted) {
+            setState(() => _progress = 'Analyzing $completed/$total…');
+          }
         }
-      }
+      });
+      final drafts = results.whereType<WardrobeDraft>().toList();
       if (!mounted || drafts.isEmpty) return;
       setState(() {
         _processing = false;
@@ -170,6 +184,30 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         });
       }
     }
+  }
+
+  // Bounded worker-pool: runs [task] for every index in [0, count), with at
+  // most [maxConcurrent] tasks in flight at once. Each worker pulls the next
+  // unclaimed index until none remain, so slower items don't hold up faster
+  // ones the way a fixed chunked batch would.
+  Future<void> _runWithConcurrency(
+    int count,
+    int maxConcurrent,
+    Future<void> Function(int index) task,
+  ) async {
+    if (count == 0) return;
+    var next = 0;
+    Future<void> worker() async {
+      while (next < count) {
+        final index = next;
+        next += 1;
+        await task(index);
+      }
+    }
+
+    await Future.wait(
+      List.generate(math.min(maxConcurrent, count), (_) => worker()),
+    );
   }
 
   Future<void> _addLink() async {

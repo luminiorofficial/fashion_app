@@ -347,6 +347,14 @@ class PostgresRepository {
     return jobFromRow(result.rows[0]);
   }
 
+  // Once a job's result has been normalized into wardrobe_items or
+  // user_style_profiles columns, the full Gemini JSON is redundant — this
+  // drops it while keeping the row (provider/model/status/timestamps) for
+  // audit purposes. result stays nullable, so no schema change is needed.
+  async pruneAnalysisJobResult(jobId) {
+    await this.pool.query("UPDATE analysis_jobs SET result = NULL WHERE id = $1", [jobId]);
+  }
+
   async saveProfile(userId, profile) {
     const result = await this.pool.query(`
       WITH saved_profile AS (
@@ -399,36 +407,51 @@ class PostgresRepository {
     return wardrobeFromRow(result.rows[0]);
   }
 
+  async _insertWardrobeItem(client, userId, item) {
+    const category = await client.query("SELECT id FROM wardrobe_categories WHERE display_name = $1 AND is_active", [item.category]);
+    if (!category.rows[0]) throw Object.assign(new Error(`Unknown wardrobe category: ${item.category}`), {code: "INVALID_CATEGORY"});
+    const productDomain = item.productUrl ? new URL(item.productUrl).hostname : null;
+    const inserted = await client.query(`
+      INSERT INTO wardrobe_items
+        (user_id, category_id, source_type, name, product_url, product_domain, analysis_job_id,
+         primary_color, secondary_colors, material, pattern, season, occasion, attributes)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING id`, [userId, category.rows[0].id, item.sourceType, item.name, item.productUrl, productDomain, item.analysisJobId || null,
+      item.primaryColor || null, item.secondaryColors || [], item.material || null, item.pattern || null,
+      item.season || [], item.occasion || [], JSON.stringify(item.styleTags?.length ? {style: item.styleTags} : {})]);
+    const itemId = inserted.rows[0].id;
+
+    if (item.mediaAssetId) {
+      await client.query(`
+        INSERT INTO wardrobe_item_media (user_id, wardrobe_item_id, media_asset_id, position, is_primary)
+        VALUES ($1, $2, $3, 0, true)`, [userId, itemId, item.mediaAssetId]);
+    }
+    for (const tagName of item.tags || []) {
+      const tag = await client.query(`
+        INSERT INTO tags (normalized_name, display_name) VALUES ($1, $1)
+        ON CONFLICT (normalized_name) DO UPDATE SET display_name = tags.display_name
+        RETURNING id`, [tagName]);
+      await client.query(`
+        INSERT INTO wardrobe_item_tags (wardrobe_item_id, tag_id, source) VALUES ($1, $2, 'user')
+        ON CONFLICT DO NOTHING`, [itemId, tag.rows[0].id]);
+    }
+    return itemId;
+  }
+
   async createWardrobeItem(userId, item) {
     return this.transaction(async (client) => {
-      const category = await client.query("SELECT id FROM wardrobe_categories WHERE display_name = $1 AND is_active", [item.category]);
-      if (!category.rows[0]) throw Object.assign(new Error(`Unknown wardrobe category: ${item.category}`), {code: "INVALID_CATEGORY"});
-      const productDomain = item.productUrl ? new URL(item.productUrl).hostname : null;
-      const inserted = await client.query(`
-        INSERT INTO wardrobe_items
-          (user_id, category_id, source_type, name, product_url, product_domain, analysis_job_id,
-           primary_color, secondary_colors, material, pattern, season, occasion, attributes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-        RETURNING id`, [userId, category.rows[0].id, item.sourceType, item.name, item.productUrl, productDomain, item.analysisJobId || null,
-        item.primaryColor || null, item.secondaryColors || [], item.material || null, item.pattern || null,
-        item.season || [], item.occasion || [], JSON.stringify(item.styleTags?.length ? {style: item.styleTags} : {})]);
-      const itemId = inserted.rows[0].id;
-
-      if (item.mediaAssetId) {
-        await client.query(`
-          INSERT INTO wardrobe_item_media (user_id, wardrobe_item_id, media_asset_id, position, is_primary)
-          VALUES ($1, $2, $3, 0, true)`, [userId, itemId, item.mediaAssetId]);
-      }
-      for (const tagName of item.tags || []) {
-        const tag = await client.query(`
-          INSERT INTO tags (normalized_name, display_name) VALUES ($1, $1)
-          ON CONFLICT (normalized_name) DO UPDATE SET display_name = tags.display_name
-          RETURNING id`, [tagName]);
-        await client.query(`
-          INSERT INTO wardrobe_item_tags (wardrobe_item_id, tag_id, source) VALUES ($1, $2, 'user')
-          ON CONFLICT DO NOTHING`, [itemId, tag.rows[0].id]);
-      }
+      const itemId = await this._insertWardrobeItem(client, userId, item);
       return this.getWardrobeItemWith(client, itemId);
+    });
+  }
+
+  // Saves every item in one transaction: either all reviewed drafts land in
+  // the wardrobe together, or (on any single item's failure) none do.
+  async createWardrobeItemsBatch(userId, items) {
+    return this.transaction(async (client) => {
+      const itemIds = [];
+      for (const item of items) itemIds.push(await this._insertWardrobeItem(client, userId, item));
+      return Promise.all(itemIds.map((itemId) => this.getWardrobeItemWith(client, itemId)));
     });
   }
 
@@ -437,9 +460,15 @@ class PostgresRepository {
   // AI analysis result and tag links, since nothing references them once
   // the item is gone. wardrobe_item_media is left alone: the schema's
   // wardrobe_media_source constraint trigger still requires a soft-deleted
-  // upload item to keep exactly one primary media row, so that cleanup is
-  // just the existing Cloudinary removal + media_assets archive in app.js.
-  async deleteWardrobeItem(itemId) {
+  // upload item to keep exactly one primary media row.
+  //
+  // The linked media_asset is archived in this SAME transaction (rather than
+  // by the caller afterward) so Postgres's view of "this item is deleted" is
+  // always internally consistent regardless of whether the caller's
+  // best-effort Cloudinary removal succeeds — that removal, and the final
+  // purge of this row, are handled separately by the periodic cleanup sweep
+  // (see listPurgeableMediaAssets), which retries it until it succeeds.
+  async deleteWardrobeItem(itemId, mediaAssetId) {
     await this.transaction(async (client) => {
       const updated = await client.query(
         "UPDATE wardrobe_items SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING analysis_job_id",
@@ -448,6 +477,9 @@ class PostgresRepository {
       await client.query("DELETE FROM wardrobe_item_tags WHERE wardrobe_item_id = $1", [itemId]);
       const analysisJobId = updated.rows[0]?.analysis_job_id;
       if (analysisJobId) await client.query("DELETE FROM analysis_jobs WHERE id = $1", [analysisJobId]);
+      if (mediaAssetId) {
+        await client.query("UPDATE media_assets SET status = 'deleted', deleted_at = now() WHERE id = $1 AND deleted_at IS NULL", [mediaAssetId]);
+      }
     });
   }
 
@@ -602,19 +634,25 @@ class PostgresRepository {
     await this.pool.query("DELETE FROM tryon_requests WHERE id = $1", [tryOnId]);
   }
 
-  // Purges media_assets rows already marked deleted (Cloudinary object
-  // already removed at delete time) once nothing else references them and
-  // they have sat past the retention window.
-  async deleteOldDeletedMediaAssets(beforeIso) {
+  // Media rows marked deleted, unreferenced, and past the retention window.
+  // Listed (rather than deleted directly) so the caller can retry Cloudinary
+  // removal one more time before purging the row — a request-time removal
+  // that failed (e.g. a wardrobe delete whose Cloudinary call errored) gets
+  // a guaranteed second attempt here instead of leaking forever.
+  async listPurgeableMediaAssets(beforeIso) {
     const result = await this.pool.query(`
-      DELETE FROM media_assets m
+      SELECT * FROM media_assets m
        WHERE m.deleted_at IS NOT NULL AND m.deleted_at < $1
          AND NOT EXISTS (SELECT 1 FROM wardrobe_item_media wm WHERE wm.media_asset_id = m.id)
          AND NOT EXISTS (SELECT 1 FROM analysis_jobs aj WHERE aj.media_asset_id = m.id)
          AND NOT EXISTS (SELECT 1 FROM user_style_profiles sp WHERE sp.profile_image_asset_id = m.id)
          AND NOT EXISTS (SELECT 1 FROM tryon_requests tr WHERE tr.profile_media_asset_id = m.id OR tr.result_media_asset_id = m.id)`,
     [beforeIso]);
-    return result.rowCount;
+    return result.rows.map(assetFromRow);
+  }
+
+  async deleteMediaAssetRow(assetId) {
+    await this.pool.query("DELETE FROM media_assets WHERE id = $1", [assetId]);
   }
 }
 

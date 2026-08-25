@@ -10,7 +10,12 @@ class RemoteNeraBackend implements NeraBackend {
     : _api = api ?? NeraApiClient(),
       _storage = secureStorage ?? const FlutterSecureStorage();
 
-  static const tryOnRequestTimeout = Duration(seconds: 180);
+  // The backend tries up to two models (primary + fallback), each with its
+  // own ~120s Gemini timeout and no same-model retry by default, so its own
+  // worst case is roughly 240s. This client timeout is kept a little above
+  // that so a slow-but-succeeding generation isn't cancelled out from under
+  // the backend before it has a chance to finish.
+  static const tryOnRequestTimeout = Duration(seconds: 250);
   static const _tokenKey = 'nera_access_token';
   final NeraApiClient _api;
   final FlutterSecureStorage _storage;
@@ -102,17 +107,25 @@ class RemoteNeraBackend implements NeraBackend {
     _authenticated.value = true;
   }
 
-  Future<void> _refresh() async {
-    final results = await Future.wait([
-      _api.get('/wardrobe/items'),
-      _api.get('/profile'),
-    ]);
-    _wardrobeCache = (results[0]['items'] as List? ?? const [])
+  // Full refresh: only needed when both wardrobe and profile might have
+  // changed (startup, login). Mutations that only touch one of the two
+  // should call the matching single-resource refresh below instead, so a
+  // wardrobe edit doesn't also re-fetch (and re-emit) an unchanged profile.
+  Future<void> _refresh() =>
+      Future.wait([_refreshWardrobe(), _refreshProfile()]);
+
+  Future<void> _refreshWardrobe() async {
+    final response = await _api.get('/wardrobe/items');
+    _wardrobeCache = (response['items'] as List? ?? const [])
         .map((item) => WardrobeItem.fromJson(item as Map<String, dynamic>))
         .toList();
     _wardrobe.add(_wardrobeCache);
+  }
+
+  Future<void> _refreshProfile() async {
+    final response = await _api.get('/profile');
     final fetchedProfile = StyleProfile.fromJson(
-      results[1]['profile'] as Map<String, dynamic>?,
+      response['profile'] as Map<String, dynamic>?,
     );
     _profileCache = fetchedProfile;
     _profile.add(fetchedProfile);
@@ -165,24 +178,26 @@ class RemoteNeraBackend implements NeraBackend {
       'tags': draft.tags,
       'analysisJobId': draft.analysisJobId,
     });
-    await _refresh();
+    await _refreshWardrobe();
   }
 
   @override
   Future<void> saveWardrobeDrafts(List<WardrobeDraft> drafts) async {
     if (drafts.isEmpty) return;
-    await Future.wait(
-      drafts.map(
-        (draft) => _api.post('/wardrobe/items', {
-          'assetId': draft.id,
-          'name': draft.name,
-          'category': draft.category,
-          'tags': draft.tags,
-          'analysisJobId': draft.analysisJobId,
-        }),
-      ),
-    );
-    await _refresh();
+    await _api.post('/wardrobe/items/batch', {
+      'items': drafts
+          .map(
+            (draft) => {
+              'assetId': draft.id,
+              'name': draft.name,
+              'category': draft.category,
+              'tags': draft.tags,
+              'analysisJobId': draft.analysisJobId,
+            },
+          )
+          .toList(),
+    });
+    await _refreshWardrobe();
   }
 
   @override
@@ -199,13 +214,13 @@ class RemoteNeraBackend implements NeraBackend {
       'category': category,
       'productUrl': productUrl,
     });
-    await _refresh();
+    await _refreshWardrobe();
   }
 
   @override
   Future<void> deleteWardrobeItem(WardrobeItem item) async {
     await _api.delete('/wardrobe/items/${item.id}');
-    await _refresh();
+    await _refreshWardrobe();
   }
 
   @override
@@ -269,11 +284,22 @@ class RemoteNeraBackend implements NeraBackend {
     required List<String> wardrobeItemIds,
     String? outfitId,
   }) async {
-    final response = await _api.post(
-      '/tryon/generate',
-      {'wardrobeItemIds': wardrobeItemIds, 'outfitId': ?outfitId},
-      timeout: tryOnRequestTimeout,
-    );
+    Map<String, dynamic> response;
+    try {
+      response = await _api.post(
+        '/tryon/generate',
+        {'wardrobeItemIds': wardrobeItemIds, 'outfitId': ?outfitId},
+        timeout: tryOnRequestTimeout,
+      );
+    } on NeraException catch (error) {
+      if (error.code == 'REQUEST_TIMEOUT') {
+        throw const NeraException(
+          'Virtual try-on is taking longer than usual. Please try again in a moment.',
+          code: 'TRYON_TIMEOUT',
+        );
+      }
+      rethrow;
+    }
     final result = TryOnResult.fromJson(
       response['tryOn'] as Map<String, dynamic>,
     );

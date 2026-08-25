@@ -7,13 +7,13 @@ const repositoryMethods = Object.freeze([
   "createChallenge", "countRecentChallenges", "getChallenge", "recordChallengeAttempt", "markChallengeDelivered",
   "createSession", "findSession", "revokeSession",
   "createAsset", "getAsset", "archiveAsset",
-  "createAnalysisJob", "getAnalysisJob", "saveProfile", "getProfile",
-  "listWardrobe", "createWardrobeItem", "getWardrobeItem", "deleteWardrobeItem",
+  "createAnalysisJob", "getAnalysisJob", "pruneAnalysisJobResult", "saveProfile", "getProfile",
+  "listWardrobe", "createWardrobeItem", "createWardrobeItemsBatch", "getWardrobeItem", "deleteWardrobeItem",
   "createOutfit", "getOutfit", "listOutfits",
   "upsertOutfitFeedback", "getWardrobeAffinity",
   "createTryOnRequest", "getTryOnRequest", "markTryOnSaved", "listSavedTryOns", "unsaveTryOn",
   "deleteExpiredOtpChallenges", "deleteOldSessions", "deleteOrphanedAnalysisJobs",
-  "listExpiredUnsavedTryOns", "deleteTryOnRequest", "deleteOldDeletedMediaAssets",
+  "listExpiredUnsavedTryOns", "deleteTryOnRequest", "listPurgeableMediaAssets", "deleteMediaAssetRow",
 ]);
 
 function assertRepositoryContract(repository) {
@@ -118,6 +118,10 @@ class InMemoryRepository {
     return value;
   }
   async getAnalysisJob(jobId) { return this.analysisJobs.get(jobId) || null; }
+  async pruneAnalysisJobResult(jobId) {
+    const job = this.analysisJobs.get(jobId);
+    if (job) job.result = null;
+  }
 
   async saveProfile(userId, profile) {
     const value = {...profile, userId, updatedAt: new Date().toISOString()};
@@ -139,15 +143,24 @@ class InMemoryRepository {
     return value;
   }
 
+  async createWardrobeItemsBatch(userId, items) {
+    const created = [];
+    for (const item of items) created.push(await this.createWardrobeItem(userId, item));
+    return created;
+  }
+
   async getWardrobeItem(itemId) { return this.wardrobe.get(itemId) || null; }
   // Soft-deletes the item (kept so past outfit history stays intact — see
   // outfit_items' FK RESTRICT in the schema) but also drops its now-useless
-  // AI analysis result, since nothing references it once the item is gone.
-  async deleteWardrobeItem(itemId) {
+  // AI analysis result, and archives the linked media asset in the same
+  // step so the in-memory store never has a soft-deleted item pointing at
+  // an active media asset (mirrors the Postgres transaction).
+  async deleteWardrobeItem(itemId, mediaAssetId) {
     const item = this.wardrobe.get(itemId);
     if (!item) return;
     item.deletedAt = new Date().toISOString();
     if (item.analysisJobId) this.analysisJobs.delete(item.analysisJobId);
+    if (mediaAssetId) await this.archiveAsset(mediaAssetId);
   }
 
   async createOutfit(userId, outfit) {
@@ -267,7 +280,7 @@ class InMemoryRepository {
 
   async deleteTryOnRequest(tryOnId) { this.tryOnRequests.delete(tryOnId); }
 
-  async deleteOldDeletedMediaAssets(beforeIso) {
+  async listPurgeableMediaAssets(beforeIso) {
     const referenced = new Set();
     for (const item of this.wardrobe.values()) if (item.mediaAssetId) referenced.add(item.mediaAssetId);
     for (const job of this.analysisJobs.values()) if (job.mediaAssetId) referenced.add(job.mediaAssetId);
@@ -276,12 +289,10 @@ class InMemoryRepository {
       if (tryOn.profileMediaAssetId) referenced.add(tryOn.profileMediaAssetId);
       if (tryOn.resultMediaAssetId) referenced.add(tryOn.resultMediaAssetId);
     }
-    let count = 0;
-    for (const [id, asset] of this.assets) {
-      if (asset.deletedAt && asset.deletedAt < beforeIso && !referenced.has(id)) { this.assets.delete(id); count += 1; }
-    }
-    return count;
+    return [...this.assets.values()].filter((asset) => asset.deletedAt && asset.deletedAt < beforeIso && !referenced.has(asset.id));
   }
+
+  async deleteMediaAssetRow(assetId) { this.assets.delete(assetId); }
 }
 
 module.exports = {InMemoryRepository, assertRepositoryContract, repositoryMethods};

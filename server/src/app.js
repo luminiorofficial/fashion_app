@@ -104,7 +104,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
 
   route.get("/profile", authenticate, async (request, response) => response.json({profile: await publicProfile(assetStore, await repository.getProfile(request.auth.user.id))}));
   route.post("/profile/analyze", authenticate, upload.single("image"), async (request, response) => {
-    const file = await processUploadedFile(normalizeUploadedFile(request.file));
+    const file = await processUploadedFile(normalizeUploadedFile(request.file), "profile_analysis");
     assert(file, 400, "IMAGE_REQUIRED", "A full-body image is required.");
     const stored = await assetStore.save(request.auth.user.id, file);
     let asset;
@@ -117,6 +117,12 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
       if (previousProfile?.profileImageAssetId && previousProfile.profileImageAssetId !== asset.id) {
         await cleanupOrphanedAsset(assetStore, repository, previousProfile.profileImageStorageKey, {id: previousProfile.profileImageAssetId});
       }
+      // The full Gemini JSON is only ever needed once, right here, to build
+      // the profile above — prune it so analysis_jobs doesn't keep a
+      // permanent duplicate of data already normalized into
+      // user_style_profiles. Best-effort: a failure here shouldn't turn an
+      // otherwise-successful profile save into an error response.
+      await repository.pruneAnalysisJobResult(job.id).catch(() => {});
       response.status(201).json({profile: await publicProfile(assetStore, profile), analysisJobId: job.id});
     } catch (error) {
       await cleanupOrphanedAsset(assetStore, repository, stored.storageKey, asset);
@@ -129,7 +135,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     response.json({items: await Promise.all(items.map((item) => publicWardrobeItem(assetStore, item)))});
   });
   route.post("/wardrobe/analyze", authenticate, upload.single("image"), async (request, response) => {
-    const file = await processUploadedFile(normalizeUploadedFile(request.file));
+    const file = await processUploadedFile(normalizeUploadedFile(request.file), "wardrobe_item");
     assert(file, 400, "IMAGE_REQUIRED", "A clothing or accessory image is required.");
     const stored = await assetStore.save(request.auth.user.id, file);
     let asset;
@@ -153,27 +159,25 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     response.sendStatus(204);
   });
   route.post("/wardrobe/items", authenticate, async (request, response) => {
-    const assetId = text(request.body?.assetId, "assetId", {max: 100});
-    const analysisJobId = text(request.body?.analysisJobId, "analysisJobId", {max: 100});
-    const asset = await repository.getAsset(assetId);
-    assert(asset && asset.userId === request.auth.user.id && asset.purpose === "wardrobe_item", 404, "ASSET_NOT_FOUND", "The wardrobe image was not found.");
-    const analysisJob = await repository.getAnalysisJob(analysisJobId);
-    assert(analysisJob && analysisJob.userId === request.auth.user.id && analysisJob.mediaAssetId === asset.id && analysisJob.analysisType === "wardrobe_item", 404, "ANALYSIS_NOT_FOUND", "The wardrobe analysis was not found.");
-    const inUse = (await repository.listWardrobe(request.auth.user.id)).some((item) => item.mediaAssetId === asset.id);
-    assert(!inUse, 409, "ASSET_IN_USE", "The image already belongs to a wardrobe item.");
-    const metadata = analysisJob.result || {};
-    const styleTags = cleanStringArray(metadata.style);
-    const item = await repository.createWardrobeItem(request.auth.user.id, {
-      sourceType: "upload", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags),
-      mediaAssetId: asset.id, analysisJobId: analysisJob.id, imageStorageKey: asset.storageKey, imageStorageProvider: asset.storageProvider, productUrl: null,
-      primaryColor: typeof metadata.color === "string" ? metadata.color.trim().slice(0, 100) || null : null,
-      material: typeof metadata.material === "string" ? metadata.material.trim().slice(0, 160) || null : null,
-      pattern: typeof metadata.pattern === "string" ? metadata.pattern.trim().slice(0, 120) || null : null,
-      season: cleanStringArray(metadata.season, 4),
-      occasion: cleanStringArray(metadata.occasion, 6),
-      styleTags,
-    });
+    const inUseAssetIds = new Set((await repository.listWardrobe(request.auth.user.id)).map((item) => item.mediaAssetId));
+    const resolved = await resolveWardrobeDraft(repository, request.auth.user.id, request.body, inUseAssetIds);
+    const item = await repository.createWardrobeItem(request.auth.user.id, resolved.payload);
+    // See the matching comment in /profile/analyze: the full analysis JSON
+    // is redundant the moment it's normalized into wardrobe_items columns.
+    await repository.pruneAnalysisJobResult(resolved.analysisJobId).catch(() => {});
     response.status(201).json({item: await publicWardrobeItem(assetStore, item)});
+  });
+  route.post("/wardrobe/items/batch", authenticate, async (request, response) => {
+    const rawItems = Array.isArray(request.body?.items) ? request.body.items : [];
+    assert(rawItems.length > 0 && rawItems.length <= 20, 400, "INVALID_BATCH", "Provide 1 to 20 wardrobe items.");
+    const inUseAssetIds = new Set((await repository.listWardrobe(request.auth.user.id)).map((item) => item.mediaAssetId));
+    const resolvedItems = [];
+    for (const raw of rawItems) resolvedItems.push(await resolveWardrobeDraft(repository, request.auth.user.id, raw, inUseAssetIds));
+    // One transaction for every item in the batch (see createWardrobeItemsBatch):
+    // either the whole reviewed batch is saved, or none of it is.
+    const items = await repository.createWardrobeItemsBatch(request.auth.user.id, resolvedItems.map((entry) => entry.payload));
+    await Promise.all(resolvedItems.map((entry) => repository.pruneAnalysisJobResult(entry.analysisJobId).catch(() => {})));
+    response.status(201).json({items: await Promise.all(items.map((item) => publicWardrobeItem(assetStore, item)))});
   });
   route.post("/wardrobe/links", authenticate, async (request, response) => {
     const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "product_link", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags), mediaAssetId: null, imageStorageKey: null, productUrl: productUrl(request.body?.productUrl)});
@@ -182,10 +186,14 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
   route.delete("/wardrobe/items/:itemId", authenticate, async (request, response) => {
     const item = await repository.getWardrobeItem(request.params.itemId);
     assert(item && item.userId === request.auth.user.id && !item.deletedAt, 404, "WARDROBE_ITEM_NOT_FOUND", "The wardrobe item was not found.");
-    await repository.deleteWardrobeItem(item.id);
-    if (item.mediaAssetId) {
-      await assetStore.remove(item.imageStorageKey);
-      await repository.archiveAsset(item.mediaAssetId);
+    // The DB side (wardrobe_items soft-delete + media_assets archive + tag/
+    // analysis cleanup) commits as one transaction, so it can never diverge
+    // from what Cloudinary ends up holding. Cloudinary removal is therefore
+    // best-effort here — a failure doesn't error the request or leave the
+    // item stuck; the periodic cleanup sweep retries it (see cleanup.js).
+    await repository.deleteWardrobeItem(item.id, item.mediaAssetId);
+    if (item.imageStorageKey) {
+      await assetStore.remove(item.imageStorageKey).catch(() => {});
     }
     response.sendStatus(204);
   });
@@ -270,7 +278,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
       garmentFiles,
       notes: garmentItems.map((item) => `${item.category}: ${item.name}`).join("; "),
     });
-    const processed = await processUploadedFile({buffer: generation.buffer, mimetype: generation.mimeType, originalname: "tryon-result.jpg", size: generation.buffer.length});
+    const processed = await processUploadedFile({buffer: generation.buffer, mimetype: generation.mimeType, originalname: "tryon-result.jpg", size: generation.buffer.length}, "tryon_result");
     const stored = await assetStore.save(request.auth.user.id, processed);
     let resultAsset;
     try {
@@ -385,6 +393,36 @@ const computeMatchScore = (wardrobeItemIds, affinity) => {
 };
 const cleanTags = (value) => Array.isArray(value) ? [...new Set(value.filter((tag) => typeof tag === "string").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 12) : [];
 const cleanStringArray = (value, max = 6) => Array.isArray(value) ? [...new Set(value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean))].slice(0, max) : [];
+
+// Shared by POST /wardrobe/items and POST /wardrobe/items/batch: resolves a
+// draft's asset + analysis job, checks it isn't already saved (including
+// against other items already resolved earlier in the same batch, via the
+// shared inUseAssetIds set), and builds the createWardrobeItem payload from
+// the analysis JSON.
+const resolveWardrobeDraft = async (repository, userId, raw, inUseAssetIds) => {
+  const assetId = text(raw?.assetId, "assetId", {max: 100});
+  const analysisJobId = text(raw?.analysisJobId, "analysisJobId", {max: 100});
+  const asset = await repository.getAsset(assetId);
+  assert(asset && asset.userId === userId && asset.purpose === "wardrobe_item", 404, "ASSET_NOT_FOUND", "The wardrobe image was not found.");
+  const analysisJob = await repository.getAnalysisJob(analysisJobId);
+  assert(analysisJob && analysisJob.userId === userId && analysisJob.mediaAssetId === asset.id && analysisJob.analysisType === "wardrobe_item", 404, "ANALYSIS_NOT_FOUND", "The wardrobe analysis was not found.");
+  assert(!inUseAssetIds.has(asset.id), 409, "ASSET_IN_USE", "The image already belongs to a wardrobe item.");
+  inUseAssetIds.add(asset.id);
+  const metadata = analysisJob.result || {};
+  return {
+    analysisJobId: analysisJob.id,
+    payload: {
+      sourceType: "upload", name: text(raw?.name, "name", {max: 160}), category: wardrobeCategory(raw?.category), tags: cleanTags(raw?.tags),
+      mediaAssetId: asset.id, analysisJobId: analysisJob.id, imageStorageKey: asset.storageKey, imageStorageProvider: asset.storageProvider, productUrl: null,
+      primaryColor: typeof metadata.color === "string" ? metadata.color.trim().slice(0, 100) || null : null,
+      material: typeof metadata.material === "string" ? metadata.material.trim().slice(0, 160) || null : null,
+      pattern: typeof metadata.pattern === "string" ? metadata.pattern.trim().slice(0, 120) || null : null,
+      season: cleanStringArray(metadata.season, 4),
+      occasion: cleanStringArray(metadata.occasion, 6),
+      styleTags: cleanStringArray(metadata.style),
+    },
+  };
+};
 // The suggested purchase comes from the styling AI, not a trusted product
 // catalog: keep only a plain name/type pair (never a URL) so nothing it
 // hallucinates can be surfaced as a clickable link to the client.

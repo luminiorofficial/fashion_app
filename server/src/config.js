@@ -32,15 +32,23 @@ function loadConfig(overrides = {}) {
     geminiTextApiKey: process.env.GEMINI_TEXT_API_KEY || process.env.GEMINI_API_KEY || "",
     geminiTextMaxRetries: Number(process.env.GEMINI_TEXT_MAX_RETRIES || process.env.GEMINI_MAX_RETRIES || 3),
     geminiImageApiKey: process.env.GEMINI_IMAGE_API_KEY || process.env.GEMINI_API_KEY || "",
-    // Image generation retries are kept low by default so a failing try-on
-    // doesn't leave the user waiting through several slow paid attempts.
-    geminiImageMaxRetries: Number(process.env.GEMINI_IMAGE_MAX_RETRIES || 1),
+    // Image generation retries are kept at 0 by default: the primary/
+    // fallback model chain below already gives every try-on a second
+    // attempt on a different model, so a same-model retry on top of that
+    // just doubles worst-case latency for no real benefit. Raise this only
+    // if you deliberately want same-model retries before falling back.
+    geminiImageMaxRetries: Number(process.env.GEMINI_IMAGE_MAX_RETRIES || 0),
     // Virtual try-on uses a separate, image-capable model family from the
     // text/JSON analysis calls above. The default primary model is the
-    // faster/cheaper flash variant; the higher-quality pro model is only a
-    // fallback, keeping typical try-on cost and latency down.
-    geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image",
-    geminiImageFallbackModel: process.env.GEMINI_IMAGE_FALLBACK_MODEL || "gemini-3-pro-image",
+    // cheapest/fastest flash-lite variant, with the standard flash model as
+    // fallback if it's unavailable or fails. The higher-quality (and
+    // pricier) pro model is never used automatically — only when
+    // GEMINI_IMAGE_HIGH_QUALITY_MODE=true, so a normal request never
+    // silently upgrades to it.
+    geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-lite-image",
+    geminiImageFallbackModel: process.env.GEMINI_IMAGE_FALLBACK_MODEL || "gemini-3.1-flash-image",
+    geminiImageProModel: process.env.GEMINI_IMAGE_PRO_MODEL || "gemini-3-pro-image",
+    geminiImageHighQualityMode: process.env.GEMINI_IMAGE_HIGH_QUALITY_MODE === "true",
     geminiImageSize: process.env.GEMINI_IMAGE_SIZE || "1K",
     geminiImageAspectRatio: process.env.GEMINI_IMAGE_ASPECT_RATIO || "3:4",
     geminiImageTimeoutMs: Number(process.env.GEMINI_IMAGE_TIMEOUT_MS || 120_000),

@@ -3,9 +3,25 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const {PassThrough} = require("node:stream");
-const {LocalAssetStore, CloudinaryAssetStore} = require("../src/storage");
+const sharp = require("sharp");
+const {LocalAssetStore, CloudinaryAssetStore, processUploadedFile} = require("../src/storage");
 
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00, 0xff, 0xd9]);
+
+// A real, decodable, deliberately large/detailed JPEG (random-noise pixels
+// compress poorly, closer to a busy real photo than a flat color) so the
+// adaptive quality/dimension ladder in processUploadedFile actually has to
+// do work to hit each profile's target ceiling.
+async function largeNoisyJpeg(size = 2000) {
+  const pixels = Buffer.alloc(size * size * 3);
+  for (let i = 0; i < pixels.length; i += 1) pixels[i] = Math.floor(Math.random() * 256);
+  return sharp(pixels, {raw: {width: size, height: size, channels: 3}}).jpeg({quality: 95}).toBuffer();
+}
+
+async function dimensionsOf(buffer) {
+  const metadata = await sharp(buffer).metadata();
+  return Math.max(metadata.width || 0, metadata.height || 0);
+}
 
 function cloudinaryConfig(overrides = {}) {
   return {cloudinaryCloudName: "test-cloud", cloudinaryApiKey: "test-key", cloudinaryApiSecret: "test-secret", cloudinaryFolder: "nera", cloudinarySignedUrlTtlSeconds: 300, ...overrides};
@@ -169,6 +185,41 @@ test("CloudinaryAssetStore.signedUrl handles extensionless and extension-bearing
   assert.equal(client.calls.urls[0].options.format, "jpg");
   assert.equal("format" in client.calls.urls[1].options, false);
   assert.equal("format" in client.calls.urls[2].options, false);
+});
+
+test("processUploadedFile compresses a wardrobe_item image to at most 1024px and 150 KB", async () => {
+  const original = await largeNoisyJpeg();
+  const processed = await processUploadedFile({buffer: original, mimetype: "image/jpeg", originalname: "shoe.jpg", size: original.length}, "wardrobe_item");
+  assert.ok(processed.size <= 150 * 1024, `expected <=150KB, got ${processed.size}`);
+  assert.ok((await dimensionsOf(processed.buffer)) <= 1024);
+});
+
+test("processUploadedFile compresses a profile_analysis image to at most 1280px and 350 KB", async () => {
+  const original = await largeNoisyJpeg();
+  const processed = await processUploadedFile({buffer: original, mimetype: "image/jpeg", originalname: "profile.jpg", size: original.length}, "profile_analysis");
+  assert.ok(processed.size <= 350 * 1024, `expected <=350KB, got ${processed.size}`);
+  assert.ok((await dimensionsOf(processed.buffer)) <= 1280);
+});
+
+test("processUploadedFile compresses a tryon_result image to at most 1280px and 300 KB", async () => {
+  const original = await largeNoisyJpeg();
+  const processed = await processUploadedFile({buffer: original, mimetype: "image/jpeg", originalname: "tryon-result.jpg", size: original.length}, "tryon_result");
+  assert.ok(processed.size <= 300 * 1024, `expected <=300KB, got ${processed.size}`);
+  assert.ok((await dimensionsOf(processed.buffer)) <= 1280);
+});
+
+test("processUploadedFile with no purpose keeps today's behavior: 1800px cap, no byte-size target", async () => {
+  const original = await largeNoisyJpeg();
+  const processed = await processUploadedFile({buffer: original, mimetype: "image/jpeg", originalname: "misc.jpg", size: original.length});
+  assert.ok((await dimensionsOf(processed.buffer)) <= 1800);
+  // No profile-specific ceiling applies, so this can legitimately exceed
+  // 150/300/350 KB for a large, detailed source image.
+});
+
+test("processUploadedFile does not upscale or degrade an image already under a profile's target", async () => {
+  const small = await sharp({create: {width: 400, height: 400, channels: 3, background: {r: 200, g: 200, b: 200}}}).jpeg({quality: 80}).toBuffer();
+  const processed = await processUploadedFile({buffer: small, mimetype: "image/jpeg", originalname: "small.jpg", size: small.length}, "wardrobe_item");
+  assert.equal(await dimensionsOf(processed.buffer), 400);
 });
 
 test("CloudinaryAssetStore.signedUrl includes an expiring auth token when CLOUDINARY_AUTH_TOKEN_KEY is configured", async () => {

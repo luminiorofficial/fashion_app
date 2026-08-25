@@ -43,7 +43,53 @@ function normalizeUploadedFile(file) {
   return file;
 }
 
-async function processUploadedFile(file) {
+// Per-purpose compression targets, mirroring the dimension/quality ladder
+// the Flutter client already applies client-side (lib/services/image_service.dart)
+// so the server doesn't undo that work by re-encoding everything the same
+// way. Quality floors are kept higher than the client's own floors because
+// the wardrobe_item buffer this produces is also what's fed directly to
+// Gemini for analysis (see analyzer.analyzeWardrobe in app.js) — going too
+// low here risks unreliable analysis, not just a worse-looking thumbnail.
+// No entry (undefined purpose) keeps today's exact behavior: a single
+// 1800px / quality 82 pass with no byte-size target.
+const IMAGE_PROFILES = {
+  wardrobe_item: {dimensionSteps: [1024, 900, 768, 640], qualitySteps: [80, 70, 60, 50], targetMaxBytes: 150 * 1024},
+  profile_analysis: {dimensionSteps: [1280, 1100, 950, 800], qualitySteps: [85, 75, 65, 55], targetMaxBytes: 350 * 1024},
+  tryon_result: {dimensionSteps: [1280, 1100, 950, 800], qualitySteps: [85, 75, 65, 55], targetMaxBytes: 300 * 1024},
+};
+const DEFAULT_IMAGE_PROFILE = {dimensionSteps: [1800], qualitySteps: [82], targetMaxBytes: null};
+
+function resizeIfNeeded(image, metadata, maxDimension) {
+  const longestSide = Math.max(metadata.width || 0, metadata.height || 0);
+  if (longestSide <= maxDimension) return image;
+  const scale = maxDimension / longestSide;
+  return image.resize({
+    width: Math.max(1, Math.round((metadata.width || maxDimension) * scale)),
+    height: Math.max(1, Math.round((metadata.height || maxDimension) * scale)),
+    fit: "inside",
+    withoutEnlargement: false,
+  });
+}
+
+// Tries each dimension step (largest first) against every quality step
+// (highest first), returning the first encode that fits targetMaxBytes. If
+// none do (rare — only very detailed images at the smallest/lowest step),
+// falls back to the smallest buffer actually produced, so output size never
+// regresses past what the ladder could achieve.
+async function encodeToTarget(image, metadata, profile) {
+  let smallest = null;
+  for (const dimension of profile.dimensionSteps) {
+    const resized = resizeIfNeeded(image, metadata, dimension);
+    for (const quality of profile.qualitySteps) {
+      const buffer = await resized.clone().jpeg({quality, progressive: true}).toBuffer();
+      if (!profile.targetMaxBytes || buffer.length <= profile.targetMaxBytes) return buffer;
+      if (!smallest || buffer.length < smallest.length) smallest = buffer;
+    }
+  }
+  return smallest;
+}
+
+async function processUploadedFile(file, purpose) {
   if (!file?.buffer) return file;
   const normalizedFile = normalizeUploadedFile(file);
   if (!normalizedFile?.buffer) return normalizedFile;
@@ -53,20 +99,8 @@ async function processUploadedFile(file) {
   try {
     const image = sharp(normalizedFile.buffer).rotate();
     const metadata = await image.metadata();
-    const longestSide = Math.max(metadata.width || 0, metadata.height || 0);
-    let pipeline = image;
-
-    if (longestSide > 1800) {
-      const scale = 1800 / longestSide;
-      pipeline = image.resize({
-        width: Math.max(1, Math.round((metadata.width || 1800) * scale)),
-        height: Math.max(1, Math.round((metadata.height || 1800) * scale)),
-        fit: "inside",
-        withoutEnlargement: false,
-      });
-    }
-
-    const processedBuffer = await pipeline.jpeg({quality: 82, progressive: true}).toBuffer();
+    const profile = IMAGE_PROFILES[purpose] || DEFAULT_IMAGE_PROFILE;
+    const processedBuffer = await encodeToTarget(image, metadata, profile);
     return {
       ...normalizedFile,
       buffer: processedBuffer,

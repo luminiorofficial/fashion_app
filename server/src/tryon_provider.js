@@ -50,8 +50,13 @@ class GeminiVirtualTryOnProvider {
       Promise.all(garmentFiles.map((file) => this.shrinkForModel(file))),
     ]);
 
-    const models = [this.config.geminiImageModel, this.config.geminiImageFallbackModel]
-      .filter((model, index, all) => model && all.indexOf(model) === index);
+    // High-quality mode is an explicit opt-in (never reached by a normal
+    // request's failure path) that swaps in the pricier pro model instead of
+    // the default flash-lite/flash chain.
+    const models = (this.config.geminiImageHighQualityMode
+      ? [this.config.geminiImageProModel]
+      : [this.config.geminiImageModel, this.config.geminiImageFallbackModel]
+    ).filter((model, index, all) => model && all.indexOf(model) === index);
     let lastError;
 
     for (const model of models) {
