@@ -49,7 +49,7 @@ async function fixture({smsProvider, analyzer, assetStore, tryonProvider} = {}) 
   const config = loadConfig({env: "test", uploadDir, publicBaseUrl: "http://test", otpHashSecret: "a-secure-test-secret-that-is-long-enough"});
   const repository = new InMemoryRepository();
   const defaultAnalyzer = {
-    analyzeWardrobe: async () => ({item_name: "Black Blazer", category: "Outerwear", tags: ["black"], color: "Black", material: "Wool", pattern: "Solid", season: ["Autumn", "Winter"], occasion: ["Work"], style: ["Classic"]}),
+    analyzeWardrobe: async () => ({item_name: "Black Blazer", category: "Outerwear", tags: ["black"], color: "Black", material: "Wool", pattern: "Solid", season: ["Autumn", "Winter"], occasion: ["Work"], style: ["Classic"], contains_person: false, garment_visibility: "full", virtual_tryon_eligible: true}),
     analyzeProfile: async () => ({body_shape: "Rectangle", skin_tone: "Medium", skin_undertone: "warm", hair_color: "brown", facial_structure: "oval", style_attributes: ["balanced"], styling_notes: "Structured layers work well."}),
     suggestOutfit: async ({wardrobe}) => ({wardrobe_item_ids: wardrobe.slice(0, 2).map((item) => item.id), rationale: "A polished, balanced look selected from your wardrobe."}),
   };
@@ -201,6 +201,28 @@ test("stores the AI-analyzed color, material, pattern, season, occasion, and sty
   assert.deepEqual(saved.body.item.season, ["Autumn", "Winter"]);
   assert.deepEqual(saved.body.item.occasion, ["Work"]);
   assert.deepEqual(saved.body.item.styleTags, ["Classic"]);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("accepts a wardrobe photo of a person wearing the garment, still identifies the item, and marks it ineligible for direct Virtual Try-On", async () => {
+  const {app, uploadDir} = await fixture({
+    analyzer: {analyzeWardrobe: async () => ({item_name: "Red Wrap Dress", category: "Dress", tags: ["red"], color: "Red", material: "Satin", pattern: "Solid", season: ["Summer"], occasion: ["Party"], style: ["Glam"], contains_person: true, garment_visibility: "partial", virtual_tryon_eligible: false})},
+  });
+  const token = await register(app);
+  const analyzed = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "model.jpg", contentType: "image/jpeg"}).expect(201);
+  const draft = analyzed.body.draft;
+  assert.equal(draft.name, "Red Wrap Dress");
+  assert.equal(draft.containsPerson, true);
+  assert.equal(draft.garmentVisibility, "partial");
+  assert.equal(draft.virtualTryOnEligible, false);
+
+  const saved = await request(app).post("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: draft.name, category: draft.category, tags: draft.tags}).expect(201);
+  assert.equal(saved.body.item.containsPerson, true);
+  assert.equal(saved.body.item.garmentVisibility, "partial");
+  assert.equal(saved.body.item.virtualTryOnEligible, false);
+
+  const list = await request(app).get("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(list.body.items[0].virtualTryOnEligible, false);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
@@ -799,6 +821,25 @@ test("rejects an old non-Cloudinary wardrobe asset before calling Gemini", async
   assert.equal(response.body.error.code, "WARDROBE_ASSET_UNAVAILABLE");
   assert.match(response.body.error.message, new RegExp(top.id));
   assert.match(response.body.error.message, /Silk Blouse/);
+  assert.equal(providerCalls, 0);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
+test("rejects a try-on for a wardrobe item whose stored photo shows a person wearing it", async () => {
+  let providerCalls = 0;
+  const {app, uploadDir} = await fixture({
+    assetStore: new FakePrivateAssetStore(),
+    analyzer: {analyzeWardrobe: async () => ({item_name: "Red Wrap Dress", category: "Dress", tags: [], color: "Red", material: "Satin", pattern: "Solid", season: [], occasion: [], style: [], contains_person: true, garment_visibility: "partial", virtual_tryon_eligible: false})},
+    tryonProvider: {generate: async () => { providerCalls += 1; return {buffer: jpeg, mimeType: "image/jpeg", developmentFallback: false}; }},
+  });
+  const token = await register(app);
+  const modelWorn = await addWardrobePhoto(app, token, {name: "Red Wrap Dress", category: "Dress"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+
+  const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [modelWorn.id]}).expect(400);
+
+  assert.equal(response.body.error.code, "WARDROBE_ITEM_NOT_TRYON_ELIGIBLE");
+  assert.match(response.body.error.message, /product-only photo/);
   assert.equal(providerCalls, 0);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });

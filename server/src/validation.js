@@ -1,6 +1,7 @@
 const {assert} = require("./errors");
 
 const wardrobeCategories = ["Top", "Bottom", "Outerwear", "Dress", "Shoes", "Accessory"];
+const garmentVisibilityLevels = ["full", "partial", "occluded"];
 
 function text(value, field, {min = 1, max = 200} = {}) {
   assert(typeof value === "string", 400, "VALIDATION_ERROR", `${field} is required.`);
@@ -60,4 +61,4 @@ function wardrobeItemIdList(value) {
   return ids;
 }
 
-module.exports = {text, phone, birthDate, productUrl, wardrobeCategory, wardrobeCategories, outfitEventType, outfitEventTypes, outfitReaction, outfitReactions, wardrobeItemIdList};
+module.exports = {text, phone, birthDate, productUrl, wardrobeCategory, wardrobeCategories, garmentVisibilityLevels, outfitEventType, outfitEventTypes, outfitReaction, outfitReactions, wardrobeItemIdList};

@@ -1,10 +1,11 @@
 const express = require("express");
 const multer = require("multer");
 const {ApiError, assert} = require("./errors");
-const {phone, birthDate, text, productUrl, wardrobeCategory, outfitEventType, outfitReaction, wardrobeItemIdList} = require("./validation");
+const {phone, birthDate, text, productUrl, wardrobeCategory, garmentVisibilityLevels, outfitEventType, outfitReaction, wardrobeItemIdList} = require("./validation");
 const {createId, createOtp, createToken, hashOtp, safeEqual, sha256} = require("./security");
 const {assertRepositoryContract} = require("./repository");
 const {normalizeUploadedFile, processUploadedFile} = require("./storage");
+const {resolveVirtualTryOnEligibility} = require("./analyzer");
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_FETCHED_ASSET_BYTES = 8 * 1024 * 1024;
@@ -143,7 +144,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
       asset = await repository.createAsset({userId: request.auth.user.id, purpose: "wardrobe_item", ...stored});
       const result = await analyzer.analyzeWardrobe(file);
       const job = await repository.createAnalysisJob({userId: request.auth.user.id, mediaAssetId: asset.id, analysisType: "wardrobe_item", provider: config.geminiTextApiKey ? "gemini" : "development_fallback", model: config.geminiModel, result});
-      response.status(201).json({draft: {assetId: asset.id, imageUrl: await assetStore.signedUrl(asset.storageKey), name: result.item_name, category: result.category, tags: result.tags, color: result.color ?? null, material: result.material ?? null, pattern: result.pattern ?? null, season: result.season || [], occasion: result.occasion || [], style: result.style || [], analysisJobId: job.id}});
+      response.status(201).json({draft: {assetId: asset.id, imageUrl: await assetStore.signedUrl(asset.storageKey), name: result.item_name, category: result.category, tags: result.tags, color: result.color ?? null, material: result.material ?? null, pattern: result.pattern ?? null, season: result.season || [], occasion: result.occasion || [], style: result.style || [], containsPerson: !!result.contains_person, garmentVisibility: sanitizeGarmentVisibility(result.garment_visibility), virtualTryOnEligible: resolveVirtualTryOnEligibility(result), analysisJobId: job.id}});
     } catch (error) {
       await cleanupOrphanedAsset(assetStore, repository, stored.storageKey, asset);
       throw error;
@@ -180,7 +181,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
     response.status(201).json({items: await Promise.all(items.map((item) => publicWardrobeItem(assetStore, item)))});
   });
   route.post("/wardrobe/links", authenticate, async (request, response) => {
-    const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "product_link", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags), mediaAssetId: null, imageStorageKey: null, productUrl: productUrl(request.body?.productUrl)});
+    const item = await repository.createWardrobeItem(request.auth.user.id, {sourceType: "product_link", name: text(request.body?.name, "name", {max: 160}), category: wardrobeCategory(request.body?.category), tags: cleanTags(request.body?.tags), mediaAssetId: null, imageStorageKey: null, productUrl: productUrl(request.body?.productUrl), containsPerson: false, garmentVisibility: "full", virtualTryOnEligible: false});
     response.status(201).json({item: await publicWardrobeItem(assetStore, item)});
   });
   route.delete("/wardrobe/items/:itemId", authenticate, async (request, response) => {
@@ -249,6 +250,12 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
       logDevelopment(config, `try-on wardrobe asset: id=${item.id} provider=${item.imageStorageProvider || "missing"}`);
       assert(item.mediaAssetId && item.imageStorageKey, 400, "WARDROBE_ITEM_HAS_NO_IMAGE", `Re-upload photo for ${item.name} (${item.id}) to use Virtual Try-On.`);
       assert(item.imageStorageProvider === "cloudinary", 400, "WARDROBE_ASSET_UNAVAILABLE", `Re-upload photo for ${item.name} (${item.id}); its image is not available in Cloudinary.`);
+      // Defense in depth: the client is expected to filter these out already
+      // (see WardrobeItem.canUseVirtualTryOn), but the server independently
+      // refuses to composite a photo that shows a person wearing the item —
+      // there's no garment-isolation step, so that photo can't be trusted as
+      // a clean product shot.
+      assert(item.virtualTryOnEligible !== false, 400, "WARDROBE_ITEM_NOT_TRYON_ELIGIBLE", `${item.name} shows a person wearing it, so it can't be used directly for Virtual Try-On. Add a product-only photo of this item to use it for Virtual Try-On.`);
     }
 
     const profile = await repository.getProfile(request.auth.user.id);
@@ -347,7 +354,7 @@ const cleanupOrphanedAsset = async (assetStore, repository, storageKey, asset) =
 };
 
 const publicUser = (user) => ({id: user.id, name: user.name, dateOfBirth: user.dateOfBirth, phoneNumber: user.phoneNumber, phoneVerifiedAt: user.phoneVerifiedAt});
-const publicWardrobeItem = async (assetStore, item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: await assetStore.signedUrl(item.imageStorageKey), imageStorageProvider: item.imageStorageProvider || null, productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], createdAt: item.createdAt});
+const publicWardrobeItem = async (assetStore, item) => ({id: item.id, name: item.name, category: item.category, sourceType: item.sourceType, imageUrl: await assetStore.signedUrl(item.imageStorageKey), imageStorageProvider: item.imageStorageProvider || null, productUrl: item.productUrl, tags: item.tags, primaryColor: item.primaryColor || null, secondaryColors: item.secondaryColors || [], material: item.material || null, pattern: item.pattern || null, season: item.season || [], occasion: item.occasion || [], styleTags: item.styleTags || [], containsPerson: !!item.containsPerson, garmentVisibility: sanitizeGarmentVisibility(item.garmentVisibility), virtualTryOnEligible: item.virtualTryOnEligible !== false, createdAt: item.createdAt});
 const publicProfile = async (assetStore, profile) => ({...profile, profileImageUrl: await assetStore.signedUrl(profile.profileImageStorageKey)});
 
 const logDevelopment = (config, message) => {
@@ -393,6 +400,7 @@ const computeMatchScore = (wardrobeItemIds, affinity) => {
 };
 const cleanTags = (value) => Array.isArray(value) ? [...new Set(value.filter((tag) => typeof tag === "string").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 12) : [];
 const cleanStringArray = (value, max = 6) => Array.isArray(value) ? [...new Set(value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean))].slice(0, max) : [];
+const sanitizeGarmentVisibility = (value) => garmentVisibilityLevels.includes(value) ? value : "full";
 
 // Shared by POST /wardrobe/items and POST /wardrobe/items/batch: resolves a
 // draft's asset + analysis job, checks it isn't already saved (including
@@ -420,6 +428,9 @@ const resolveWardrobeDraft = async (repository, userId, raw, inUseAssetIds) => {
       season: cleanStringArray(metadata.season, 4),
       occasion: cleanStringArray(metadata.occasion, 6),
       styleTags: cleanStringArray(metadata.style),
+      containsPerson: !!metadata.contains_person,
+      garmentVisibility: sanitizeGarmentVisibility(metadata.garment_visibility),
+      virtualTryOnEligible: resolveVirtualTryOnEligibility(metadata),
     },
   };
 };

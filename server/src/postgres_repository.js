@@ -123,6 +123,9 @@ function wardrobeFromRow(row) {
     season: row.season || [],
     occasion: row.occasion || [],
     styleTags: row.attributes?.style || [],
+    containsPerson: !!row.contains_person,
+    garmentVisibility: row.garment_visibility || "full",
+    virtualTryOnEligible: row.virtual_tryon_eligible !== false,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     deletedAt: iso(row.deleted_at),
@@ -414,11 +417,13 @@ class PostgresRepository {
     const inserted = await client.query(`
       INSERT INTO wardrobe_items
         (user_id, category_id, source_type, name, product_url, product_domain, analysis_job_id,
-         primary_color, secondary_colors, material, pattern, season, occasion, attributes)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         primary_color, secondary_colors, material, pattern, season, occasion, attributes,
+         contains_person, garment_visibility, virtual_tryon_eligible)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING id`, [userId, category.rows[0].id, item.sourceType, item.name, item.productUrl, productDomain, item.analysisJobId || null,
       item.primaryColor || null, item.secondaryColors || [], item.material || null, item.pattern || null,
-      item.season || [], item.occasion || [], JSON.stringify(item.styleTags?.length ? {style: item.styleTags} : {})]);
+      item.season || [], item.occasion || [], JSON.stringify(item.styleTags?.length ? {style: item.styleTags} : {}),
+      !!item.containsPerson, item.garmentVisibility || "full", item.virtualTryOnEligible !== false]);
     const itemId = inserted.rows[0].id;
 
     if (item.mediaAssetId) {

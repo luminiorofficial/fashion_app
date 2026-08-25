@@ -47,6 +47,20 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
   List<WardrobeItem> get _itemsMissingImages =>
       _items.where((item) => !item.canUseVirtualTryOn).toList();
 
+  // Single item: its own specific reason (e.g. the "add a product-only
+  // photo" message for a model-worn shot). Multiple items: a combined
+  // summary, since the individual reasons may differ.
+  String _tryOnExclusionMessage() {
+    final missing = _itemsMissingImages;
+    if (missing.length == 1) return missing.first.tryOnBlockedReason!;
+    final names = missing.map((item) => item.name).join(', ');
+    return missing.any((item) => item.containsPerson)
+        ? '$names will be excluded from Virtual Try-On. Items showing a '
+              'person need a product-only photo to be included.'
+        : '$names will be excluded from Virtual Try-On. Re-upload their '
+              'photos.';
+  }
+
   Future<void> _react(OutfitReaction reaction) async {
     setState(() => _savingReaction = reaction);
     try {
@@ -85,10 +99,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
     final tryOnItems = _tryOnItems;
     if (tryOnItems.isEmpty) {
       final item = _itemsMissingImages.first;
-      setState(
-        () => _tryOnError =
-            'Re-upload photo for ${item.name} to use Virtual Try-On.',
-      );
+      setState(() => _tryOnError = item.tryOnBlockedReason);
       return;
     }
     setState(() {
@@ -260,11 +271,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      _tryOnItems.isEmpty
-                          ? 'Re-upload photo for ${_itemsMissingImages.first.name} to use Virtual Try-On.'
-                          : '${_itemsMissingImages.map((item) => item.name).join(', ')} will be excluded from Virtual Try-On. Re-upload ${_itemsMissingImages.length == 1 ? 'its photo' : 'their photos'}.',
-                    ),
+                    child: Text(_tryOnExclusionMessage()),
                   ),
                 ],
               ),

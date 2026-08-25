@@ -165,6 +165,9 @@ class RemoteNeraBackend implements NeraBackend {
       imageUrl: draft['imageUrl'] as String? ?? '',
       imagePath: '',
       tags: List<String>.from(draft['tags'] as List? ?? const []),
+      containsPerson: draft['containsPerson'] as bool? ?? false,
+      garmentVisibility: draft['garmentVisibility'] as String? ?? 'full',
+      virtualTryOnEligible: draft['virtualTryOnEligible'] as bool? ?? true,
       analysisJobId: draft['analysisJobId'] as String?,
     );
   }

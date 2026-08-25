@@ -1,5 +1,5 @@
 const {ApiError} = require("./errors");
-const {wardrobeCategories: categories} = require("./validation");
+const {wardrobeCategories: categories, garmentVisibilityLevels} = require("./validation");
 
 // Statuses worth retrying: rate limiting (429) and transient server-side
 // failures (500/502/503/504) from Gemini.
@@ -36,9 +36,10 @@ class FashionAnalyzer {
   }
 
   async analyzeWardrobe(file) {
-    if (!this.apiKey) return {item_name: "Wardrobe item", category: "Accessory", tags: ["pending-ai-review"], color: null, material: null, pattern: null, season: [], occasion: [], style: []};
+    if (!this.apiKey) return {item_name: "Wardrobe item", category: "Accessory", tags: ["pending-ai-review"], color: null, material: null, pattern: null, season: [], occasion: [], style: [], contains_person: false, garment_visibility: "full", virtual_tryon_eligible: true};
     return this.call([
-      "Analyze this single fashion item. Return an accurate concise catalog name, one allowed category, up to six styling tags, and structured attributes.",
+      "Analyze this fashion item photo, which may show the garment alone (flat lay, hanger, mannequin, product shot) or worn by a person/model. Either is valid wardrobe input.",
+      "Always identify the actual clothing item itself, not the person wearing it: return an accurate concise catalog name, one allowed category, up to six styling tags, and structured attributes for that garment.",
       `Allowed categories: ${categories.join(", ")}.`,
       "color is the single dominant color as a common color name (e.g. 'Black', 'Navy Blue'), or null if unclear.",
       "material is the primary fabric or material if visually identifiable (e.g. 'Cotton', 'Leather', 'Denim'), or null if unclear.",
@@ -46,12 +47,16 @@ class FashionAnalyzer {
       "season lists every season this item suits, chosen from: Spring, Summer, Autumn, Winter.",
       "occasion lists suitable occasions, chosen from: Casual, Work, Formal, Party, Wedding, Athletic.",
       "style lists up to four style descriptors, e.g. 'Minimalist', 'Bohemian', 'Classic', 'Streetwear'.",
+      "contains_person is true if any part of a human body (face, hands, or a body wearing the item) is visible anywhere in the image; false if it shows only the garment/product (flat lay, hanger, mannequin, plain background).",
+      `garment_visibility describes how cleanly the garment itself can be seen, chosen from: ${garmentVisibilityLevels.join(", ")}. Use 'full' when the whole garment is unobstructed (a product-only shot, or a model shot where the garment is fully visible and not overlapped by other garments, bags, or hair). Use 'partial' when most of it is visible but part is cropped, layered under/behind another item, or partly covered. Use 'occluded' when most of the garment is hidden, blurry, or covered.`,
+      "virtual_tryon_eligible is true only when this exact photo could be used directly, as-is, to dress a different person in this garment for a virtual try-on composite — that requires contains_person to be false (a clean product-only photo). If a person is visible, always set this false, since the photo cannot be used directly without first isolating the garment from that person.",
     ].join("\n"), file, {
       type: "object", properties: {
         item_name: {type: "string"}, category: {type: "string", enum: categories}, tags: {type: "array", items: {type: "string"}, maxItems: 6},
         color: {type: ["string", "null"]}, material: {type: ["string", "null"]}, pattern: {type: ["string", "null"]},
         season: {type: "array", items: {type: "string"}, maxItems: 4}, occasion: {type: "array", items: {type: "string"}, maxItems: 6}, style: {type: "array", items: {type: "string"}, maxItems: 4},
-      }, required: ["item_name", "category", "tags", "color", "material", "pattern", "season", "occasion", "style"], additionalProperties: false,
+        contains_person: {type: "boolean"}, garment_visibility: {type: "string", enum: garmentVisibilityLevels}, virtual_tryon_eligible: {type: "boolean"},
+      }, required: ["item_name", "category", "tags", "color", "material", "pattern", "season", "occasion", "style", "contains_person", "garment_visibility", "virtual_tryon_eligible"], additionalProperties: false,
     });
   }
 
@@ -251,4 +256,14 @@ class FashionAnalyzer {
   }
 }
 
-module.exports = {FashionAnalyzer, categories};
+// Direct Virtual Try-On composites the wardrobe item's stored photo as-is —
+// this codebase has no garment isolation/cropping step — so a photo with a
+// person in it is never safe to send directly, regardless of what Gemini
+// itself reports. This is the single source of truth for that rule; both
+// the /wardrobe/analyze draft response and the saved wardrobe item derive
+// virtualTryOnEligible from it.
+function resolveVirtualTryOnEligibility(result) {
+  return Boolean(result?.virtual_tryon_eligible) && !result?.contains_person;
+}
+
+module.exports = {FashionAnalyzer, categories, resolveVirtualTryOnEligibility};

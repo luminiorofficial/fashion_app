@@ -140,6 +140,31 @@ class _WardrobeBatchReviewScreenState
                                             value ?? _categories[index],
                                       ),
                               ),
+                              if (draft.containsPerson && !removed) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(
+                                      Icons.info_outline_rounded,
+                                      size: 16,
+                                      color: NeraColors.gold,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'This item can be used for styling. '
+                                        'Add a product-only photo to use it '
+                                        'for Virtual Try-On.',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.labelSmall,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
                         ),

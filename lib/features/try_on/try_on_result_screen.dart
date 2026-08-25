@@ -47,7 +47,7 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
       setState(
         () => _error = invalidItem == null
             ? 'One or more selected wardrobe items are unavailable. Choose another item.'
-            : 'Re-upload photo for ${invalidItem.name} to use Virtual Try-On.',
+            : invalidItem.tryOnBlockedReason,
       );
       return;
     }
