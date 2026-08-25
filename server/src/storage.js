@@ -129,7 +129,11 @@ class LocalAssetStore {
     this.publicBaseUrl = publicBaseUrl.replace(/\/$/, "");
   }
 
-  async save(userId, file) {
+  // `purpose` is accepted (but unused) only to keep this method's signature
+  // interchangeable with CloudinaryAssetStore.save, which uses it to route
+  // new uploads into purpose-specific sub-folders; local disk storage
+  // (development/testing only) keeps its existing flat per-user layout.
+  async save(userId, file, _purpose) {
     const normalizedFile = file?.processed ? file : await processUploadedFile(file);
     const mimeType = normalizedFile?.mimetype;
     if (!normalizedFile || !normalizedFile.buffer || !mimeType || !extensions[mimeType] || !validSignature(normalizedFile.buffer, mimeType)) {
@@ -172,6 +176,18 @@ class LocalAssetStore {
   }
 }
 
+// Maps an asset's semantic purpose to the Cloudinary sub-folder new uploads
+// are organized under, so images self-sort into
+// {CLOUDINARY_FOLDER}/{segment}/{userId}/{uuid} without ever hardcoding a
+// user id. A purpose absent from this map (including undefined) falls back
+// to the original flat {CLOUDINARY_FOLDER}/{userId}/{uuid} layout, so any
+// caller that doesn't pass one keeps working unchanged.
+const PURPOSE_FOLDERS = {
+  profile_analysis: "profiles",
+  wardrobe_item: "wardrobe",
+  tryon_result: "tryons",
+};
+
 // Private object storage backed by Cloudinary. Assets upload under delivery
 // type "authenticated" (never the public "upload" type), so nothing is
 // servable without a signed URL. signedUrl() always mints that URL on
@@ -198,13 +214,14 @@ class CloudinaryAssetStore {
     });
   }
 
-  async save(userId, file) {
+  async save(userId, file, purpose) {
     const normalizedFile = file?.processed ? file : await processUploadedFile(file);
     const mimeType = normalizedFile?.mimetype;
     if (!normalizedFile || !normalizedFile.buffer || !mimeType || !extensions[mimeType] || !validSignature(normalizedFile.buffer, mimeType)) {
       throw new ApiError(400, "INVALID_IMAGE", "Upload a valid JPG, JPEG, PNG, or HEIC image.");
     }
-    const publicId = `${this.folder}/${userId}/${crypto.randomUUID()}`;
+    const segment = PURPOSE_FOLDERS[purpose];
+    const publicId = `${this.folder}/${segment ? `${segment}/` : ""}${userId}/${crypto.randomUUID()}`;
     const uploaded = await new Promise((resolve, reject) => {
       const uploadStream = this.client.uploader.upload_stream(
         {public_id: publicId, type: "authenticated", resource_type: "image", overwrite: false},

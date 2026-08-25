@@ -63,6 +63,8 @@ function loadConfig(overrides = {}) {
     cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
     cloudinaryApiKey: process.env.CLOUDINARY_API_KEY || "",
     cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET || "",
+    // Base path prefix; storage.js routes each upload into a purpose-specific
+    // sub-folder beneath it (see PURPOSE_FOLDERS in src/storage.js).
     cloudinaryFolder: process.env.CLOUDINARY_FOLDER || "nera",
     // Optional: a token-based authentication key created in the Cloudinary
     // console (Settings > Security). Without it, signed Cloudinary URLs are

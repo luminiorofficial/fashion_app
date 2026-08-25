@@ -106,7 +106,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
   route.post("/profile/analyze", authenticate, upload.single("image"), async (request, response) => {
     const file = await processUploadedFile(normalizeUploadedFile(request.file), "profile_analysis");
     assert(file, 400, "IMAGE_REQUIRED", "A full-body image is required.");
-    const stored = await assetStore.save(request.auth.user.id, file);
+    const stored = await assetStore.save(request.auth.user.id, file, "profile_analysis");
     let asset;
     try {
       asset = await repository.createAsset({userId: request.auth.user.id, purpose: "profile_analysis", ...stored});
@@ -137,7 +137,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
   route.post("/wardrobe/analyze", authenticate, upload.single("image"), async (request, response) => {
     const file = await processUploadedFile(normalizeUploadedFile(request.file), "wardrobe_item");
     assert(file, 400, "IMAGE_REQUIRED", "A clothing or accessory image is required.");
-    const stored = await assetStore.save(request.auth.user.id, file);
+    const stored = await assetStore.save(request.auth.user.id, file, "wardrobe_item");
     let asset;
     try {
       asset = await repository.createAsset({userId: request.auth.user.id, purpose: "wardrobe_item", ...stored});
@@ -279,7 +279,7 @@ function createApp({config, repository, assetStore, analyzer, smsProvider, tryon
       notes: garmentItems.map((item) => `${item.category}: ${item.name}`).join("; "),
     });
     const processed = await processUploadedFile({buffer: generation.buffer, mimetype: generation.mimeType, originalname: "tryon-result.jpg", size: generation.buffer.length}, "tryon_result");
-    const stored = await assetStore.save(request.auth.user.id, processed);
+    const stored = await assetStore.save(request.auth.user.id, processed, "tryon_result");
     let resultAsset;
     try {
       resultAsset = await repository.createAsset({userId: request.auth.user.id, purpose: "tryon_result", ...stored});

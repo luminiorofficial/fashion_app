@@ -90,19 +90,45 @@ test("CloudinaryAssetStore.save uploads the processed image bytes under an authe
   const client = fakeCloudinaryClient();
   const store = new CloudinaryAssetStore(cloudinaryConfig(), client);
 
-  const stored = await store.save("user-42", {buffer: jpeg, mimetype: "image/jpeg", originalname: "blazer.jpg", size: jpeg.length});
+  const stored = await store.save("user-42", {buffer: jpeg, mimetype: "image/jpeg", originalname: "blazer.jpg", size: jpeg.length}, "wardrobe_item");
 
   assert.equal(client.calls.uploads.length, 1);
   const [upload] = client.calls.uploads;
   assert.equal(upload.options.type, "authenticated");
   assert.equal(upload.options.resource_type, "image");
-  assert.match(upload.options.public_id, /^nera\/user-42\/[0-9a-f-]+$/);
+  assert.match(upload.options.public_id, /^nera\/wardrobe\/user-42\/[0-9a-f-]+$/);
   assert.deepEqual(upload.buffer, jpeg);
 
   assert.equal(stored.storageProvider, "cloudinary");
   assert.equal(stored.storageKey, upload.options.public_id);
   assert.equal(stored.mimeType, "image/jpeg");
   assert.equal("publicUrl" in stored, false);
+});
+
+test("CloudinaryAssetStore.save routes each purpose into its own sub-folder, keyed only by userId (never a hardcoded id)", async () => {
+  const client = fakeCloudinaryClient();
+  const store = new CloudinaryAssetStore(cloudinaryConfig(), client);
+  const file = () => ({buffer: jpeg, mimetype: "image/jpeg", originalname: "photo.jpg", size: jpeg.length});
+
+  const profile = await store.save("user-7", file(), "profile_analysis");
+  const wardrobe = await store.save("user-7", file(), "wardrobe_item");
+  const tryon = await store.save("user-9", file(), "tryon_result");
+
+  assert.match(profile.storageKey, /^nera\/profiles\/user-7\/[0-9a-f-]+$/);
+  assert.match(wardrobe.storageKey, /^nera\/wardrobe\/user-7\/[0-9a-f-]+$/);
+  assert.match(tryon.storageKey, /^nera\/tryons\/user-9\/[0-9a-f-]+$/);
+});
+
+test("CloudinaryAssetStore.save falls back to the flat per-user layout for an unmapped or missing purpose", async () => {
+  const client = fakeCloudinaryClient();
+  const store = new CloudinaryAssetStore(cloudinaryConfig(), client);
+  const file = () => ({buffer: jpeg, mimetype: "image/jpeg", originalname: "photo.jpg", size: jpeg.length});
+
+  const noPurpose = await store.save("user-1", file());
+  const unknownPurpose = await store.save("user-1", file(), "something_else");
+
+  assert.match(noPurpose.storageKey, /^nera\/user-1\/[0-9a-f-]+$/);
+  assert.match(unknownPurpose.storageKey, /^nera\/user-1\/[0-9a-f-]+$/);
 });
 
 test("CloudinaryAssetStore.save rejects a file that fails signature validation", async () => {
