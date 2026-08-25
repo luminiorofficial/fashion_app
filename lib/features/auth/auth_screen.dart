@@ -163,10 +163,13 @@ class _AuthScreenState extends State<AuthScreen> {
                       const SizedBox(height: NeraSpacing.md),
                       TextFormField(
                         controller: _birthDate,
-                        keyboardType: TextInputType.datetime,
+                        keyboardType: TextInputType.number,
+                        maxLength: 10,
+                        inputFormatters: [_BirthDateInputFormatter()],
                         decoration: const InputDecoration(
                           labelText: 'Date of birth',
                           hintText: 'YYYY-MM-DD',
+                          counterText: '',
                         ),
                         validator: (value) =>
                             RegExp(
@@ -247,4 +250,28 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     ),
   );
+}
+
+
+class _BirthDateInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    var digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.length > 8) digits = digits.substring(0, 8);
+
+    final formatted = StringBuffer();
+    for (var index = 0; index < digits.length; index++) {
+      if (index == 4 || index == 6) formatted.write('-');
+      formatted.write(digits[index]);
+    }
+
+    final text = formatted.toString();
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
 }
