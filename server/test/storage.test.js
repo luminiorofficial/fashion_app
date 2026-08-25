@@ -97,6 +97,7 @@ test("CloudinaryAssetStore.save uploads the processed image bytes under an authe
   assert.equal(upload.options.type, "authenticated");
   assert.equal(upload.options.resource_type, "image");
   assert.match(upload.options.public_id, /^nera\/wardrobe\/user-42\/[0-9a-f-]+$/);
+  assert.equal(upload.options.asset_folder, "nera/wardrobe");
   assert.deepEqual(upload.buffer, jpeg);
 
   assert.equal(stored.storageProvider, "cloudinary");
@@ -105,7 +106,7 @@ test("CloudinaryAssetStore.save uploads the processed image bytes under an authe
   assert.equal("publicUrl" in stored, false);
 });
 
-test("CloudinaryAssetStore.save routes each purpose into its own sub-folder, keyed only by userId (never a hardcoded id)", async () => {
+test("CloudinaryAssetStore.save routes each purpose into its own sub-folder, keyed only by userId (never a hardcoded id), and sets asset_folder to match for Dynamic Folder Media Library visibility", async () => {
   const client = fakeCloudinaryClient();
   const store = new CloudinaryAssetStore(cloudinaryConfig(), client);
   const file = () => ({buffer: jpeg, mimetype: "image/jpeg", originalname: "photo.jpg", size: jpeg.length});
@@ -117,9 +118,17 @@ test("CloudinaryAssetStore.save routes each purpose into its own sub-folder, key
   assert.match(profile.storageKey, /^nera\/profiles\/user-7\/[0-9a-f-]+$/);
   assert.match(wardrobe.storageKey, /^nera\/wardrobe\/user-7\/[0-9a-f-]+$/);
   assert.match(tryon.storageKey, /^nera\/tryons\/user-9\/[0-9a-f-]+$/);
+
+  const [profileUpload, wardrobeUpload, tryonUpload] = client.calls.uploads;
+  assert.equal(profileUpload.options.public_id, profile.storageKey);
+  assert.equal(profileUpload.options.asset_folder, "nera/profiles");
+  assert.equal(wardrobeUpload.options.public_id, wardrobe.storageKey);
+  assert.equal(wardrobeUpload.options.asset_folder, "nera/wardrobe");
+  assert.equal(tryonUpload.options.public_id, tryon.storageKey);
+  assert.equal(tryonUpload.options.asset_folder, "nera/tryons");
 });
 
-test("CloudinaryAssetStore.save falls back to the flat per-user layout for an unmapped or missing purpose", async () => {
+test("CloudinaryAssetStore.save falls back to the flat per-user layout (and flat asset_folder) for an unmapped or missing purpose", async () => {
   const client = fakeCloudinaryClient();
   const store = new CloudinaryAssetStore(cloudinaryConfig(), client);
   const file = () => ({buffer: jpeg, mimetype: "image/jpeg", originalname: "photo.jpg", size: jpeg.length});
@@ -129,6 +138,10 @@ test("CloudinaryAssetStore.save falls back to the flat per-user layout for an un
 
   assert.match(noPurpose.storageKey, /^nera\/user-1\/[0-9a-f-]+$/);
   assert.match(unknownPurpose.storageKey, /^nera\/user-1\/[0-9a-f-]+$/);
+
+  const [noPurposeUpload, unknownPurposeUpload] = client.calls.uploads;
+  assert.equal(noPurposeUpload.options.asset_folder, "nera");
+  assert.equal(unknownPurposeUpload.options.asset_folder, "nera");
 });
 
 test("CloudinaryAssetStore.save rejects a file that fails signature validation", async () => {

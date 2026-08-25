@@ -222,9 +222,16 @@ class CloudinaryAssetStore {
     }
     const segment = PURPOSE_FOLDERS[purpose];
     const publicId = `${this.folder}/${segment ? `${segment}/` : ""}${userId}/${crypto.randomUUID()}`;
+    // This Cloudinary product environment uses Dynamic Folders, where the
+    // Media Library folder an asset appears under is governed by the
+    // asset_folder parameter rather than inferred from slashes in public_id.
+    // Without setting it explicitly, uploads still get the intended
+    // public_id (and therefore the same delivery URL/storageKey shape) but
+    // don't show up under nera/... in the Media Library UI.
+    const assetFolder = `${this.folder}${segment ? `/${segment}` : ""}`;
     const uploaded = await new Promise((resolve, reject) => {
       const uploadStream = this.client.uploader.upload_stream(
-        {public_id: publicId, type: "authenticated", resource_type: "image", overwrite: false},
+        {public_id: publicId, asset_folder: assetFolder, type: "authenticated", resource_type: "image", overwrite: false},
         (error, result) => (error ? reject(error) : resolve(result)),
       );
       uploadStream.on("error", reject);
