@@ -844,6 +844,35 @@ test("rejects a try-on for a wardrobe item whose stored photo shows a person wea
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
+test("rejects a try-on batch where only one of several selected items is not eligible", async () => {
+  let providerCalls = 0;
+  let analyzeCalls = 0;
+  const {app, uploadDir} = await fixture({
+    assetStore: new FakePrivateAssetStore(),
+    analyzer: {
+      analyzeWardrobe: async () => {
+        analyzeCalls += 1;
+        // First item analyzed is a clean product shot; second shows a model wearing it.
+        return analyzeCalls === 1
+          ? {item_name: "Silk Blouse", category: "Top", tags: [], color: "White", material: "Silk", pattern: "Solid", season: [], occasion: [], style: [], contains_person: false, garment_visibility: "full", virtual_tryon_eligible: true}
+          : {item_name: "Red Wrap Dress", category: "Dress", tags: [], color: "Red", material: "Satin", pattern: "Solid", season: [], occasion: [], style: [], contains_person: true, garment_visibility: "partial", virtual_tryon_eligible: false};
+      },
+    },
+    tryonProvider: {generate: async () => { providerCalls += 1; return {buffer: jpeg, mimeType: "image/jpeg", developmentFallback: false}; }},
+  });
+  const token = await register(app);
+  const top = await addWardrobePhoto(app, token, {name: "Silk Blouse", category: "Top"});
+  const modelWorn = await addWardrobePhoto(app, token, {name: "Red Wrap Dress", category: "Dress"});
+  await request(app).post("/api/v1/profile/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "profile.jpg", contentType: "image/jpeg"}).expect(201);
+
+  const response = await request(app).post("/api/v1/tryon/generate").set("authorization", `Bearer ${token}`).send({wardrobeItemIds: [top.id, modelWorn.id]}).expect(400);
+
+  assert.equal(response.body.error.code, "WARDROBE_ITEM_NOT_TRYON_ELIGIBLE");
+  assert.match(response.body.error.message, /Red Wrap Dress/);
+  assert.equal(providerCalls, 0);
+  await fs.rm(uploadDir, {recursive: true, force: true});
+});
+
 test("returns the wardrobe item name and id when its Cloudinary object is missing", async () => {
   let providerCalls = 0;
   const assetStore = new FakePrivateAssetStore();

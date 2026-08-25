@@ -115,9 +115,12 @@ class GeminiVirtualTryOnProvider {
 
   async attemptModel(endpoint, model, profileFile, garmentFiles, notes) {
     const instruction = [
-      "Virtual try-on compositor. Image 1 is the subject (a real person); each image after it is one wardrobe garment/accessory.",
-      "Generate one photorealistic image of the SAME person wearing all given garments as one coherent outfit. Preserve face, hair, skin tone, body proportions, and pose — same identity.",
-      "Replace only the implied clothing (e.g. a top garment replaces their existing top). Clean, well-lit, full-body studio look, neutral background.",
+      "You are a virtual try-on compositor.",
+      "IMAGE 1 IS THE IDENTITY ANCHOR: the real person whose exact likeness must be kept. Every image after Image 1 is a GARMENT REFERENCE ONLY, showing clothing/accessories to render on that person — never a person to copy identity, body, or pose from, even if a person happens to be visible in it.",
+      "Generate one photorealistic image of the EXACT SAME person from Image 1 wearing the garment(s) shown in the reference images, combined into one coherent outfit.",
+      "Preserve, unchanged from Image 1: face and facial structure, eyes, nose, lips, jaw, eyebrows, hairstyle and hair color, skin tone, body shape and proportions, pose, and facial expression.",
+      "Do not beautify, retouch, smooth skin, change apparent age, or alter makeup. Do not substitute the face, body, skin tone, hair, or pose of any person shown in a garment reference image — those images are for clothing only.",
+      "Only change the person's clothing/accessories to match the garment references; replace only the implied clothing (e.g. a top garment replaces their existing top). Clean, well-lit, full-body studio look, neutral background.",
       notes ? `Styling notes: ${notes}` : "",
     ].filter(Boolean).join("\n");
 

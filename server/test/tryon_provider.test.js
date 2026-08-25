@@ -42,6 +42,51 @@ test("requests IMAGE output and sends the profile photo followed by each garment
   }
 });
 
+test("instructs the model to preserve the subject's identity and treat garment images as reference-only", async () => {
+  const provider = new GeminiVirtualTryOnProvider({geminiApiKey: "test-key", geminiImageModel: "gemini-3-pro-image", geminiImageSize: "1K", geminiImageAspectRatio: "3:4", ...FAST_RETRY});
+  const originalFetch = global.fetch;
+  let instruction;
+  global.fetch = async (_url, options) => {
+    instruction = JSON.parse(options.body).contents[0].parts[0].text;
+    return {ok: true, async json() { return {candidates: [{content: {parts: [{inlineData: {mimeType: "image/png", data: "aGk="}}]}}]}; }};
+  };
+
+  try {
+    await provider.generate({profileFile, garmentFiles});
+
+    // Image 1 must be framed as the untouchable identity source, and every
+    // later image as clothing-only reference material.
+    assert.match(instruction, /IDENTITY ANCHOR/);
+    assert.match(instruction, /GARMENT REFERENCE ONLY/);
+    assert.match(instruction, /EXACT SAME person/);
+
+    // Every attribute the product spec calls out must be named explicitly,
+    // not just implied by a generic "preserve identity" instruction.
+    for (const attribute of [
+      "face and facial structure",
+      "eyes",
+      "nose",
+      "lips",
+      "jaw",
+      "eyebrows",
+      "hairstyle and hair color",
+      "skin tone",
+      "body shape and proportions",
+      "pose",
+      "facial expression",
+    ]) {
+      assert.ok(instruction.includes(attribute), `expected instruction to mention "${attribute}"`);
+    }
+
+    // Beautification/retouching and cross-image identity bleed must be
+    // explicitly forbidden, not merely omitted.
+    assert.match(instruction, /Do not beautify, retouch, smooth skin, change apparent age, or alter makeup/);
+    assert.match(instruction, /Do not substitute the face, body, skin tone, hair, or pose of any person shown in a garment reference image/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("converts every friendly image format value to its REST enum", async () => {
   const aspectRatios = {
     "1:1": "ASPECT_RATIO_ONE_BY_ONE",
