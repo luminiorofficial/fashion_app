@@ -14,6 +14,7 @@ function loadConfig(overrides = {}) {
     otpRateLimitWindowMinutes: Number(process.env.OTP_RATE_LIMIT_WINDOW_MINUTES || 15),
     otpRateLimitMax: Number(process.env.OTP_RATE_LIMIT_MAX || 5),
     smsProvider: process.env.SMS_PROVIDER || "console",
+    allowConsoleOtpInProduction: process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION === "true",
     twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",
     twilioMessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID || "",
