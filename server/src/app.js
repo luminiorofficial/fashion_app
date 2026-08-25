@@ -444,4 +444,70 @@ const sanitizeSuggestedPurchase = (value) => {
   return name && type ? {name, type} : null;
 };
 
-module.exports = {createApp};
+let vercelAppPromise;
+
+async function createVercelApp() {
+  const {loadConfig} = require("./config");
+  const {InMemoryRepository} = require("./repository");
+  const {PostgresRepository} = require("./postgres_repository");
+  const {LocalAssetStore, CloudinaryAssetStore} = require("./storage");
+  const {FashionAnalyzer} = require("./analyzer");
+  const {GeminiVirtualTryOnProvider, UnavailableVirtualTryOnProvider} = require("./tryon_provider");
+  const {createSmsProvider} = require("./sms");
+
+  const config = loadConfig();
+  const repository = config.databaseUrl
+    ? new PostgresRepository(config)
+    : new InMemoryRepository();
+
+  if (repository instanceof PostgresRepository) {
+    await repository.connect();
+  }
+
+  const assetStore = config.imageStorageProvider === "cloudinary"
+    ? new CloudinaryAssetStore(config)
+    : new LocalAssetStore(config);
+  const analyzer = new FashionAnalyzer(config);
+  const tryonProvider = config.geminiImageApiKey
+    ? new GeminiVirtualTryOnProvider(config)
+    : new UnavailableVirtualTryOnProvider();
+  const smsProvider = createSmsProvider(config);
+
+  return createApp({
+    config,
+    repository,
+    assetStore,
+    analyzer,
+    smsProvider,
+    tryonProvider,
+  });
+}
+
+async function vercelHandler(request, response) {
+  try {
+    if (!vercelAppPromise) {
+      vercelAppPromise = createVercelApp().catch((error) => {
+        vercelAppPromise = null;
+        throw error;
+      });
+    }
+    const app = await vercelAppPromise;
+    return app(request, response);
+  } catch (error) {
+    console.error("NERA Vercel function failed to initialize:", error);
+    if (!response.headersSent) {
+      response.status(500).json({
+        error: {
+          code: "SERVER_INITIALIZATION_FAILED",
+          message: "The server could not initialize.",
+        },
+      });
+    }
+  }
+}
+
+// Vercel requires the module's default CommonJS export to be a request
+// handler. Keeping createApp as a property preserves the existing local
+// server and test imports: const {createApp} = require("./app").
+module.exports = vercelHandler;
+module.exports.createApp = createApp;
