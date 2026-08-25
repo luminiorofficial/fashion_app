@@ -260,7 +260,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.text('Swap Top'));
+    await tester.tap(find.text('Change Top'));
     await tester.pumpAndSettle();
 
     expect(find.text('Replacement Top'), findsOneWidget);

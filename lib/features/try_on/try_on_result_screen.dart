@@ -93,6 +93,68 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
     }
   }
 
+  List<WardrobeItem> get _selectedItems => widget.wardrobe
+      .where((item) => _selectedIds.contains(item.id))
+      .toList();
+
+  bool _isWearing(String category) => _selectedItems.any(
+    (item) => item.category.toLowerCase() == category.toLowerCase(),
+  );
+
+  bool get _hasDress => _isWearing('Dress');
+
+  bool get _hasLayer => _isWearing('Outerwear');
+
+  /// Keeps a look from wearing a Dress and a Top/Bottom at once. A Dress
+  /// always replaces any Top/Bottom; picking a Top or Bottom while a Dress
+  /// is on drops the Dress and pulls in a compatible counterpart so the
+  /// look never ends up half-dressed.
+  ///
+  /// Returns null when [category] is Top/Bottom, a Dress was on, and no
+  /// eligible counterpart exists in the wardrobe to complete the look —
+  /// callers should abort the swap in that case.
+  List<String>? _applyCompatibility(List<String> ids, String category) {
+    final byId = {for (final item in widget.wardrobe) item.id: item};
+    String? categoryOf(String id) => byId[id]?.category.toLowerCase();
+    final normalized = category.toLowerCase();
+    final next = ids.toList();
+
+    if (normalized == 'dress') {
+      next.removeWhere((id) {
+        final c = categoryOf(id);
+        return c == 'top' || c == 'bottom';
+      });
+      return next;
+    }
+
+    if (normalized == 'top' || normalized == 'bottom') {
+      final hadDress = next.any((id) => categoryOf(id) == 'dress');
+      if (!hadDress) return next;
+      next.removeWhere((id) => categoryOf(id) == 'dress');
+      final otherCategory = normalized == 'top' ? 'bottom' : 'top';
+      if (next.any((id) => categoryOf(id) == otherCategory)) return next;
+      final fallback = widget.wardrobe
+          .where(
+            (item) =>
+                item.category.toLowerCase() == otherCategory &&
+                item.canUseVirtualTryOn,
+          )
+          .firstOrNull;
+      if (fallback == null) {
+        setState(
+          () => _error =
+              'Add a ${otherCategory[0].toUpperCase()}${otherCategory.substring(1)} '
+              'to your wardrobe to complete this look.',
+        );
+        return null;
+      }
+      next.add(fallback.id);
+      return next;
+    }
+
+    return next;
+  }
+
   Future<void> _swap(String category, String label) async {
     final options = widget.wardrobe
         .where(
@@ -161,8 +223,11 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
         .where((item) => item.category.toLowerCase() == category.toLowerCase())
         .map((item) => item.id)
         .toSet();
-    final next = _selectedIds.where((id) => !categoryIds.contains(id)).toList()
-      ..add(replacement.id);
+    final withReplacement =
+        _selectedIds.where((id) => !categoryIds.contains(id)).toList()
+          ..add(replacement.id);
+    final next = _applyCompatibility(withReplacement, category);
+    if (next == null) return;
     await _regenerate(ids: next);
   }
 
@@ -270,28 +335,23 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 14),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.only(
+                              bottom: 8,
+                              left: 2,
+                            ),
+                            child: Text(
+                              'Restyle this look',
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ),
+                        ),
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              _SwapButton(
-                                label: 'Swap Top',
-                                icon: Icons.checkroom_rounded,
-                                onTap: () => _swap('Top', 'Swap Top'),
-                              ),
-                              _SwapButton(
-                                label: 'Swap Bottom',
-                                icon: Icons.dry_cleaning_rounded,
-                                onTap: () => _swap('Bottom', 'Swap Bottom'),
-                              ),
-                              _SwapButton(
-                                label: 'Change Shoes',
-                                icon: Icons.ice_skating_rounded,
-                                onTap: () => _swap('Shoes', 'Change Shoes'),
-                              ),
-                            ],
-                          ),
+                          child: Row(children: _restyleButtons()),
                         ),
                       ],
                     ),
@@ -325,6 +385,58 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
       ],
     ),
   );
+
+  /// The look wears either a Dress or a Top+Bottom pair, never both, so the
+  /// restyle actions only ever offer the piece(s) actually on the model.
+  List<Widget> _restyleButtons() {
+    final layerLabel = _hasLayer ? 'Change Layer' : 'Add Layer';
+    if (_hasDress) {
+      return [
+        _SwapButton(
+          label: 'Change Dress',
+          icon: Icons.checkroom_rounded,
+          onTap: () => _swap('Dress', 'Change Dress'),
+        ),
+        _SwapButton(
+          label: 'Change Shoes',
+          icon: Icons.ice_skating_rounded,
+          onTap: () => _swap('Shoes', 'Change Shoes'),
+        ),
+        _SwapButton(
+          label: layerLabel,
+          icon: Icons.layers_rounded,
+          onTap: () => _swap('Outerwear', layerLabel),
+        ),
+        _SwapButton(
+          label: 'Accessories',
+          icon: Icons.diamond_outlined,
+          onTap: () => _swap('Accessory', 'Accessories'),
+        ),
+      ];
+    }
+    return [
+      _SwapButton(
+        label: 'Change Top',
+        icon: Icons.checkroom_rounded,
+        onTap: () => _swap('Top', 'Change Top'),
+      ),
+      _SwapButton(
+        label: 'Change Bottom',
+        icon: Icons.dry_cleaning_rounded,
+        onTap: () => _swap('Bottom', 'Change Bottom'),
+      ),
+      _SwapButton(
+        label: 'Change Shoes',
+        icon: Icons.ice_skating_rounded,
+        onTap: () => _swap('Shoes', 'Change Shoes'),
+      ),
+      _SwapButton(
+        label: layerLabel,
+        icon: Icons.layers_rounded,
+        onTap: () => _swap('Outerwear', layerLabel),
+      ),
+    ];
+  }
 }
 
 void _validate(TryOnResult result) {
