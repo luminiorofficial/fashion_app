@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:fashion_app/main.dart';
 import 'package:fashion_app/models/nera_models.dart';
 import 'package:fashion_app/services/image_service.dart';
+import 'package:fashion_app/services/location_service.dart';
 import 'package:fashion_app/services/memory_nera_backend.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +28,28 @@ class _FakeImageService extends NeraImageService {
         fileName: 'test-$index.jpg',
       ),
   ];
+}
+
+class _GrantedLocationGateway implements LocationGateway {
+  @override
+  Future<AppLocationPermission> checkPermission() async =>
+      AppLocationPermission.whileInUse;
+
+  @override
+  Future<LocationCoordinates> getCurrentPosition(Duration timeout) async =>
+      const LocationCoordinates(latitude: 12.9716, longitude: 77.5946);
+
+  @override
+  Future<bool> isServiceEnabled() async => true;
+
+  @override
+  Future<AppLocationPermission> requestPermission() async =>
+      AppLocationPermission.whileInUse;
+}
+
+class _DisabledLocationGateway extends _GrantedLocationGateway {
+  @override
+  Future<bool> isServiceEnabled() async => false;
 }
 
 const _analyzedProfile = StyleProfile(
@@ -87,6 +110,24 @@ void main() {
 
     expect(find.text('Dress Me Today'), findsOneWidget);
     expect(find.text('Create Profile'), findsNothing);
+  });
+
+  testWidgets('shows local weather on the home screen', (tester) async {
+    await tester.pumpWidget(
+      NeraApp(
+        backend: MemoryNeraBackend(
+          authenticated: true,
+          initialProfile: _analyzedProfile,
+        ),
+        imageService: _FakeImageService(),
+        locationService: LocationService(gateway: _GrantedLocationGateway()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('24°C'), findsOneWidget);
+    expect(find.textContaining('Partly cloudy'), findsOneWidget);
+    expect(find.textContaining('20% rain'), findsOneWidget);
   });
 
   testWidgets('renders the live NERA home experience', (tester) async {
@@ -267,7 +308,11 @@ void main() {
     await backend.analyzeProfileImage(Uint8List(1), 'profile.jpg');
 
     await tester.pumpWidget(
-      NeraApp(backend: backend, imageService: _FakeImageService()),
+      NeraApp(
+        backend: backend,
+        imageService: _FakeImageService(),
+        locationService: LocationService(gateway: _DisabledLocationGateway()),
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Style'));

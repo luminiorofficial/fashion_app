@@ -37,8 +37,10 @@ abstract interface class NeraBackend {
   Future<OutfitPlan> generateOutfit(
     String eventType,
     List<WardrobeItem> wardrobe,
-    StyleProfile profile,
-  );
+    StyleProfile profile, {
+    LocationCoordinates? location,
+  });
+  Future<WeatherSummary> getWeather(LocationCoordinates location);
   Future<List<OutfitPlan>> listOutfitHistory();
   Future<OutfitFeedback> submitOutfitFeedback(
     String outfitId,

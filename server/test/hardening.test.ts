@@ -52,6 +52,16 @@ function fixture(overrides: Parameters<typeof loadConfig>[0] = {}, assetStore = 
       suggestOutfit: async ({wardrobe}) => ({wardrobe_item_ids: wardrobe.slice(0, 2).map((item) => item.id), rationale: "Test outfit", suggested_purchase_item: null}),
     },
     tryonProvider: {generate: async () => ({buffer: jpeg, mimeType: "image/jpeg"})},
+    weatherProvider: {
+      getCurrentWeather: async () => ({
+        temperatureC: 24,
+        feelsLikeC: 25,
+        humidityPercent: 60,
+        rainProbabilityPercent: 10,
+        condition: "Partly cloudy",
+        windKph: 8,
+      }),
+    },
   });
   return {app, repositories, assetStore};
 }

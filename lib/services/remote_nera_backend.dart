@@ -245,12 +245,29 @@ class RemoteNeraBackend implements NeraBackend {
   Future<OutfitPlan> generateOutfit(
     String eventType,
     List<WardrobeItem> wardrobe,
-    StyleProfile profile,
-  ) async {
+    StyleProfile profile, {
+    LocationCoordinates? location,
+  }) async {
     final response = await _api.post('/outfits/generate', {
       'eventType': eventType,
+      if (location != null) ...{
+        'lat': location.latitude,
+        'lng': location.longitude,
+      },
     });
     return OutfitPlan.fromJson(response['outfit'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<WeatherSummary> getWeather(LocationCoordinates location) async {
+    final query = Uri(
+      queryParameters: {
+        'lat': location.latitude.toString(),
+        'lng': location.longitude.toString(),
+      },
+    ).query;
+    final response = await _api.get('/weather?$query');
+    return WeatherSummary.fromJson(response['weather'] as Map<String, dynamic>);
   }
 
   @override

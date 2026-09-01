@@ -16,6 +16,8 @@ class HomeScreen extends StatelessWidget {
     required this.onRetry,
     required this.onOccasion,
     required this.onOpenWardrobe,
+    required this.weatherLoading,
+    this.weather,
     this.error,
   });
 
@@ -27,6 +29,8 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onRetry;
   final ValueChanged<OccasionType> onOccasion;
   final VoidCallback onOpenWardrobe;
+  final WeatherSummary? weather;
+  final bool weatherLoading;
 
   @override
   Widget build(BuildContext context) => CustomScrollView(
@@ -60,6 +64,8 @@ class HomeScreen extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyLarge,
             ),
             Text(_firstName(user?.name), style: NeraTheme.heading(32)),
+            const SizedBox(height: NeraSpacing.md),
+            _WeatherDisplay(weather: weather, loading: weatherLoading),
             const SizedBox(height: NeraSpacing.xxl),
             if (error != null)
               NeraErrorState(message: error!, onRetry: onRetry)
@@ -175,6 +181,67 @@ class HomeScreen extends StatelessWidget {
       ),
     ],
   );
+}
+
+class _WeatherDisplay extends StatelessWidget {
+  const _WeatherDisplay({required this.weather, required this.loading});
+
+  final WeatherSummary? weather;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final weather = this.weather;
+    return Semantics(
+      label: weather == null
+          ? loading
+                ? 'Loading local weather'
+                : 'Local weather unavailable'
+          : 'Local weather: ${weather.temperatureC.round()} degrees, ${weather.condition}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: NeraColors.surfaceElevated,
+          borderRadius: BorderRadius.circular(NeraRadius.pill),
+          border: Border.all(color: NeraColors.surfaceBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              weather == null ? Icons.cloud_outlined : _weatherIcon(weather),
+              size: 18,
+              color: weather == null ? NeraColors.muted : NeraColors.gold,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                weather == null
+                    ? loading
+                          ? 'Checking local weather…'
+                          : 'Local weather unavailable'
+                    : '${weather.temperatureC.round()}°C  ·  ${weather.condition}  ·  ${weather.rainProbabilityPercent}% rain',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _weatherIcon(WeatherSummary weather) {
+    final condition = weather.condition.toLowerCase();
+    if (condition.contains('rain') || condition.contains('drizzle')) {
+      return Icons.water_drop_outlined;
+    }
+    if (condition.contains('clear') || condition.contains('sun')) {
+      return Icons.wb_sunny_outlined;
+    }
+    return Icons.cloud_outlined;
+  }
 }
 
 String _firstName(String? name) {

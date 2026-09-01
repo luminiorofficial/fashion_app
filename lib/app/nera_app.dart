@@ -8,21 +8,32 @@ import '../features/onboarding/profile_creation_screen.dart';
 import '../features/shell/nera_shell.dart';
 import '../models/nera_models.dart';
 import '../services/image_service.dart';
+import '../services/location_service.dart';
 import '../services/nera_backend.dart';
 import '../services/remote_nera_backend.dart';
 
 class NeraApp extends StatelessWidget {
-  const NeraApp({super.key, this.backend, this.imageService});
+  const NeraApp({
+    super.key,
+    this.backend,
+    this.imageService,
+    this.locationService,
+  });
 
   final NeraBackend? backend;
   final NeraImageService? imageService;
+  final LocationService? locationService;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'NERA — Personal Stylist AI',
     theme: NeraTheme.dark,
-    home: NeraBootstrap(backend: backend, imageService: imageService),
+    home: NeraBootstrap(
+      backend: backend,
+      imageService: imageService,
+      locationService: locationService,
+    ),
   );
 }
 
@@ -31,9 +42,15 @@ class MyApp extends NeraApp {
 }
 
 class NeraBootstrap extends StatefulWidget {
-  const NeraBootstrap({super.key, this.backend, this.imageService});
+  const NeraBootstrap({
+    super.key,
+    this.backend,
+    this.imageService,
+    this.locationService,
+  });
   final NeraBackend? backend;
   final NeraImageService? imageService;
+  final LocationService? locationService;
 
   @override
   State<NeraBootstrap> createState() => _NeraBootstrapState();
@@ -42,6 +59,7 @@ class NeraBootstrap extends StatefulWidget {
 class _NeraBootstrapState extends State<NeraBootstrap> {
   late final NeraBackend _backend;
   late final NeraImageService _imageService;
+  late final LocationService _locationService;
   late Future<void> _initialization;
 
   @override
@@ -49,6 +67,7 @@ class _NeraBootstrapState extends State<NeraBootstrap> {
     super.initState();
     _backend = widget.backend ?? RemoteNeraBackend();
     _imageService = widget.imageService ?? NeraImageService();
+    _locationService = widget.locationService ?? LocationService();
     _initialization = _backend.initialize();
   }
 
@@ -93,7 +112,11 @@ class _NeraBootstrapState extends State<NeraBootstrap> {
             builder: (context, profile, child) {
               if (profile == null) return const _LaunchScreen();
               return profile.isAnalyzed
-                  ? NeraShell(backend: _backend, imageService: _imageService)
+                  ? NeraShell(
+                      backend: _backend,
+                      imageService: _imageService,
+                      locationService: _locationService,
+                    )
                   : ProfileCreationScreen(
                       backend: _backend,
                       imageService: _imageService,

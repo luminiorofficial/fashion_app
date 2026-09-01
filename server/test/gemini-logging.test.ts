@@ -57,7 +57,7 @@ test("labels the call LEGACY_FALLBACK when the split text key is missing and the
 
   try {
     const lines = await captureConsole(async () => {
-      await analyzer.suggestOutfit({eventType: "Casual", profile: {}, wardrobe: [{id: "item-1", name: "Tee", category: "Top"}] as never, affinityNotes: null});
+      await analyzer.suggestOutfit({eventType: "Casual", profile: {}, wardrobe: [{id: "item-1", name: "Tee", category: "Top"}] as never, affinityNotes: null, weatherContext: null});
     });
 
     assert.match(lines[0]!, /^\[Gemini\] LEGACY_FALLBACK \| outfit_generation \| gemini-3\.6-flash \| started$/);

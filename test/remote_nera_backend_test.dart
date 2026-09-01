@@ -8,6 +8,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+class _TimeoutApiClient extends NeraApiClient {
+  @override
+  Future<Map<String, dynamic>> post(
+    String path,
+    Map<String, dynamic> body, {
+    Duration? timeout,
+  }) async => throw const NeraException(
+    'The server took too long to respond.',
+    code: 'REQUEST_TIMEOUT',
+  );
+}
+
 void main() {
   test(
     'generateOutfit posts the event type and parses the returned outfit',
@@ -84,6 +96,79 @@ void main() {
       );
     },
   );
+
+  test('generateOutfit includes coordinates when GPS is available', () async {
+    http.Request? captured;
+    final mockClient = MockClient((request) async {
+      captured = request;
+      return http.Response(
+        jsonEncode({
+          'outfit': {
+            'id': 'outfit-weather',
+            'eventType': 'Casual',
+            'wardrobeItemIds': ['item-1'],
+            'rationale': 'Weather-ready layers.',
+            'createdAt': '2026-01-01T00:00:00.000Z',
+          },
+        }),
+        201,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+
+    await backend.generateOutfit(
+      'Casual',
+      const [],
+      const StyleProfile(),
+      location: const LocationCoordinates(
+        latitude: 12.9716,
+        longitude: 77.5946,
+      ),
+    );
+
+    expect(jsonDecode(captured!.body), {
+      'eventType': 'Casual',
+      'lat': 12.9716,
+      'lng': 77.5946,
+    });
+  });
+
+  test('getWeather calls the weather endpoint and parses its response', () async {
+    http.Request? captured;
+    final mockClient = MockClient((request) async {
+      captured = request;
+      return http.Response(
+        jsonEncode({
+          'weather': {
+            'temperatureC': 24.4,
+            'feelsLikeC': 25.1,
+            'humidityPercent': 58,
+            'rainProbabilityPercent': 20,
+            'condition': 'Partly cloudy',
+            'windKph': 9.2,
+          },
+        }),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+
+    final weather = await backend.getWeather(
+      const LocationCoordinates(latitude: 12.9716, longitude: 77.5946),
+    );
+
+    expect(captured!.method, 'GET');
+    expect(captured!.url.path, '/api/v1/weather');
+    expect(captured!.url.queryParameters, {
+      'lat': '12.9716',
+      'lng': '77.5946',
+    });
+    expect(weather.temperatureC, 24.4);
+    expect(weather.condition, 'Partly cloudy');
+    expect(weather.rainProbabilityPercent, 20);
+  });
 
   test('generateTryOn rejects a development fallback image', () async {
     final mockClient = MockClient(
@@ -165,16 +250,7 @@ void main() {
   test(
     'generateTryOn surfaces a friendlier message on a request timeout',
     () async {
-      final mockClient = MockClient((request) async {
-        await Future<void>.delayed(const Duration(milliseconds: 40));
-        return http.Response('', 200);
-      });
-      final backend = RemoteNeraBackend(
-        api: NeraApiClient(
-          client: mockClient,
-          requestTimeout: const Duration(milliseconds: 5),
-        ),
-      );
+      final backend = RemoteNeraBackend(api: _TimeoutApiClient());
 
       await expectLater(
         backend.generateTryOn(wardrobeItemIds: const ['item-1']),

@@ -196,8 +196,9 @@ class MemoryNeraBackend implements NeraBackend {
   Future<OutfitPlan> generateOutfit(
     String eventType,
     List<WardrobeItem> wardrobe,
-    StyleProfile profile,
-  ) async {
+    StyleProfile profile, {
+    LocationCoordinates? location,
+  }) async {
     final outfit = OutfitPlan(
       id: 'preview-outfit-${_outfits.length}',
       eventType: eventType,
@@ -209,6 +210,17 @@ class MemoryNeraBackend implements NeraBackend {
     _outfits.insert(0, outfit);
     return outfit;
   }
+
+  @override
+  Future<WeatherSummary> getWeather(LocationCoordinates location) async =>
+      const WeatherSummary(
+        temperatureC: 24,
+        feelsLikeC: 25,
+        humidityPercent: 58,
+        rainProbabilityPercent: 20,
+        condition: 'Partly cloudy',
+        windKph: 9,
+      );
 
   @override
   Future<List<OutfitPlan>> listOutfitHistory() async =>

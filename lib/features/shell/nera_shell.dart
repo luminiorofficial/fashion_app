@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/errors/friendly_error.dart';
@@ -5,6 +7,7 @@ import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
 import '../../services/image_service.dart';
+import '../../services/location_service.dart';
 import '../../services/nera_backend.dart';
 import '../home/home_screen.dart';
 import '../outfits/outfit_result_screen.dart';
@@ -17,9 +20,11 @@ class NeraShell extends StatefulWidget {
     super.key,
     required this.backend,
     required this.imageService,
+    required this.locationService,
   });
   final NeraBackend backend;
   final NeraImageService imageService;
+  final LocationService locationService;
 
   @override
   State<NeraShell> createState() => _NeraShellState();
@@ -30,11 +35,32 @@ class _NeraShellState extends State<NeraShell> {
   late Stream<StyleProfile> _profileStream;
   int _tab = 0;
   bool _generating = false;
+  bool _weatherLoading = true;
+  WeatherSummary? _weather;
 
   @override
   void initState() {
     super.initState();
     _resetStreams();
+    unawaited(_loadWeather());
+  }
+
+  Future<void> _loadWeather() async {
+    final location = await widget.locationService.getCurrentLocation();
+    WeatherSummary? weather;
+    if (location.coordinates != null) {
+      try {
+        weather = await widget.backend.getWeather(location.coordinates!);
+      } on Object {
+        // Weather is optional; the rest of home and outfit generation stays
+        // available when the endpoint or upstream provider cannot respond.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _weather = weather;
+      _weatherLoading = false;
+    });
   }
 
   void _resetStreams() {
@@ -70,12 +96,15 @@ class _NeraShellState extends State<NeraShell> {
     }
     setState(() => _generating = true);
     try {
+      final location = await widget.locationService.getCurrentLocation();
       final outfit = await widget.backend.generateOutfit(
         occasion.label,
         wardrobe,
         profile,
+        location: location.coordinates,
       );
       if (!mounted) return;
+      setState(() => _generating = false);
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (context) => OutfitResultScreen(
@@ -156,6 +185,8 @@ class _NeraShellState extends State<NeraShell> {
             onRetry: _retry,
             onOccasion: (occasion) => _generate(occasion, wardrobe, profile),
             onOpenWardrobe: () => setState(() => _tab = 1),
+            weather: _weather,
+            weatherLoading: _weatherLoading,
           ),
           WardrobeScreen(
             backend: widget.backend,
