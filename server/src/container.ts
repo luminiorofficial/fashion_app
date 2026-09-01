@@ -1,0 +1,67 @@
+import type {Express} from "express";
+import {createApp} from "./app";
+import {createApiRouter, type Controllers} from "./routes";
+import {createAuthMiddleware} from "./middleware/auth.middleware";
+import {upload} from "./middleware/upload.middleware";
+import {AuthService} from "./services/auth.service";
+import {ProfileService} from "./services/profile.service";
+import {WardrobeService} from "./services/wardrobe.service";
+import {OutfitService} from "./services/outfit.service";
+import {TryOnService} from "./services/tryon.service";
+import {HealthService} from "./services/health.service";
+import {AuthController} from "./controllers/auth.controller";
+import {ProfileController} from "./controllers/profile.controller";
+import {WardrobeController} from "./controllers/wardrobe.controller";
+import {OutfitController} from "./controllers/outfit.controller";
+import {TryOnController} from "./controllers/tryon.controller";
+import {HealthController} from "./controllers/health.controller";
+import type {AppConfig} from "./config/env";
+import type {Repositories} from "./types/repositories";
+import type {AssetStore, TextAnalysisProvider, TryOnProvider, SmsProvider} from "./types/provider.types";
+
+// Everything createApiApp needs to wire the app together. bootstrap.ts
+// builds a real instance of this (Postgres/Cloudinary/Gemini/Twilio) for
+// server.ts and the Vercel entrypoints; tests build one directly from
+// in-memory repositories and fake providers, without going through
+// bootstrap.ts at all.
+export interface AppDependencies {
+  config: AppConfig;
+  repositories: Repositories;
+  assetStore: AssetStore;
+  textAnalyzer: TextAnalysisProvider;
+  tryonProvider: TryOnProvider;
+  smsProvider: SmsProvider;
+}
+
+// The composition root: constructs every service and controller from the
+// given dependencies, wires them into the /api/v1 router, and hands that
+// to app.ts to become a configured Express app. This is the one place that
+// knows about the full Route → Middleware → Controller → Service →
+// Repository/Provider chain end to end.
+export function createApiApp(deps: AppDependencies): Express {
+  const {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider} = deps;
+
+  const authService = new AuthService(repositories.users, repositories.sessions, repositories.otp, smsProvider, config);
+  const profileService = new ProfileService(repositories.profiles, repositories.assets, assetStore, textAnalyzer, config);
+  const wardrobeService = new WardrobeService(repositories.wardrobe, repositories.assets, assetStore, textAnalyzer, config);
+  const outfitService = new OutfitService(repositories.outfits, repositories.wardrobe, repositories.profiles, textAnalyzer);
+  const tryonService = new TryOnService(
+    repositories.tryon, repositories.wardrobe, repositories.profiles, repositories.assets, repositories.outfits,
+    assetStore, tryonProvider, config,
+  );
+  const healthService = new HealthService(repositories);
+
+  const controllers: Controllers = {
+    health: new HealthController(healthService),
+    auth: new AuthController(authService),
+    profile: new ProfileController(profileService),
+    wardrobe: new WardrobeController(wardrobeService),
+    outfit: new OutfitController(outfitService),
+    tryon: new TryOnController(tryonService),
+  };
+
+  const authenticate = createAuthMiddleware({users: repositories.users, sessions: repositories.sessions});
+  const apiRouter = createApiRouter(controllers, authenticate, upload);
+
+  return createApp({config, apiRouter});
+}

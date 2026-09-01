@@ -1,0 +1,16 @@
+export class ApiError extends Error {
+  status: number;
+  code: string;
+  details?: unknown;
+
+  constructor(status: number, code: string, message: string, details?: unknown) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+export function assert(condition: unknown, status: number, code: string, message: string, details?: unknown): asserts condition {
+  if (!condition) throw new ApiError(status, code, message, details);
+}
