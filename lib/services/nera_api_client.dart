@@ -24,7 +24,7 @@ class NeraApiClient {
     if (kDebugMode) return _devBaseUrl;
     throw const NeraException(
       'The app is missing its server address. Rebuild with '
-      '--dart-define=NERA_API_BASE_URL=https://your-api.example.com/api/v1.',
+      '--dart-define=NERA_API_BASE_URL=https://fashion-app-ruddy.vercel.app/api/v1.',
     );
   }
 
