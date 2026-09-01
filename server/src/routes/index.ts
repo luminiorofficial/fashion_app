@@ -22,16 +22,25 @@ export interface Controllers {
   tryon: TryOnController;
 }
 
+export interface RouteSecurity {
+  requestOtp: RequestHandler[];
+  verifyOtp: RequestHandler[];
+  profileAnalysis: RequestHandler[];
+  wardrobeAnalysis: RequestHandler[];
+  outfitGeneration: RequestHandler[];
+  virtualTryon: RequestHandler[];
+}
+
 // Composes every domain's routes into the single router app.ts mounts at
 // /api/v1. Each domain router stays small (see routes/*.routes.ts) —
 // method + path + middleware only, no logic.
-export function createApiRouter(controllers: Controllers, authenticate: RequestHandler, upload: Multer): Router {
+export function createApiRouter(controllers: Controllers, authenticate: RequestHandler, upload: Multer, security: RouteSecurity): Router {
   const router = Router();
   router.use(createHealthRoutes(controllers.health));
-  router.use(createAuthRoutes(controllers.auth, authenticate));
-  router.use(createProfileRoutes(controllers.profile, authenticate, upload));
-  router.use(createWardrobeRoutes(controllers.wardrobe, authenticate, upload));
-  router.use(createOutfitRoutes(controllers.outfit, authenticate));
-  router.use(createTryOnRoutes(controllers.tryon, authenticate));
+  router.use(createAuthRoutes(controllers.auth, authenticate, security));
+  router.use(createProfileRoutes(controllers.profile, authenticate, upload, security));
+  router.use(createWardrobeRoutes(controllers.wardrobe, authenticate, upload, security));
+  router.use(createOutfitRoutes(controllers.outfit, authenticate, security));
+  router.use(createTryOnRoutes(controllers.tryon, authenticate, security));
   return router;
 }

@@ -9,6 +9,7 @@ import type {Express} from "express";
 import {loadConfig} from "../src/config/env";
 import {buildDependencies} from "../src/bootstrap";
 import {createApiApp} from "../src/container";
+import {safeOperationalError} from "../src/utils/safe-logging";
 
 let appPromise: Promise<Express> | undefined;
 
@@ -31,14 +32,10 @@ export default async function handler(request: IncomingMessage, response: Server
   try {
     app = await appPromise;
   } catch (error) {
-    // Without this, the rejection propagates uncaught and Vercel's platform
-    // wrapper replaces it with an opaque "SERVER_INITIALIZATION_FAILED"
-    // response, hiding the real cause. Logging the full error here is what
-    // makes it visible in the Vercel deployment's Runtime Logs.
-    console.error("NERA API failed to initialize:", error);
+    safeOperationalError("NERA API failed to initialize", error);
     response.statusCode = 500;
     response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify({error: {code: "SERVER_INITIALIZATION_FAILED", message: "The server could not initialize.", detail: (error as Error).message}}));
+    response.end(JSON.stringify({error: {code: "SERVER_INITIALIZATION_FAILED", message: "The server could not initialize."}}));
     return;
   }
   app(request, response);

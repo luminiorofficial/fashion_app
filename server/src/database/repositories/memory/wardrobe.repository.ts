@@ -23,7 +23,6 @@ export class MemoryWardrobeRepository implements WardrobeRepository {
       season: [],
       occasion: [],
       styleTags: [],
-      tags: [],
       ...item,
       id: generateId(),
       userId,

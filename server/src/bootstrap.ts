@@ -18,15 +18,15 @@ import type {AssetStore} from "./types/provider.types";
 export async function buildDependencies(config: AppConfig): Promise<AppDependencies> {
   const repositories = createRepositories(config);
   if (isPostgresRepositories(repositories)) {
-    const connection = await repositories.connect();
-    console.info(`Connected to PostgreSQL database ${connection.database} as ${connection.username}.`);
+    await repositories.connect();
+    console.info("Connected to PostgreSQL.");
   } else {
     console.warn("DATABASE_URL is not configured; data will use temporary in-memory storage.");
   }
 
   const assetStore: AssetStore = config.imageStorageProvider === "cloudinary" ? new CloudinaryAssetStore(config) : new LocalAssetStore(config);
   if (config.imageStorageProvider === "cloudinary") {
-    console.info(`Using Cloudinary (cloud "${config.cloudinaryCloudName}") for private image storage.`);
+    console.info("Using Cloudinary for private image storage.");
   } else {
     console.warn("Image storage is not configured for Cloudinary; images will be stored on local disk (development only).");
   }

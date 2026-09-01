@@ -1,10 +1,11 @@
 import express, {type Express, type Router} from "express";
-import {corsMiddleware} from "./middleware/cors.middleware";
+import {createCorsMiddleware} from "./middleware/cors.middleware";
+import {requestContextMiddleware, secureHeadersMiddleware} from "./middleware/request-context.middleware";
 import {notFoundMiddleware, createErrorMiddleware} from "./middleware/error.middleware";
 import type {AppConfig} from "./config/env";
 
 export interface CreateAppOptions {
-  config: Pick<AppConfig, "env" | "imageStorageProvider" | "uploadDir">;
+  config: Pick<AppConfig, "env" | "imageStorageProvider" | "uploadDir" | "allowedOrigins" | "trustProxy">;
   apiRouter: Router;
 }
 
@@ -15,8 +16,11 @@ export interface CreateAppOptions {
 export function createApp({config, apiRouter}: CreateAppOptions): Express {
   const app = express();
   app.disable("x-powered-by");
+  if (config.trustProxy) app.set("trust proxy", 1);
+  app.use(requestContextMiddleware);
+  app.use(secureHeadersMiddleware);
   app.use(express.json({limit: "256kb"}));
-  app.use(corsMiddleware);
+  app.use(createCorsMiddleware(config.allowedOrigins));
 
   if (config.imageStorageProvider === "local") {
     app.use("/uploads", express.static(config.uploadDir, {fallthrough: false, immutable: true, maxAge: "1d"}));

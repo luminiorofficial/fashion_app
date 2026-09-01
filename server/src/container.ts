@@ -3,6 +3,7 @@ import {createApp} from "./app";
 import {createApiRouter, type Controllers} from "./routes";
 import {createAuthMiddleware} from "./middleware/auth.middleware";
 import {upload} from "./middleware/upload.middleware";
+import {createRateLimitMiddleware, createAiProtectionMiddleware} from "./middleware/security.middleware";
 import {AuthService} from "./services/auth.service";
 import {ProfileService} from "./services/profile.service";
 import {WardrobeService} from "./services/wardrobe.service";
@@ -41,7 +42,7 @@ export interface AppDependencies {
 export function createApiApp(deps: AppDependencies): Express {
   const {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider} = deps;
 
-  const authService = new AuthService(repositories.users, repositories.sessions, repositories.otp, smsProvider, config);
+  const authService = new AuthService(repositories.users, repositories.sessions, repositories.otp, smsProvider, config, assetStore);
   const profileService = new ProfileService(repositories.profiles, repositories.assets, assetStore, textAnalyzer, config);
   const wardrobeService = new WardrobeService(repositories.wardrobe, repositories.assets, assetStore, textAnalyzer, config);
   const outfitService = new OutfitService(repositories.outfits, repositories.wardrobe, repositories.profiles, textAnalyzer);
@@ -60,8 +61,30 @@ export function createApiApp(deps: AppDependencies): Express {
     tryon: new TryOnController(tryonService),
   };
 
-  const authenticate = createAuthMiddleware({users: repositories.users, sessions: repositories.sessions});
-  const apiRouter = createApiRouter(controllers, authenticate, upload);
+  const authenticate = createAuthMiddleware({
+    users: repositories.users,
+    sessions: repositories.sessions,
+    security: repositories.security,
+    rateLimit: {limit: config.rateLimitApiMax, windowSeconds: config.rateLimitWindowSeconds},
+  });
+  const ipKey = (request: import("express").Request) => request.ip || request.socket.remoteAddress || "unknown";
+  const phoneKey = (request: import("express").Request) => typeof request.body?.phoneNumber === "string" ? request.body.phoneNumber : "invalid";
+  const rate = (namespace: string, limit: number, windowSeconds: number, key: (request: import("express").Request) => string) =>
+    createRateLimitMiddleware({security: repositories.security, namespace, limit, windowSeconds, key});
+  const routeSecurity = {
+    requestOtp: [
+      rate("otp-request-ip-window", config.rateLimitAuthMax, config.rateLimitWindowSeconds, ipKey),
+      rate("otp-request-phone-cooldown", 1, config.otpResendCooldownSeconds, phoneKey),
+      rate("otp-request-phone-daily", config.otpDailyPhoneLimit, 86_400, phoneKey),
+      rate("otp-request-ip-daily", config.otpDailyIpLimit, 86_400, ipKey),
+    ],
+    verifyOtp: [rate("otp-verify-ip", config.rateLimitAuthMax, config.rateLimitWindowSeconds, ipKey)],
+    profileAnalysis: createAiProtectionMiddleware(repositories.security, config, "profile_analysis"),
+    wardrobeAnalysis: createAiProtectionMiddleware(repositories.security, config, "wardrobe_analysis"),
+    outfitGeneration: createAiProtectionMiddleware(repositories.security, config, "outfit_generation"),
+    virtualTryon: createAiProtectionMiddleware(repositories.security, config, "virtual_tryon"),
+  };
+  const apiRouter = createApiRouter(controllers, authenticate, upload, routeSecurity);
 
   return createApp({config, apiRouter});
 }

@@ -9,6 +9,7 @@ import type {AppConfig} from "../config/env";
 import type {AssetsRepository, WardrobeRepository} from "../types/repositories";
 import type {AssetStore, TextAnalysisProvider, UploadedFile} from "../types/provider.types";
 import type {WardrobeItem, PublicWardrobeItem, PublicWardrobeDraft, GarmentVisibility, CreateWardrobeItemInput} from "../types/wardrobe.types";
+import {safeOperationalError} from "../utils/safe-logging";
 
 export type WardrobeServiceConfig = Pick<AppConfig, "geminiTextApiKey" | "geminiModel">;
 
@@ -99,7 +100,7 @@ export class WardrobeService {
         analysisType: "wardrobe_item",
         provider: this.config.geminiTextApiKey ? "gemini" : "development_fallback",
         model: this.config.geminiModel,
-        result,
+        result: result as unknown as Record<string, unknown>,
       });
       return {
         assetId: createdAsset.id,
@@ -183,7 +184,7 @@ export class WardrobeService {
     // maintenance.service.ts).
     await this.wardrobe.deleteWardrobeItem(item.id, item.mediaAssetId);
     if (item.imageStorageKey) {
-      await this.assetStore.remove(item.imageStorageKey).catch(() => {});
+      await this.assetStore.remove(item.imageStorageKey).catch((error) => safeOperationalError("Wardrobe media cleanup failed", error));
     }
   }
 

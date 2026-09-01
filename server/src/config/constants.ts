@@ -3,6 +3,7 @@ import type {OutfitEventType, OutfitReaction} from "../types/outfit.types";
 
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_FETCHED_ASSET_BYTES = 8 * 1024 * 1024;
+export const MAX_IMAGE_PIXELS = 25_000_000;
 
 export const wardrobeCategories: WardrobeCategory[] = ["Top", "Bottom", "Outerwear", "Dress", "Shoes", "Accessory"];
 export const garmentVisibilityLevels: GarmentVisibility[] = ["full", "partial", "occluded"];

@@ -5,8 +5,10 @@ import {birthDate} from "../validators/auth.validators";
 import type {AppConfig} from "../config/env";
 import type {UsersRepository, SessionsRepository, OtpRepository} from "../types/repositories";
 import type {SmsProvider} from "../types/provider.types";
+import type {AssetStore} from "../types/provider.types";
 import type {User, PublicUser} from "../types/user.types";
 import type {OtpPurpose} from "../types/auth.types";
+import {safeOperationalError} from "../utils/safe-logging";
 
 export type AuthServiceConfig = Pick<AppConfig, "otpRateLimitWindowMinutes" | "otpRateLimitMax" | "otpTtlMinutes" | "otpHashSecret" | "otpMaxAttempts" | "sessionTtlDays">;
 
@@ -46,6 +48,7 @@ export class AuthService {
     private readonly otp: OtpRepository,
     private readonly sms: SmsProvider,
     private readonly config: AuthServiceConfig,
+    private readonly assetStore?: AssetStore,
   ) {}
 
   async requestOtp({phoneNumber, name, dateOfBirth}: RequestOtpInput): Promise<RequestOtpResult> {
@@ -132,5 +135,10 @@ export class AuthService {
 
   getCurrentUser(user: User): PublicUser {
     return toPublicUser(user);
+  }
+
+  async deleteAccount(userId: string): Promise<void> {
+    const {storageKeys} = await this.users.deleteAccount(userId);
+    if (this.assetStore) await Promise.all(storageKeys.map((key) => this.assetStore!.remove(key).catch((error) => safeOperationalError("Account media cleanup failed", error))));
   }
 }

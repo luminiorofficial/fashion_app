@@ -9,6 +9,9 @@ Apply in filename order to an empty PostgreSQL 16+ database:
 ```powershell
 psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/001_initial_schema.sql
 psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/002_database_roles.sql
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/003_feedback_and_tryon.sql
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/004_wardrobe_person_visibility.sql
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/005_production_hardening.sql
 ```
 
 The backend also includes a migration command that reads `server/.env`, skips
@@ -48,10 +51,16 @@ layer even if an application bug supplies valid UUIDs. Context triggers also ens
 profile analysis uses profile media, wardrobe analysis uses wardrobe media, and an
 uploaded wardrobe item has exactly one primary asset at transaction commit.
 
-`schema_migrations` records both checked-in migrations. The `nera_app` role gets
+`schema_migrations` records every checked-in migration. The `nera_app` role gets
 only the DML privileges needed by the API and cannot read migration history or
 alter schema objects. Grant this group role to the dedicated server's login role;
 do not make the API login a database owner.
+
+Use separate login roles for runtime and migrations. Grant `nera_app` to the
+runtime login and `nera_migrator` only to the deployment/migration login. Neither
+login needs PostgreSQL superuser or database-owner privileges. Production
+connections must set `DATABASE_SSL=true`; keep certificate verification enabled
+unless the database vendor explicitly requires a custom CA setup.
 
 Images do not live in PostgreSQL. `media_assets` stores their object/local storage
 key, checksum, dimensions, MIME type, and lifecycle status. This keeps the schema

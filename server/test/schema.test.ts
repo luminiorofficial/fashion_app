@@ -9,12 +9,14 @@ import {assertRepositoriesContract} from "../src/database/repositories/contract"
 import {
   PostgresUsersRepository, PostgresSessionsRepository, PostgresOtpRepository, PostgresAssetsRepository,
   PostgresProfilesRepository, PostgresWardrobeRepository, PostgresOutfitsRepository, PostgresTryOnRepository,
+  PostgresSecurityRepository,
 } from "../src/database/repositories/postgres";
 
 const migrationsDirectory = path.resolve(__dirname, "../../database/migrations");
 const initialSchema = fs.readFileSync(path.join(migrationsDirectory, "001_initial_schema.sql"), "utf8");
 const roles = fs.readFileSync(path.join(migrationsDirectory, "002_database_roles.sql"), "utf8");
 const feedbackAndTryon = fs.readFileSync(path.join(migrationsDirectory, "003_feedback_and_tryon.sql"), "utf8");
+const productionHardening = fs.readFileSync(path.join(migrationsDirectory, "005_production_hardening.sql"), "utf8");
 
 test("initial migration contains the complete phase-one data model", () => {
   const tables = [...initialSchema.matchAll(/CREATE TABLE\s+([a-z_]+)/g)].map((match) => match[1]);
@@ -49,6 +51,17 @@ test("application role is explicit and cannot access all tables by default", () 
   assert.match(roles, /GRANT SELECT ON wardrobe_categories TO nera_app/);
 });
 
+test("production hardening migration adds distributed limits, AI usage, and cleanup indexes", () => {
+  assert.match(productionHardening, /CREATE TABLE rate_limit_buckets/);
+  assert.match(productionHardening, /CREATE TABLE ai_usage_events/);
+  assert.match(productionHardening, /ai_usage_idempotency_uk/);
+  assert.match(productionHardening, /auth_sessions_expiry_idx/);
+  assert.match(productionHardening, /media_assets_orphan_scan_idx/);
+  assert.match(productionHardening, /tryon_unsaved_cleanup_idx/);
+  assert.match(productionHardening, /GRANT SELECT, INSERT, UPDATE, DELETE ON rate_limit_buckets, ai_usage_events TO nera_app/);
+  assert.match(productionHardening, /^BEGIN;[\s\S]*COMMIT;\s*$/);
+});
+
 test("in-memory development adapter satisfies the checked repository contract", () => {
   assert.doesNotThrow(() => assertRepositoriesContract(createMemoryRepositories()));
 });
@@ -65,6 +78,7 @@ test("PostgreSQL adapter satisfies the checked repository contract", () => {
       wardrobe: new PostgresWardrobeRepository(pool),
       outfits: new PostgresOutfitsRepository(pool),
       tryon: new PostgresTryOnRepository(pool),
+      security: new PostgresSecurityRepository(pool),
       health: async () => ({status: "ok", adapter: "postgresql"}),
       close: async () => {},
     }),

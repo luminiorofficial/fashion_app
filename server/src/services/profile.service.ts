@@ -10,11 +10,20 @@ export type ProfileServiceConfig = Pick<AppConfig, "geminiTextApiKey" | "geminiM
 
 export interface AnalyzeProfileResult {
   profile: PublicProfile;
-  analysisJobId: string;
 }
 
 export async function toPublicProfile(assetStore: AssetStore, profile: StyleProfile): Promise<PublicProfile> {
-  return {...profile, profileImageUrl: await assetStore.signedUrl(profile.profileImageStorageKey)};
+  return {
+    bodyType: profile.bodyType,
+    skinTone: profile.skinTone,
+    skinUndertone: profile.skinUndertone,
+    hairColor: profile.hairColor,
+    facialStructure: profile.facialStructure,
+    styleAttributes: profile.styleAttributes || [],
+    stylingNotes: profile.stylingNotes,
+    profileImageUrl: await assetStore.signedUrl(profile.profileImageStorageKey),
+    updatedAt: profile.updatedAt,
+  };
 }
 
 export class ProfileService {
@@ -46,7 +55,7 @@ export class ProfileService {
         analysisType: "style_profile",
         provider: this.config.geminiTextApiKey ? "gemini" : "development_fallback",
         model: this.config.geminiModel,
-        result,
+        result: result as unknown as Record<string, unknown>,
       });
       const previousProfile = await this.profiles.getProfile(userId);
       const profile = await this.profiles.saveProfile(userId, {
@@ -71,7 +80,7 @@ export class ProfileService {
       // user_style_profiles. Best-effort: a failure here shouldn't turn an
       // otherwise-successful profile save into an error response.
       await this.assets.pruneAnalysisJobResult(job.id).catch(() => {});
-      return {profile: await toPublicProfile(this.assetStore, profile), analysisJobId: job.id};
+      return {profile: await toPublicProfile(this.assetStore, profile)};
     } catch (error) {
       await cleanupOrphanedAsset(this.assetStore, this.assets, stored.storageKey, asset);
       throw error;

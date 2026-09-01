@@ -7,6 +7,8 @@ export interface AppConfig {
   port: number;
   publicBaseUrl: string;
   uploadDir: string;
+  allowedOrigins: string[];
+  trustProxy: boolean;
   otpHashSecret: string;
   otpTtlMinutes: number;
   otpMaxAttempts: number;
@@ -18,7 +20,9 @@ export interface AppConfig {
   // since there's no cron caller to authenticate against.
   cronSecret: string;
   smsProvider: string;
-  allowConsoleOtpInProduction: boolean;
+  otpResendCooldownSeconds: number;
+  otpDailyPhoneLimit: number;
+  otpDailyIpLimit: number;
   twilioAccountSid: string;
   twilioAuthToken: string;
   twilioMessagingServiceSid: string;
@@ -36,6 +40,7 @@ export interface AppConfig {
   // legacy settings above when unset, so a single-key setup keeps working.
   geminiTextApiKey: string;
   geminiTextMaxRetries: number;
+  geminiTextFallbackModel: string;
   geminiImageApiKey: string;
   geminiImageMaxRetries: number;
   geminiImageModel: string;
@@ -66,6 +71,24 @@ export interface AppConfig {
   mediaAssetRetentionDays: number;
   tryonUnsavedRetentionHours: number;
   imageStorageProvider: string;
+  rateLimitWindowSeconds: number;
+  rateLimitAuthMax: number;
+  rateLimitApiMax: number;
+  rateLimitProfileAnalysisMax: number;
+  rateLimitWardrobeAnalysisMax: number;
+  rateLimitOutfitGenerationMax: number;
+  rateLimitTryonMax: number;
+  aiDailyProfileAnalysisLimit: number;
+  aiDailyWardrobeAnalysisLimit: number;
+  aiDailyOutfitGenerationLimit: number;
+  aiDailyTryonLimit: number;
+  aiMonthlyProfileAnalysisLimit: number;
+  aiMonthlyWardrobeAnalysisLimit: number;
+  aiMonthlyOutfitGenerationLimit: number;
+  aiMonthlyTryonLimit: number;
+  aiConcurrentRequestsPerUser: number;
+  aiReservationTimeoutMinutes: number;
+  aiUsageRetentionDays: number;
 }
 
 export type ConfigOverrides = Partial<AppConfig>;
@@ -81,6 +104,8 @@ const configSchema = z
     port: z.number().int().min(1).max(65535),
     publicBaseUrl: z.string().min(1),
     uploadDir: z.string().min(1),
+    allowedOrigins: z.array(z.string().url()),
+    trustProxy: z.boolean(),
     otpHashSecret: z.string().min(1),
     otpTtlMinutes: z.number(),
     otpMaxAttempts: z.number(),
@@ -88,7 +113,9 @@ const configSchema = z
     otpRateLimitMax: z.number(),
     cronSecret: z.string(),
     smsProvider: z.string(),
-    allowConsoleOtpInProduction: z.boolean(),
+    otpResendCooldownSeconds: z.number().int().min(1),
+    otpDailyPhoneLimit: z.number().int().min(1),
+    otpDailyIpLimit: z.number().int().min(1),
     twilioAccountSid: z.string(),
     twilioAuthToken: z.string(),
     twilioMessagingServiceSid: z.string(),
@@ -100,10 +127,11 @@ const configSchema = z
     geminiRetryBaseDelayMs: z.number(),
     geminiTextApiKey: z.string(),
     geminiTextMaxRetries: z.number(),
+    geminiTextFallbackModel: z.string(),
     geminiImageApiKey: z.string(),
     geminiImageMaxRetries: z.number(),
     geminiImageModel: z.string().min(1),
-    geminiImageFallbackModel: z.string().min(1),
+    geminiImageFallbackModel: z.string(),
     geminiImageProModel: z.string().min(1),
     geminiImageHighQualityMode: z.boolean(),
     geminiImageSize: z.string().min(1),
@@ -127,11 +155,38 @@ const configSchema = z
     mediaAssetRetentionDays: z.number(),
     tryonUnsavedRetentionHours: z.number(),
     imageStorageProvider: z.string(),
+    rateLimitWindowSeconds: z.number().int().min(1),
+    rateLimitAuthMax: z.number().int().min(1),
+    rateLimitApiMax: z.number().int().min(1),
+    rateLimitProfileAnalysisMax: z.number().int().min(1),
+    rateLimitWardrobeAnalysisMax: z.number().int().min(1),
+    rateLimitOutfitGenerationMax: z.number().int().min(1),
+    rateLimitTryonMax: z.number().int().min(1),
+    aiDailyProfileAnalysisLimit: z.number().int().min(1),
+    aiDailyWardrobeAnalysisLimit: z.number().int().min(1),
+    aiDailyOutfitGenerationLimit: z.number().int().min(1),
+    aiDailyTryonLimit: z.number().int().min(1),
+    aiMonthlyProfileAnalysisLimit: z.number().int().min(1),
+    aiMonthlyWardrobeAnalysisLimit: z.number().int().min(1),
+    aiMonthlyOutfitGenerationLimit: z.number().int().min(1),
+    aiMonthlyTryonLimit: z.number().int().min(1),
+    aiConcurrentRequestsPerUser: z.number().int().min(1),
+    aiReservationTimeoutMinutes: z.number().int().min(1),
+    aiUsageRetentionDays: z.number().int().min(1),
   })
   .superRefine((config, ctx) => {
     const cloudinaryFields = [config.cloudinaryCloudName, config.cloudinaryApiKey, config.cloudinaryApiSecret];
     const cloudinaryConfigured = cloudinaryFields.every(Boolean);
     const cloudinaryPartiallyConfigured = cloudinaryFields.some(Boolean) && !cloudinaryConfigured;
+
+    if (!["console", "twilio"].includes(config.smsProvider)) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["smsProvider"], message: "SMS_PROVIDER must be either console or twilio."});
+    }
+    if (config.smsProvider === "twilio") {
+      if (!(config.twilioAccountSid && config.twilioAuthToken && (config.twilioMessagingServiceSid || config.twilioFromNumber))) {
+        ctx.addIssue({code: z.ZodIssueCode.custom, path: ["twilioAccountSid"], message: "Twilio requires credentials and a Messaging Service SID or sender number."});
+      }
+    }
 
     if (!["local", "cloudinary"].includes(config.imageStorageProvider)) {
       ctx.addIssue({code: z.ZodIssueCode.custom, path: ["imageStorageProvider"], message: "IMAGE_STORAGE_PROVIDER must be one of 'cloudinary' or 'local'."});
@@ -145,6 +200,33 @@ const configSchema = z
     if (config.env === "production" && !config.databaseUrl) {
       ctx.addIssue({code: z.ZodIssueCode.custom, path: ["databaseUrl"], message: "Production requires DATABASE_URL; the in-memory repository is not allowed in production."});
     }
+    if (config.env === "production" && config.smsProvider === "console") {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["smsProvider"], message: "Production requires a real SMS provider; console OTP is never allowed."});
+    }
+    if (config.env === "production" && !config.cronSecret) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["cronSecret"], message: "Production requires CRON_SECRET."});
+    }
+    if (config.env === "production" && config.allowedOrigins.length === 0) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["allowedOrigins"], message: "Production requires at least one ALLOWED_ORIGIN."});
+    }
+    if (config.env === "production" && !config.databaseSsl) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["databaseSsl"], message: "Production requires DATABASE_SSL=true."});
+    }
+    if (config.env === "production" && (config.otpHashSecret.length < 32 || config.otpHashSecret.includes("development-only"))) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["otpHashSecret"], message: "Production requires a unique OTP_HASH_SECRET of at least 32 characters."});
+    }
+    if (config.env === "production" && config.cronSecret.length < 32) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["cronSecret"], message: "Production CRON_SECRET must be at least 32 characters."});
+    }
+    if (config.env === "production" && !config.cloudinaryAuthTokenKey) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["cloudinaryAuthTokenKey"], message: "Production requires CLOUDINARY_AUTH_TOKEN_KEY so signed media URLs expire."});
+    }
+    if (config.env === "production" && !config.publicBaseUrl.startsWith("https://")) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["publicBaseUrl"], message: "Production PUBLIC_BASE_URL must use HTTPS."});
+    }
+    if (config.cloudinarySignedUrlTtlSeconds < 60 || config.cloudinarySignedUrlTtlSeconds > 3600) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["cloudinarySignedUrlTtlSeconds"], message: "CLOUDINARY_SIGNED_URL_TTL_SECONDS must be between 60 and 3600."});
+    }
   });
 
 function readNumber(value: string | undefined, fallback: number): number {
@@ -153,6 +235,10 @@ function readNumber(value: string | undefined, fallback: number): number {
 
 function readBoolean(value: string | undefined, matchValue = "true"): boolean {
   return value === matchValue;
+}
+
+function readCsv(value: string | undefined): string[] {
+  return (value || "").split(",").map((entry) => entry.trim()).filter(Boolean);
 }
 
 /** Builds the raw config object straight from process.env, mirroring every
@@ -167,6 +253,8 @@ function readEnvConfig(overrides: ConfigOverrides): Omit<AppConfig, "imageStorag
     port: readNumber(process.env.PORT, 8080),
     publicBaseUrl: process.env.PUBLIC_BASE_URL || "http://localhost:8080",
     uploadDir: path.resolve(root, process.env.UPLOAD_DIR || "data/uploads"),
+    allowedOrigins: readCsv(process.env.ALLOWED_ORIGINS),
+    trustProxy: readBoolean(process.env.TRUST_PROXY),
     otpHashSecret: process.env.OTP_HASH_SECRET || "development-only-secret-change-me-now",
     otpTtlMinutes: readNumber(process.env.OTP_TTL_MINUTES, 5),
     otpMaxAttempts: readNumber(process.env.OTP_MAX_ATTEMPTS, 5),
@@ -174,30 +262,32 @@ function readEnvConfig(overrides: ConfigOverrides): Omit<AppConfig, "imageStorag
     otpRateLimitMax: readNumber(process.env.OTP_RATE_LIMIT_MAX, 5),
     cronSecret: process.env.CRON_SECRET || "",
     smsProvider: process.env.SMS_PROVIDER || "console",
-    allowConsoleOtpInProduction: readBoolean(process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION),
+    otpResendCooldownSeconds: readNumber(process.env.OTP_RESEND_COOLDOWN_SECONDS, 60),
+    otpDailyPhoneLimit: readNumber(process.env.OTP_DAILY_PHONE_LIMIT, 10),
+    otpDailyIpLimit: readNumber(process.env.OTP_DAILY_IP_LIMIT, 30),
     twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",
     twilioMessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID || "",
     twilioFromNumber: process.env.TWILIO_FROM_NUMBER || "",
     sessionTtlDays: readNumber(process.env.SESSION_TTL_DAYS, 30),
     geminiApiKey: process.env.GEMINI_API_KEY || "",
-    geminiMaxRetries: readNumber(process.env.GEMINI_MAX_RETRIES, 3),
+    geminiMaxRetries: readNumber(process.env.GEMINI_MAX_RETRIES, 1),
     geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
     geminiRetryBaseDelayMs: readNumber(process.env.GEMINI_RETRY_BASE_DELAY_MS, 500),
     geminiTextApiKey: process.env.GEMINI_TEXT_API_KEY || process.env.GEMINI_API_KEY || "",
-    geminiTextMaxRetries: readNumber(process.env.GEMINI_TEXT_MAX_RETRIES || process.env.GEMINI_MAX_RETRIES, 3),
+    geminiTextMaxRetries: readNumber(process.env.GEMINI_TEXT_MAX_RETRIES || process.env.GEMINI_MAX_RETRIES, 1),
+    geminiTextFallbackModel: process.env.GEMINI_TEXT_FALLBACK_MODEL || "",
     geminiImageApiKey: process.env.GEMINI_IMAGE_API_KEY || process.env.GEMINI_API_KEY || "",
-    // 0 by default: the primary/fallback model chain already gives every
-    // try-on a second attempt on a different model, so a same-model retry
-    // on top of that just doubles worst-case latency for no real benefit.
+    // 0 by default: image calls are expensive and slow. Operators may opt
+    // into same-model retries and/or a separate fallback model explicitly.
     geminiImageMaxRetries: readNumber(process.env.GEMINI_IMAGE_MAX_RETRIES, 0),
-    // Primary model is the cheapest/fastest flash-lite variant; the
-    // standard flash model is the fallback if it's unavailable or fails.
+    // Primary model is the cheapest/fastest flash-lite variant. No fallback
+    // model is selected unless GEMINI_IMAGE_FALLBACK_MODEL is configured.
     // The pricier pro model is never used automatically — only when
     // GEMINI_IMAGE_HIGH_QUALITY_MODE=true — so a normal request never
     // silently upgrades to it.
     geminiImageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-lite-image",
-    geminiImageFallbackModel: process.env.GEMINI_IMAGE_FALLBACK_MODEL || "gemini-3.1-flash-image",
+    geminiImageFallbackModel: process.env.GEMINI_IMAGE_FALLBACK_MODEL || "",
     geminiImageProModel: process.env.GEMINI_IMAGE_PRO_MODEL || "gemini-3-pro-image",
     geminiImageHighQualityMode: readBoolean(process.env.GEMINI_IMAGE_HIGH_QUALITY_MODE),
     geminiImageSize: process.env.GEMINI_IMAGE_SIZE || "1K",
@@ -233,6 +323,24 @@ function readEnvConfig(overrides: ConfigOverrides): Omit<AppConfig, "imageStorag
     // (Cloudinary object + DB row) after this many hours. Saved looks
     // (is_saved = true) are never touched by this cleanup.
     tryonUnsavedRetentionHours: readNumber(process.env.TRYON_UNSAVED_RETENTION_HOURS, 24),
+    rateLimitWindowSeconds: readNumber(process.env.RATE_LIMIT_WINDOW_SECONDS, 60),
+    rateLimitAuthMax: readNumber(process.env.RATE_LIMIT_AUTH_MAX, 20),
+    rateLimitApiMax: readNumber(process.env.RATE_LIMIT_API_MAX, 120),
+    rateLimitProfileAnalysisMax: readNumber(process.env.RATE_LIMIT_PROFILE_ANALYSIS_MAX, 3),
+    rateLimitWardrobeAnalysisMax: readNumber(process.env.RATE_LIMIT_WARDROBE_ANALYSIS_MAX, 10),
+    rateLimitOutfitGenerationMax: readNumber(process.env.RATE_LIMIT_OUTFIT_GENERATION_MAX, 10),
+    rateLimitTryonMax: readNumber(process.env.RATE_LIMIT_TRYON_MAX, 2),
+    aiDailyProfileAnalysisLimit: readNumber(process.env.AI_DAILY_PROFILE_ANALYSIS_LIMIT, 3),
+    aiDailyWardrobeAnalysisLimit: readNumber(process.env.AI_DAILY_WARDROBE_ANALYSIS_LIMIT, 30),
+    aiDailyOutfitGenerationLimit: readNumber(process.env.AI_DAILY_OUTFIT_GENERATION_LIMIT, 30),
+    aiDailyTryonLimit: readNumber(process.env.AI_DAILY_TRYON_LIMIT, 5),
+    aiMonthlyProfileAnalysisLimit: readNumber(process.env.AI_MONTHLY_PROFILE_ANALYSIS_LIMIT, 20),
+    aiMonthlyWardrobeAnalysisLimit: readNumber(process.env.AI_MONTHLY_WARDROBE_ANALYSIS_LIMIT, 300),
+    aiMonthlyOutfitGenerationLimit: readNumber(process.env.AI_MONTHLY_OUTFIT_GENERATION_LIMIT, 300),
+    aiMonthlyTryonLimit: readNumber(process.env.AI_MONTHLY_TRYON_LIMIT, 50),
+    aiConcurrentRequestsPerUser: readNumber(process.env.AI_CONCURRENT_REQUESTS_PER_USER, 1),
+    aiReservationTimeoutMinutes: readNumber(process.env.AI_RESERVATION_TIMEOUT_MINUTES, 10),
+    aiUsageRetentionDays: readNumber(process.env.AI_USAGE_RETENTION_DAYS, 400),
     // Auto-selected below (Cloudinary if fully configured, otherwise local)
     // unless explicitly set via IMAGE_STORAGE_PROVIDER or an override.
     imageStorageProvider: process.env.IMAGE_STORAGE_PROVIDER || "",

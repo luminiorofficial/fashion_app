@@ -3,6 +3,7 @@ import {buildDependencies} from "./bootstrap";
 import {createApiApp} from "./container";
 import {isPostgresRepositories} from "./database/repositories";
 import {MaintenanceService} from "./services/maintenance.service";
+import {safeOperationalError} from "./utils/safe-logging";
 
 async function start(): Promise<void> {
   const config = loadConfig();
@@ -21,7 +22,7 @@ async function start(): Promise<void> {
         .then((summary) => {
           if (config.env === "development") console.info("[NERA cleanup]", summary);
         })
-        .catch((error: Error) => console.error("NERA cleanup failed:", error.message));
+        .catch((error: Error) => safeOperationalError("NERA cleanup failed", error));
     runAndLog();
     cleanupTimer = setInterval(runAndLog, config.cleanupIntervalMinutes * 60_000);
     cleanupTimer.unref();
@@ -38,6 +39,6 @@ async function start(): Promise<void> {
 }
 
 start().catch((error: Error) => {
-  console.error("NERA API failed to start:", error.message);
+  safeOperationalError("NERA API failed to start", error);
   process.exitCode = 1;
 });

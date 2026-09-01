@@ -28,8 +28,17 @@ export interface SaveProfileInput {
   latestAnalysisJobId: string;
 }
 
-export interface PublicProfile extends StyleProfile {
+export interface PublicProfile {
+  bodyType?: string | null;
+  skinTone?: string | null;
+  skinUndertone?: string | null;
+  hairColor?: string | null;
+  facialStructure?: string | null;
+  styleAttributes?: string[];
+  stylingNotes?: string | null;
+  preferredStyles?: string[];
   profileImageUrl: string;
+  updatedAt?: string;
 }
 
 export interface ProfileAnalysisResult {

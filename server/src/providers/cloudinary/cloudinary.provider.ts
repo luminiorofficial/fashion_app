@@ -4,6 +4,7 @@ import {Readable} from "node:stream";
 import {v2 as defaultCloudinaryClient} from "cloudinary";
 import {ApiError} from "../../utils/api-error";
 import {CLOUDINARY_PURPOSE_FOLDERS} from "../../config/constants";
+import {MAX_FETCHED_ASSET_BYTES} from "../../config/constants";
 import {IMAGE_EXTENSIONS, processUploadedFile, validSignature} from "../../utils/image-processing";
 import type {AssetStore, ReadableAsset, StoredFileMetadata, UploadedFile} from "../../types/provider.types";
 
@@ -115,8 +116,23 @@ export class CloudinaryAssetStore implements AssetStore {
       throw new ApiError(502, "ASSET_FETCH_FAILED", "The stored image could not be retrieved.");
     }
     if (!response.ok) throw new ApiError(502, "ASSET_FETCH_FAILED", "The stored image could not be retrieved.");
-    const arrayBuffer = await response.arrayBuffer();
+    const declaredLength = Number(response.headers.get("content-length") || 0);
+    if (declaredLength > MAX_FETCHED_ASSET_BYTES) throw new ApiError(502, "ASSET_TOO_LARGE", "The stored image is too large to process.");
+    const reader = response.body?.getReader();
+    if (!reader) throw new ApiError(502, "ASSET_FETCH_FAILED", "The stored image could not be retrieved.");
+    const chunks: Buffer[] = [];
+    let byteSize = 0;
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      byteSize += value.byteLength;
+      if (byteSize > MAX_FETCHED_ASSET_BYTES) {
+        await reader.cancel();
+        throw new ApiError(502, "ASSET_TOO_LARGE", "The stored image is too large to process.");
+      }
+      chunks.push(Buffer.from(value));
+    }
     const contentType = (response.headers.get("content-type") || "image/jpeg").split(";")[0]?.trim() || "image/jpeg";
-    return {buffer: Buffer.from(arrayBuffer), mimetype: contentType};
+    return {buffer: Buffer.concat(chunks), mimetype: contentType};
   }
 }

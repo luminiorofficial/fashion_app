@@ -8,6 +8,7 @@ import {MemoryProfilesRepository} from "./profiles.repository";
 import {MemoryWardrobeRepository} from "./wardrobe.repository";
 import {MemoryOutfitsRepository} from "./outfits.repository";
 import {MemoryTryOnRepository} from "./tryon.repository";
+import {MemorySecurityRepository} from "./security.repository";
 
 export function createMemoryRepositories(): Repositories {
   const store = new MemoryStore();
@@ -20,6 +21,7 @@ export function createMemoryRepositories(): Repositories {
     wardrobe: new MemoryWardrobeRepository(store),
     outfits: new MemoryOutfitsRepository(store),
     tryon: new MemoryTryOnRepository(store),
+    security: new MemorySecurityRepository(store),
     async health() {
       return {status: "ok", adapter: "memory"};
     },

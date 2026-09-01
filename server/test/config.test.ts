@@ -9,6 +9,18 @@ const cloudinary = {
 };
 
 const databaseUrl = "postgresql://postgres:secret@localhost:5432/nera";
+const productionSecurity = {
+  smsProvider: "twilio",
+  cronSecret: "test-cron-secret-at-least-32-characters",
+  allowedOrigins: ["https://app.example.com"],
+  databaseSsl: true,
+  otpHashSecret: "test-otp-hash-secret-at-least-32-characters",
+  cloudinaryAuthTokenKey: "test-cloudinary-token-key",
+  twilioAccountSid: `AC${"1".repeat(32)}`,
+  twilioAuthToken: "test-twilio-token",
+  twilioMessagingServiceSid: `MG${"2".repeat(32)}`,
+  publicBaseUrl: "https://api.example.com",
+};
 
 test("uses local image storage by default outside production", () => {
   const config = loadConfig({env: "test"});
@@ -16,7 +28,7 @@ test("uses local image storage by default outside production", () => {
 });
 
 test("selects Cloudinary when all private storage credentials are configured", () => {
-  const config = loadConfig({env: "production", ...cloudinary, databaseUrl});
+  const config = loadConfig({env: "production", ...cloudinary, ...productionSecurity, databaseUrl});
   assert.equal(config.imageStorageProvider, "cloudinary");
 });
 
@@ -49,6 +61,19 @@ test("rejects production without DATABASE_URL, refusing to fall back to the in-m
 });
 
 test("allows production with DATABASE_URL configured", () => {
-  const config = loadConfig({env: "production", ...cloudinary, databaseUrl});
+  const config = loadConfig({env: "production", ...cloudinary, ...productionSecurity, databaseUrl});
   assert.equal(config.databaseUrl, databaseUrl);
+});
+
+test("rejects every console OTP override in production", () => {
+  process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION = "true";
+  try {
+    assert.throws(() => loadConfig({env: "production", ...cloudinary, databaseUrl, cronSecret: "cron", allowedOrigins: ["https://app.example.com"], databaseSsl: true, smsProvider: "console"}), /console OTP is never allowed/);
+  } finally {
+    delete process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION;
+  }
+});
+
+test("requires production cron authentication, explicit CORS origins, and database SSL", () => {
+  assert.throws(() => loadConfig({env: "production", ...cloudinary, databaseUrl, smsProvider: "twilio"}), /CRON_SECRET[\s\S]*ALLOWED_ORIGIN[\s\S]*DATABASE_SSL/);
 });

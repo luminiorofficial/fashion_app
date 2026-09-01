@@ -1,5 +1,6 @@
 import type {AssetStore} from "../types/provider.types";
 import type {AssetsRepository} from "../types/repositories";
+import {safeOperationalError} from "./safe-logging";
 
 // Best-effort cleanup for an asset that was stored but should not be kept:
 // either the request that created it failed after upload (a rejected
@@ -12,6 +13,6 @@ export async function cleanupOrphanedAsset(
   storageKey: string | null | undefined,
   asset?: {id: string} | null,
 ): Promise<void> {
-  if (storageKey) await assetStore.remove(storageKey).catch(() => {});
-  if (asset) await assets.archiveAsset(asset.id).catch(() => {});
+  if (storageKey) await assetStore.remove(storageKey).catch((error) => safeOperationalError("Media cleanup failed", error));
+  if (asset) await assets.archiveAsset(asset.id).catch((error) => safeOperationalError("Media archive failed", error));
 }

@@ -39,6 +39,7 @@ migrate_working_dir/
 !**/.env.example
 **/.secret.local
 /server/data/
+/server/dist/
 
 # Symbolication related
 app.*.symbols
@@ -56,3 +57,11 @@ app.*.map.json
 .tmp/
 .tmp-*/
 node-compile-cache/
+
+# Local Cloudflare tunnel binary; keep developer tooling on disk, never in Git.
+/cloudflared.exe
+
+# Firebase was removed; do not recommit generated client configuration.
+/android/app/google-services.json
+/ios/Runner/GoogleService-Info.plist
+/lib/firebase_options.dart

@@ -62,6 +62,25 @@ export class MemoryAssetsRepository implements AssetsRepository {
     return [...this.store.assets.values()].filter((asset) => Boolean(asset.deletedAt) && (asset.deletedAt as string) < beforeIso && !referenced.has(asset.id));
   }
 
+  async archiveOrphanedMediaAssets(beforeIso: string): Promise<number> {
+    const referenced = new Set<string>();
+    for (const item of this.store.wardrobe.values()) if (!item.deletedAt && item.mediaAssetId) referenced.add(item.mediaAssetId);
+    for (const job of this.store.analysisJobs.values()) if (job.mediaAssetId) referenced.add(job.mediaAssetId);
+    for (const profile of this.store.profiles.values()) if (profile.profileImageAssetId) referenced.add(profile.profileImageAssetId);
+    for (const tryOn of this.store.tryOnRequests.values()) {
+      if (tryOn.profileMediaAssetId) referenced.add(tryOn.profileMediaAssetId);
+      if (tryOn.resultMediaAssetId) referenced.add(tryOn.resultMediaAssetId);
+    }
+    let count = 0;
+    for (const asset of this.store.assets.values()) {
+      if (!asset.deletedAt && asset.createdAt < beforeIso && !referenced.has(asset.id)) {
+        Object.assign(asset, {status: "deleted", deletedAt: new Date().toISOString()});
+        count += 1;
+      }
+    }
+    return count;
+  }
+
   async deleteMediaAssetRow(assetId: string): Promise<void> {
     this.store.assets.delete(assetId);
   }

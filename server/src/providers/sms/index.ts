@@ -8,12 +8,7 @@ export {TwilioSmsProvider} from "./twilio-sms.provider";
 
 export function createSmsProvider(config: AppConfig, dependencies: TwilioProviderDependencies = {}): SmsProvider {
   if (config.smsProvider === "console") {
-    if (config.env === "production" && !config.allowConsoleOtpInProduction) {
-      throw new Error("SMS_PROVIDER=console is not allowed in production unless ALLOW_CONSOLE_OTP_IN_PRODUCTION=true.");
-    }
-    if (config.env === "production") {
-      console.warn("WARNING: Console OTP is enabled in production for temporary testing only.");
-    }
+    if (config.env === "production") throw new Error("SMS_PROVIDER=console is never allowed in production.");
     return new DevelopmentSmsProvider();
   }
   if (config.smsProvider !== "twilio") throw new Error("SMS_PROVIDER must be either console or twilio.");

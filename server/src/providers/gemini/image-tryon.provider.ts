@@ -71,7 +71,7 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
     const models = (this.config.geminiImageHighQualityMode
       ? [this.config.geminiImageProModel]
       : [this.config.geminiImageModel, this.config.geminiImageFallbackModel]
-    ).filter((model, index, all) => model && all.indexOf(model) === index);
+    ).filter((model, index, all): model is string => Boolean(model) && all.indexOf(model) === index);
     let lastError: ApiError | undefined;
 
     for (const model of models) {
@@ -158,8 +158,8 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
             responseModalities: ["IMAGE"],
             responseFormat: {
               image: {
-                aspectRatio: IMAGE_ASPECT_RATIO_ENUMS[this.config.geminiImageAspectRatio],
-                imageSize: IMAGE_SIZE_ENUMS[this.config.geminiImageSize],
+                aspectRatio: IMAGE_ASPECT_RATIO_ENUMS[this.config.geminiImageAspectRatio || "3:4"],
+                imageSize: IMAGE_SIZE_ENUMS[this.config.geminiImageSize || "1K"],
               },
             },
           },
@@ -173,12 +173,12 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
 
     if (!response.ok) {
       const parsed = await this.parseError(response);
-      this.logDevelopment(`Gemini HTTP error: model=${model} status=${response.status} code=${parsed.code} error=${JSON.stringify(parsed.message)}`);
+      this.logDevelopment(`Gemini HTTP error: model=${model} status=${response.status} code=${parsed.code}`);
       return {ok: false, error: new ApiError(parsed.status, parsed.code, parsed.message, parsed.details)};
     }
     this.logDevelopment(`Gemini HTTP status: model=${model} status=${response.status}`);
 
-    const payload = await response.json();
+    const payload = await response.json() as {candidates?: Array<{content?: {parts?: Array<{inlineData?: {data?: string; mimeType?: string}}>} }>};
     const responseParts: Array<{inlineData?: {data?: string; mimeType?: string}}> = payload.candidates?.[0]?.content?.parts || [];
     // The model may also return a text part (e.g. a caption); the image is
     // whichever part actually carries inlineData, not necessarily parts[0].
@@ -207,18 +207,11 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
   }
 
   private async parseError(response: Response): Promise<{status: number; code: string; message: string; details?: unknown}> {
-    let payload: {error?: {status?: string; message?: string; details?: unknown}} | null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    const error = payload?.error;
+    const status = response.status || 502;
     return {
-      status: response.status || 502,
-      code: error?.status || "TRYON_FAILED",
-      message: error?.message || "The try-on service could not process the images.",
-      details: error?.details,
+      status: status === 429 ? 503 : status,
+      code: status === 429 ? "TRYON_PROVIDER_BUSY" : "TRYON_FAILED",
+      message: status === 429 ? "The try-on service is temporarily busy. Please try again later." : "The try-on service could not process the images.",
     };
   }
 }

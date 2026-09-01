@@ -10,6 +10,7 @@ import {PostgresProfilesRepository} from "./profiles.repository";
 import {PostgresWardrobeRepository} from "./wardrobe.repository";
 import {PostgresOutfitsRepository} from "./outfits.repository";
 import {PostgresTryOnRepository} from "./tryon.repository";
+import {PostgresSecurityRepository} from "./security.repository";
 
 export interface PostgresRepositories extends Repositories {
   readonly pool: Pool;
@@ -28,6 +29,7 @@ export function createPostgresRepositories(config: Pick<AppConfig, "databaseUrl"
     wardrobe: new PostgresWardrobeRepository(pool),
     outfits: new PostgresOutfitsRepository(pool),
     tryon: new PostgresTryOnRepository(pool),
+    security: new PostgresSecurityRepository(pool),
     connect: () => connectPool(pool),
     health: () => poolHealth(pool),
     close: async () => {
@@ -38,4 +40,4 @@ export function createPostgresRepositories(config: Pick<AppConfig, "databaseUrl"
 
 // Exposed for tests that want to construct one domain repository directly
 // against a fake pool-like object, without a real DATABASE_URL.
-export {PostgresUsersRepository, PostgresSessionsRepository, PostgresOtpRepository, PostgresAssetsRepository, PostgresProfilesRepository, PostgresWardrobeRepository, PostgresOutfitsRepository, PostgresTryOnRepository};
+export {PostgresUsersRepository, PostgresSessionsRepository, PostgresOtpRepository, PostgresAssetsRepository, PostgresProfilesRepository, PostgresWardrobeRepository, PostgresOutfitsRepository, PostgresTryOnRepository, PostgresSecurityRepository};

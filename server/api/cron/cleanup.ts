@@ -12,6 +12,8 @@ import {createPostgresRepositories} from "../../src/database/repositories/postgr
 import {LocalAssetStore} from "../../src/providers/storage/local.provider";
 import {CloudinaryAssetStore} from "../../src/providers/cloudinary/cloudinary.provider";
 import {MaintenanceService} from "../../src/services/maintenance.service";
+import {safeEqual} from "../../src/utils/crypto";
+import {safeOperationalError} from "../../src/utils/safe-logging";
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.statusCode = status;
@@ -19,14 +21,16 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
+export function isCronAuthorized(authorization: string | undefined, cronSecret: string, production: boolean): boolean {
+  if (!production && !cronSecret) return true;
+  return Boolean(cronSecret) && safeEqual(authorization, `Bearer ${cronSecret}`);
+}
+
 export default async function handler(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const config = loadConfig();
-  if (config.cronSecret) {
-    const expected = `Bearer ${config.cronSecret}`;
-    if (request.headers.authorization !== expected) {
+  if (!isCronAuthorized(request.headers.authorization, config.cronSecret, config.env === "production")) {
       sendJson(response, 401, {error: {code: "UNAUTHORIZED", message: "Missing or invalid cron secret."}});
       return;
-    }
   }
   if (!config.databaseUrl) {
     sendJson(response, 200, {skipped: true, reason: "DATABASE_URL is not configured."});
@@ -40,8 +44,8 @@ export default async function handler(request: IncomingMessage, response: Server
     const summary = await maintenance.runCleanup();
     sendJson(response, 200, {status: "ok", summary});
   } catch (error) {
-    console.error("Cron cleanup failed:", error);
-    sendJson(response, 500, {error: {code: "CLEANUP_FAILED", message: (error as Error).message}});
+    safeOperationalError("Cron cleanup failed", error);
+    sendJson(response, 500, {error: {code: "CLEANUP_FAILED", message: "Cleanup could not be completed."}});
   } finally {
     await repositories.close();
   }

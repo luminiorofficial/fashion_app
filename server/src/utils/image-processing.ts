@@ -2,6 +2,7 @@ import path from "node:path";
 import sharp, {type Sharp, type Metadata} from "sharp";
 import {ApiError} from "./api-error";
 import type {UploadedFile} from "../types/provider.types";
+import {MAX_IMAGE_PIXELS} from "../config/constants";
 
 export const IMAGE_EXTENSIONS: Record<string, string> = {
   "image/jpeg": ".jpg",
@@ -97,11 +98,17 @@ export async function processUploadedFile(file: UploadedFile | null | undefined,
   const normalizedFile = normalizeUploadedFile(file);
   if (!normalizedFile?.buffer) return normalizedFile;
   const mimeType = normalizedFile.mimetype;
-  if (!mimeType || !IMAGE_EXTENSIONS[mimeType] || !validSignature(normalizedFile.buffer, mimeType)) return normalizedFile;
+  if (!mimeType || !IMAGE_EXTENSIONS[mimeType] || !validSignature(normalizedFile.buffer, mimeType)) {
+    throw new ApiError(400, "INVALID_IMAGE", "The uploaded file is not a valid supported image.");
+  }
 
   try {
-    const image = sharp(normalizedFile.buffer).rotate();
+    const image = sharp(normalizedFile.buffer, {limitInputPixels: MAX_IMAGE_PIXELS, sequentialRead: true}).rotate();
     const metadata = await image.metadata();
+    const pixels = (metadata.width || 0) * (metadata.height || 0);
+    if (!metadata.width || !metadata.height || pixels > MAX_IMAGE_PIXELS) {
+      throw new ApiError(400, "IMAGE_DIMENSIONS_INVALID", "The image dimensions are invalid or too large.");
+    }
     const profile = (purpose && IMAGE_PROFILES[purpose]) || DEFAULT_IMAGE_PROFILE;
     const processedBuffer = await encodeToTarget(image, metadata, profile);
     return {
@@ -112,7 +119,8 @@ export async function processUploadedFile(file: UploadedFile | null | undefined,
       originalname: normalizedFile.originalname ? `${path.parse(normalizedFile.originalname).name || "image"}.jpg` : "image.jpg",
       processed: true,
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     if (mimeType === "image/heic" || mimeType === "image/heif") {
       // sharp's libvips build cannot always decode HEIC/HEIF (support varies
       // by platform and is frequently unavailable). Falling back to the
@@ -122,6 +130,6 @@ export async function processUploadedFile(file: UploadedFile | null | undefined,
       // Reject clearly here instead of persisting an inconsistent asset.
       throw new ApiError(400, "IMAGE_PROCESSING_FAILED", "This photo's format (HEIC/HEIF) could not be processed. Please try a different photo, or convert it to JPEG first.");
     }
-    return normalizedFile;
+    throw new ApiError(400, "IMAGE_PROCESSING_FAILED", "The image is malformed or could not be decoded.");
   }
 }

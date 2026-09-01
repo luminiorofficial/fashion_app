@@ -1,8 +1,9 @@
 import type {AppConfig} from "../config/env";
 import type {Repositories} from "../types/repositories";
 import type {AssetStore} from "../types/provider.types";
+import {safeOperationalError} from "../utils/safe-logging";
 
-export type MaintenanceServiceConfig = Pick<AppConfig, "otpRetentionDays" | "sessionRetentionDays" | "analysisJobRetentionDays" | "mediaAssetRetentionDays" | "tryonUnsavedRetentionHours">;
+export type MaintenanceServiceConfig = Pick<AppConfig, "otpRetentionDays" | "sessionRetentionDays" | "analysisJobRetentionDays" | "mediaAssetRetentionDays" | "tryonUnsavedRetentionHours" | "aiUsageRetentionDays">;
 
 export interface CleanupSummary {
   deletedOtpChallenges: number;
@@ -10,6 +11,9 @@ export interface CleanupSummary {
   deletedAnalysisJobs: number;
   deletedUnsavedTryOns: number;
   deletedMediaAssets: number;
+  archivedOrphanedMediaAssets: number;
+  deletedRateLimitBuckets: number;
+  deletedAiUsageEvents: number;
 }
 
 // Periodic housekeeping so Postgres storage and Cloudinary don't grow
@@ -23,7 +27,7 @@ export interface CleanupSummary {
 // task, without requiring a new job-queue dependency.
 export class MaintenanceService {
   constructor(
-    private readonly repositories: Pick<Repositories, "otp" | "sessions" | "assets" | "tryon">,
+    private readonly repositories: Pick<Repositories, "otp" | "sessions" | "assets" | "tryon" | "security">,
     private readonly assetStore: AssetStore,
     private readonly config: MaintenanceServiceConfig,
   ) {}
@@ -36,12 +40,20 @@ export class MaintenanceService {
     const deletedOtpChallenges = await this.repositories.otp.deleteExpiredOtpChallenges(before(this.config.otpRetentionDays));
     const deletedSessions = await this.repositories.sessions.deleteOldSessions(before(this.config.sessionRetentionDays));
     const deletedAnalysisJobs = await this.repositories.assets.deleteOrphanedAnalysisJobs(before(this.config.analysisJobRetentionDays));
+    const archivedOrphanedMediaAssets = await this.repositories.assets.archiveOrphanedMediaAssets(before(this.config.mediaAssetRetentionDays));
+    const security = await this.repositories.security.pruneSecurityData(before(this.config.aiUsageRetentionDays));
 
     const expiredTryOns = await this.repositories.tryon.listExpiredUnsavedTryOns(beforeHours(this.config.tryonUnsavedRetentionHours));
+    let deletedUnsavedTryOns = 0;
     for (const tryOn of expiredTryOns) {
-      if (tryOn.resultStorageKey) await this.assetStore.remove(tryOn.resultStorageKey).catch(() => {});
-      if (tryOn.resultMediaAssetId) await this.repositories.assets.archiveAsset(tryOn.resultMediaAssetId).catch(() => {});
-      await this.repositories.tryon.deleteTryOnRequest(tryOn.id).catch(() => {});
+      if (tryOn.resultStorageKey) await this.assetStore.remove(tryOn.resultStorageKey).catch((error) => safeOperationalError("Expired try-on media cleanup failed", error));
+      try {
+        if (tryOn.resultMediaAssetId) await this.repositories.assets.archiveAsset(tryOn.resultMediaAssetId);
+        await this.repositories.tryon.deleteTryOnRequest(tryOn.id);
+        deletedUnsavedTryOns += 1;
+      } catch (error) {
+        safeOperationalError("Expired try-on row cleanup failed", error);
+      }
     }
 
     // Retry Cloudinary removal before purging each row: a wardrobe/profile/
@@ -50,17 +62,27 @@ export class MaintenanceService {
     // Cloudinary's destroy() is idempotent for an already-removed object,
     // so re-calling it here is always safe.
     const purgeableMediaAssets = await this.repositories.assets.listPurgeableMediaAssets(before(this.config.mediaAssetRetentionDays));
+    let deletedMediaAssets = 0;
     for (const asset of purgeableMediaAssets) {
-      if (asset.storageKey) await this.assetStore.remove(asset.storageKey).catch(() => {});
-      await this.repositories.assets.deleteMediaAssetRow(asset.id).catch(() => {});
+      try {
+        if (asset.storageKey) await this.assetStore.remove(asset.storageKey);
+        await this.repositories.assets.deleteMediaAssetRow(asset.id);
+        deletedMediaAssets += 1;
+      } catch (error) {
+        // Keep the archived row as a durable retry marker.
+        safeOperationalError("Archived media cleanup failed", error);
+      }
     }
 
     return {
       deletedOtpChallenges,
       deletedSessions,
       deletedAnalysisJobs,
-      deletedUnsavedTryOns: expiredTryOns.length,
-      deletedMediaAssets: purgeableMediaAssets.length,
+      deletedUnsavedTryOns,
+      deletedMediaAssets,
+      archivedOrphanedMediaAssets,
+      deletedRateLimitBuckets: security.rateLimitBuckets,
+      deletedAiUsageEvents: security.aiUsageEvents,
     };
   }
 }

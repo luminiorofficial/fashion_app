@@ -10,7 +10,7 @@ import {processUploadedFile} from "../src/utils/image-processing";
 import {ApiError} from "../src/utils/api-error";
 import type {UploadedFile} from "../src/types/provider.types";
 
-const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00, 0xff, 0xd9]);
+const jpeg = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAEf/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9oADAMBAAIAAwAAABD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/EB//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/EB//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/EB//2Q==", "base64");
 
 // A real, decodable, deliberately large/detailed JPEG (random-noise pixels
 // compress poorly, closer to a busy real photo than a flat color) so the
@@ -121,7 +121,8 @@ test("CloudinaryAssetStore.save uploads the processed image bytes under an authe
   assert.equal(upload!.options.resource_type, "image");
   assert.match(upload!.options.public_id as string, /^nera\/wardrobe\/user-42\/[0-9a-f-]+$/);
   assert.equal(upload!.options.asset_folder, "nera/wardrobe");
-  assert.deepEqual(upload!.buffer, jpeg);
+  assert.equal((await sharp(upload!.buffer).metadata()).format, "jpeg");
+  assert.equal(stored.byteSize, upload!.buffer.length);
 
   assert.equal(stored.storageProvider, "cloudinary");
   assert.equal(stored.storageKey, upload!.options.public_id);

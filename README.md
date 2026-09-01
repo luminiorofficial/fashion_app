@@ -1,9 +1,8 @@
 # NERA mobile AI stylist
 
 NERA is a Flutter mobile client backed by a dedicated Node.js REST API. Firebase
-has been removed. The target persistence layer is PostgreSQL; the complete schema
-is checked in now, while the API currently uses an in-memory repository adapter
-so development can continue before the database server is available.
+has been removed. PostgreSQL is required in production; the in-memory repository
+adapter is limited to local development and tests.
 
 ## Implemented in this phase
 
@@ -16,6 +15,8 @@ so development can continue before the database server is available.
 - Owner-scoped profile, asset, analysis, and wardrobe APIs.
 - A complete PostgreSQL schema with constraints, indexes, roles, and relationships.
 - OTP request throttling and atomic challenge-attempt/session repository boundaries.
+- Distributed API rate limits, per-feature AI quotas, private media delivery,
+  retention cleanup, and authenticated account deletion.
 
 Image analysis does not claim to detect health, ethnicity, or an exact weight.
 The schema stores exact measurements only when a user explicitly provides them.
@@ -28,6 +29,7 @@ server/src/                  Express API, auth, storage, analysis, repository po
 server/test/                 API integration tests
 database/migrations/         PostgreSQL schema and least-privilege roles
 database/README.md           Schema application notes
+docs/production-security.md  Authorization, rate/quota, privacy, and operations guide
 ```
 
 ## Local API

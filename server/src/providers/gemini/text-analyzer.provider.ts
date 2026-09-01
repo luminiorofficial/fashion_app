@@ -13,7 +13,7 @@ import type {WardrobeItem as OutfitWardrobeItem} from "../../types/wardrobe.type
 // deliberately partial config to exercise its own text/legacy-key and
 // retry-count fallback chains (mirrored below), so the type has to allow
 // that rather than force a full AppConfig shape.
-export type GeminiTextConfig = Partial<Pick<AppConfig, "geminiTextApiKey" | "geminiApiKey" | "geminiTextMaxRetries" | "geminiMaxRetries" | "geminiRetryBaseDelayMs" | "geminiModel">>;
+export type GeminiTextConfig = Partial<Pick<AppConfig, "geminiTextApiKey" | "geminiApiKey" | "geminiTextMaxRetries" | "geminiMaxRetries" | "geminiRetryBaseDelayMs" | "geminiModel" | "geminiTextFallbackModel">>;
 
 interface AttemptOutcome<T> {
   ok: boolean;
@@ -202,7 +202,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
   // behavior can be exercised directly in tests via a generic prompt/schema,
   // independent of any specific analyze* method's own no-API-key fallback.
   async call<T>(prompt: string, file: UploadedFile | null, schema: JsonSchema): Promise<T> {
-    const models = [this.config.geminiModel, "gemini-3.6-flash"].filter(
+    const models = [this.config.geminiModel, this.config.geminiTextFallbackModel].filter(
       (model, index, all): model is string => Boolean(model) && all.indexOf(model) === index,
     );
     let lastError: ApiError | undefined;
@@ -259,10 +259,10 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       return {ok: false, error: new ApiError(parsed.status, parsed.code, parsed.message, parsed.details)};
     }
 
-    const payload = await response.json();
+    const payload = await response.json() as {candidates?: Array<{content?: {parts?: Array<{text?: string}>}}>};
     const output = payload.candidates?.[0]?.content?.parts?.[0]?.text;
     try {
-      return {ok: true, result: JSON.parse(output)};
+      return {ok: true, result: JSON.parse(output || "")};
     } catch {
       return {ok: false, error: new ApiError(502, "INVALID_ANALYSIS", "The analysis service returned an invalid result.")};
     }
@@ -279,18 +279,11 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
   }
 
   private async parseError(response: Response): Promise<{status: number; code: string; message: string; details?: unknown}> {
-    let payload: {error?: {status?: string; message?: string; details?: unknown}} | null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    const error = payload?.error;
+    const status = response.status || 502;
     return {
-      status: response.status || 502,
-      code: error?.status || "ANALYSIS_FAILED",
-      message: error?.message || "The analysis service could not process the image.",
-      details: error?.details,
+      status: status === 429 ? 503 : status,
+      code: status === 429 ? "AI_PROVIDER_BUSY" : "ANALYSIS_FAILED",
+      message: status === 429 ? "The analysis service is temporarily busy. Please try again later." : "The analysis service could not process the request.",
     };
   }
 }

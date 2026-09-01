@@ -27,4 +27,9 @@ export class AuthController {
     await this.auth.logout(request.auth!.tokenHash);
     response.sendStatus(204);
   };
+
+  deleteAccount = async (request: Request, response: Response): Promise<void> => {
+    await this.auth.deleteAccount(request.auth!.user.id);
+    response.sendStatus(204);
+  };
 }

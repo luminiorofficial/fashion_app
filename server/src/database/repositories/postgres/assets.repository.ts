@@ -146,6 +146,19 @@ export class PostgresAssetsRepository implements AssetsRepository {
     return result.rows.map((row) => assetFromRow(row) as MediaAsset);
   }
 
+  async archiveOrphanedMediaAssets(beforeIso: string): Promise<number> {
+    const result = await this.pool.query(
+      `UPDATE media_assets m SET status = 'deleted', deleted_at = now(), updated_at = now()
+        WHERE m.deleted_at IS NULL AND m.created_at < $1
+          AND NOT EXISTS (SELECT 1 FROM wardrobe_item_media wm JOIN wardrobe_items w ON w.id = wm.wardrobe_item_id WHERE wm.media_asset_id = m.id AND w.deleted_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM analysis_jobs aj WHERE aj.media_asset_id = m.id)
+          AND NOT EXISTS (SELECT 1 FROM user_style_profiles sp WHERE sp.profile_image_asset_id = m.id)
+          AND NOT EXISTS (SELECT 1 FROM tryon_requests tr WHERE tr.profile_media_asset_id = m.id OR tr.result_media_asset_id = m.id)`,
+      [beforeIso],
+    );
+    return result.rowCount ?? 0;
+  }
+
   async deleteMediaAssetRow(assetId: string): Promise<void> {
     await this.pool.query("DELETE FROM media_assets WHERE id = $1", [assetId]);
   }

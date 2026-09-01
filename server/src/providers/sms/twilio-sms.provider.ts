@@ -6,7 +6,7 @@ import type {AppConfig} from "../../config/env";
 export type TwilioConfig = Pick<AppConfig, "twilioAccountSid" | "twilioAuthToken" | "twilioMessagingServiceSid" | "twilioFromNumber" | "otpTtlMinutes">;
 
 export interface TwilioProviderDependencies {
-  client?: Pick<Twilio, "messages">;
+  client?: {messages: {create(message: Record<string, unknown>): Promise<{sid: string}>}};
   logger?: Pick<Console, "error">;
 }
 
@@ -15,12 +15,12 @@ export class TwilioSmsProvider implements SmsProvider {
   exposeOtp = false;
   private readonly config: TwilioConfig;
   private readonly logger: Pick<Console, "error">;
-  private readonly client: Pick<Twilio, "messages">;
+  private readonly client: {messages: {create(message: Record<string, unknown>): Promise<{sid: string}>}};
 
   constructor(config: TwilioConfig, {client, logger = console}: TwilioProviderDependencies = {}) {
     this.config = config;
     this.logger = logger;
-    this.client = client || twilio(config.twilioAccountSid, config.twilioAuthToken, {autoRetry: true, maxRetries: 2});
+    this.client = client || twilio(config.twilioAccountSid, config.twilioAuthToken, {autoRetry: true, maxRetries: 2}) as unknown as {messages: {create(message: Record<string, unknown>): Promise<{sid: string}>}};
   }
 
   async sendOtp(phoneNumber: string, otp: string): Promise<SmsSendResult> {

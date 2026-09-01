@@ -10,6 +10,26 @@ export interface UsersRepository {
   findUserByPhone(phoneNumber: string): Promise<User | null>;
   findOrCreateUser(registration: UserRegistrationInput): Promise<User>;
   findUserById(userId: string): Promise<User | null>;
+  deleteAccount(userId: string): Promise<{storageKeys: string[]}>;
+}
+
+export type AiOperation = "profile_analysis" | "wardrobe_analysis" | "outfit_generation" | "virtual_tryon";
+
+export interface SecurityRepository {
+  consumeRateLimit(input: {bucketKey: string; limit: number; windowSeconds: number}): Promise<{allowed: boolean; remaining: number; resetAt: string}>;
+  reserveAiUsage(input: {
+    userId: string;
+    operation: AiOperation;
+    provider: string;
+    model: string | null;
+    requestKey: string | null;
+    dailyLimit: number;
+    monthlyLimit: number;
+    concurrentLimit: number;
+    reservationTimeoutMinutes: number;
+  }): Promise<{id: string; reason?: "daily" | "monthly" | "concurrent" | "duplicate"}>;
+  completeAiUsage(id: string, input: {success: boolean; durationMs: number; estimatedInputUnits?: number | null; estimatedOutputUnits?: number | null}): Promise<void>;
+  pruneSecurityData(aiUsageBeforeIso: string): Promise<{rateLimitBuckets: number; aiUsageEvents: number}>;
 }
 
 export interface OtpRepository {
@@ -37,6 +57,7 @@ export interface AssetsRepository {
   pruneAnalysisJobResult(jobId: string): Promise<void>;
   deleteOrphanedAnalysisJobs(beforeIso: string): Promise<number>;
   listPurgeableMediaAssets(beforeIso: string): Promise<MediaAsset[]>;
+  archiveOrphanedMediaAssets(beforeIso: string): Promise<number>;
   deleteMediaAssetRow(assetId: string): Promise<void>;
 }
 
@@ -87,6 +108,7 @@ export interface Repositories {
   wardrobe: WardrobeRepository;
   outfits: OutfitsRepository;
   tryon: TryOnRepository;
+  security: SecurityRepository;
   health(): Promise<DatabaseHealth>;
   close(): Promise<void>;
 }
