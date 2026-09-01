@@ -151,8 +151,12 @@ toward 120000), and the cron schedule (e.g. `0 */6 * * *`) accordingly.
    `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`,
    `IMAGE_STORAGE_PROVIDER=cloudinary`, `GEMINI_TEXT_API_KEY` and/or
    `GEMINI_IMAGE_API_KEY`, `SMS_PROVIDER` (+ Twilio credentials for real SMS
-   in production — `console` mode returns OTPs in the API response, which is
-   fine for local testing but must not be used in production), `PUBLIC_BASE_URL`
+   in production — `console` mode returns OTPs directly in the API response,
+   so `src/sms.js` refuses to start with it in production unless you also
+   set `ALLOW_CONSOLE_OTP_IN_PRODUCTION=true`; that flag is for temporary
+   internal testing only — with it on, anyone can log in as any phone number
+   by reading the OTP back from `/auth/otp/request`, so switch to Twilio
+   before any real users or a public app store listing), `PUBLIC_BASE_URL`
    (your Vercel domain), and `CRON_SECRET` (any random value; Vercel Cron
    sends it back automatically as `Authorization: Bearer <value>`).
 3. Deploy. Confirm `https://<your-domain>/api/v1/health` returns
