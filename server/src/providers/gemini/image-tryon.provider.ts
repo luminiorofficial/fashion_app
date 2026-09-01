@@ -2,6 +2,7 @@ import sharp from "sharp";
 import {ApiError} from "../../utils/api-error";
 import {wait} from "../../utils/delay";
 import {RETRYABLE_STATUSES, UNAVAILABLE_STATUSES, IMAGE_ASPECT_RATIO_ENUMS, IMAGE_SIZE_ENUMS} from "../../config/constants";
+import {logGeminiStart, logGeminiSuccess, logGeminiFailure, type GeminiKeyLabel} from "../../utils/safe-logging";
 import type {AppConfig} from "../../config/env";
 import type {TryOnProvider, ReadableAsset} from "../../types/provider.types";
 import type {TryOnGenerateInput, TryOnGenerationResult} from "../../types/tryon.types";
@@ -26,6 +27,7 @@ export type GeminiImageConfig = Partial<
     | "geminiImageAspectRatio"
     | "geminiImageSize"
     | "geminiImageTimeoutMs"
+    | "geminiImageKeySource"
     | "env"
   >
 >;
@@ -47,6 +49,7 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
   private readonly maxRetries: number;
   private readonly retryBaseDelayMs: number;
   private readonly maxInputDimension: number;
+  private readonly keyLabel: GeminiKeyLabel;
 
   constructor(config: GeminiImageConfig) {
     this.config = config;
@@ -54,6 +57,7 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
     this.maxRetries = config.geminiImageMaxRetries ?? config.geminiMaxRetries ?? 1;
     this.retryBaseDelayMs = config.geminiRetryBaseDelayMs ?? 500;
     this.maxInputDimension = config.geminiImageMaxInputPx || 1024;
+    this.keyLabel = config.geminiImageKeySource ?? "LEGACY_FALLBACK";
   }
 
   async generate({profileFile, garmentFiles, notes}: TryOnGenerateInput): Promise<TryOnGenerationResult> {
@@ -73,10 +77,16 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
       : [this.config.geminiImageModel, this.config.geminiImageFallbackModel]
     ).filter((model, index, all): model is string => Boolean(model) && all.indexOf(model) === index);
     let lastError: ApiError | undefined;
+    const operation = "virtual_tryon";
+    const startedAt = Date.now();
+    const startModel = models[0] || "unknown";
+    logGeminiStart(this.keyLabel, operation, startModel);
 
     for (const model of models) {
       try {
-        return await this.callModel(model, shrunkProfile, shrunkGarments, notes);
+        const result = await this.callModel(model, shrunkProfile, shrunkGarments, notes);
+        logGeminiSuccess(this.keyLabel, operation, model, Date.now() - startedAt);
+        return result;
       } catch (error) {
         lastError = error as ApiError;
         const canTryNextModel = RETRYABLE_STATUSES.has(lastError.status) || lastError.status === 404 || lastError.status === 400;
@@ -84,7 +94,9 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
       }
     }
 
-    throw this.friendlyError(lastError as ApiError);
+    const finalError = this.friendlyError(lastError as ApiError);
+    logGeminiFailure(this.keyLabel, operation, models[models.length - 1] || startModel, Date.now() - startedAt, finalError);
+    throw finalError;
   }
 
   // Downscales an already-stored (up to ~1800px) image to a smaller longest

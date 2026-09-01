@@ -39,7 +39,8 @@ Prerequisites: Node.js 22+ and Flutter.
 ```powershell
 Set-Location server
 npm install
-Copy-Item .env.example .env
+# Create .env if it does not exist, then add the values needed for your setup.
+if (-not (Test-Path .env)) { New-Item -ItemType File .env }
 npm start
 ```
 
@@ -111,8 +112,8 @@ falls back to temporary in-memory storage only when it is absent. Create an empt
 database (the examples use `nera`) in pgAdmin, then configure and migrate it:
 
 ```powershell
-Copy-Item server/.env.example server/.env
-# Edit server/.env and replace the DATABASE_URL password/database values.
+# Create server/.env if needed, then configure DATABASE_URL.
+if (-not (Test-Path server/.env)) { New-Item -ItemType File server/.env }
 Set-Location server
 npm.cmd run db:migrate
 npm.cmd start
@@ -143,8 +144,8 @@ toward 120000), and the cron schedule (e.g. `0 */6 * * *`) accordingly.
 
 1. In the Vercel dashboard, create a project from this repo and set its
    **Root Directory** to `server`.
-2. Add every variable from `server/.env.example` as a Vercel **production**
-   environment variable — Vercel does not read `server/.env` (and it isn't
+2. Add the required variables read by `server/src/config/env.ts` as Vercel **production**
+   environment variables — Vercel does not read `server/.env` (and it isn't
    committed). At minimum: `DATABASE_URL`, `DATABASE_SSL=true`,
    `DATABASE_SSL_REJECT_UNAUTHORIZED=false` (DigitalOcean managed Postgres
    uses a cert Node doesn't trust by default; without this the API crashes

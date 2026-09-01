@@ -41,7 +41,12 @@ export interface AppConfig {
   geminiTextApiKey: string;
   geminiTextMaxRetries: number;
   geminiTextFallbackModel: string;
+  // Safe-to-log label for which key GEMINI_TEXT_API_KEY/GEMINI_IMAGE_API_KEY
+  // actually came from, for backend usage logging only (see
+  // utils/safe-logging.ts) — never derived from or exposing key values.
+  geminiTextKeySource: "TEXT" | "LEGACY_FALLBACK";
   geminiImageApiKey: string;
+  geminiImageKeySource: "IMAGE" | "LEGACY_FALLBACK";
   geminiImageMaxRetries: number;
   geminiImageModel: string;
   geminiImageFallbackModel: string;
@@ -128,7 +133,9 @@ const configSchema = z
     geminiTextApiKey: z.string(),
     geminiTextMaxRetries: z.number(),
     geminiTextFallbackModel: z.string(),
+    geminiTextKeySource: z.enum(["TEXT", "LEGACY_FALLBACK"]),
     geminiImageApiKey: z.string(),
+    geminiImageKeySource: z.enum(["IMAGE", "LEGACY_FALLBACK"]),
     geminiImageMaxRetries: z.number(),
     geminiImageModel: z.string().min(1),
     geminiImageFallbackModel: z.string(),
@@ -277,7 +284,9 @@ function readEnvConfig(overrides: ConfigOverrides): Omit<AppConfig, "imageStorag
     geminiTextApiKey: process.env.GEMINI_TEXT_API_KEY || process.env.GEMINI_API_KEY || "",
     geminiTextMaxRetries: readNumber(process.env.GEMINI_TEXT_MAX_RETRIES || process.env.GEMINI_MAX_RETRIES, 1),
     geminiTextFallbackModel: process.env.GEMINI_TEXT_FALLBACK_MODEL || "",
+    geminiTextKeySource: (process.env.GEMINI_TEXT_API_KEY ? "TEXT" : "LEGACY_FALLBACK") as "TEXT" | "LEGACY_FALLBACK",
     geminiImageApiKey: process.env.GEMINI_IMAGE_API_KEY || process.env.GEMINI_API_KEY || "",
+    geminiImageKeySource: (process.env.GEMINI_IMAGE_API_KEY ? "IMAGE" : "LEGACY_FALLBACK") as "IMAGE" | "LEGACY_FALLBACK",
     // 0 by default: image calls are expensive and slow. Operators may opt
     // into same-model retries and/or a separate fallback model explicitly.
     geminiImageMaxRetries: readNumber(process.env.GEMINI_IMAGE_MAX_RETRIES, 0),

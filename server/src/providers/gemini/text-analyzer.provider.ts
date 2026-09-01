@@ -1,6 +1,7 @@
 import {ApiError} from "../../utils/api-error";
 import {wait} from "../../utils/delay";
 import {RETRYABLE_STATUSES, UNAVAILABLE_STATUSES, eventGuidance, wardrobeCategories, garmentVisibilityLevels} from "../../config/constants";
+import {logGeminiStart, logGeminiSuccess, logGeminiFailure, type GeminiKeyLabel} from "../../utils/safe-logging";
 import type {AppConfig} from "../../config/env";
 import type {TextAnalysisProvider, UploadedFile} from "../../types/provider.types";
 import type {WardrobeDraftAnalysis} from "../../types/wardrobe.types";
@@ -13,7 +14,7 @@ import type {WardrobeItem as OutfitWardrobeItem} from "../../types/wardrobe.type
 // deliberately partial config to exercise its own text/legacy-key and
 // retry-count fallback chains (mirrored below), so the type has to allow
 // that rather than force a full AppConfig shape.
-export type GeminiTextConfig = Partial<Pick<AppConfig, "geminiTextApiKey" | "geminiApiKey" | "geminiTextMaxRetries" | "geminiMaxRetries" | "geminiRetryBaseDelayMs" | "geminiModel" | "geminiTextFallbackModel">>;
+export type GeminiTextConfig = Partial<Pick<AppConfig, "geminiTextApiKey" | "geminiApiKey" | "geminiTextMaxRetries" | "geminiMaxRetries" | "geminiRetryBaseDelayMs" | "geminiModel" | "geminiTextFallbackModel" | "geminiTextKeySource">>;
 
 interface AttemptOutcome<T> {
   ok: boolean;
@@ -44,12 +45,14 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
   private readonly apiKey: string;
   private readonly maxRetries: number;
   private readonly retryBaseDelayMs: number;
+  private readonly keyLabel: GeminiKeyLabel;
 
   constructor(config: GeminiTextConfig) {
     this.config = config;
     this.apiKey = config.geminiTextApiKey || config.geminiApiKey || "";
     this.maxRetries = config.geminiTextMaxRetries ?? config.geminiMaxRetries ?? 3;
     this.retryBaseDelayMs = config.geminiRetryBaseDelayMs ?? 500;
+    this.keyLabel = config.geminiTextKeySource ?? "LEGACY_FALLBACK";
   }
 
   async analyzeWardrobe(file: UploadedFile): Promise<WardrobeDraftAnalysis> {
@@ -82,7 +85,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       },
       required: ["item_name", "category", "tags", "color", "material", "pattern", "season", "occasion", "style", "contains_person", "garment_visibility", "virtual_tryon_eligible"],
       additionalProperties: false,
-    });
+    }, "wardrobe_analysis");
   }
 
   async validateFullLengthPhoto(file: UploadedFile): Promise<FullLengthValidationResult> {
@@ -97,7 +100,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       properties: {is_full_length: {type: "boolean"}, reasons: {type: "array", items: {type: "string"}}},
       required: ["is_full_length", "reasons"],
       additionalProperties: false,
-    });
+    }, "full_length_validation");
   }
 
   async analyzeProfile(file: UploadedFile): Promise<ProfileAnalysisResult> {
@@ -130,7 +133,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       },
       required: ["body_shape", "skin_tone", "skin_undertone", "hair_color", "facial_structure", "style_attributes", "styling_notes"],
       additionalProperties: false,
-    });
+    }, "profile_analysis");
   }
 
   // Picks a complete outfit using only the wardrobe items the user already
@@ -178,7 +181,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       },
       required: ["wardrobe_item_ids", "rationale", "suggested_purchase_item"],
       additionalProperties: false,
-    });
+    }, "outfit_generation");
   }
 
   // Deterministic outfit pick used when no Gemini API key is configured,
@@ -201,15 +204,22 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
   // Public (rather than private) so the retry/model-fallback/friendly-error
   // behavior can be exercised directly in tests via a generic prompt/schema,
   // independent of any specific analyze* method's own no-API-key fallback.
-  async call<T>(prompt: string, file: UploadedFile | null, schema: JsonSchema): Promise<T> {
+  // `operation` is a safe, fixed label (e.g. "wardrobe_analysis") used only
+  // for backend usage logging — never user/request-derived content.
+  async call<T>(prompt: string, file: UploadedFile | null, schema: JsonSchema, operation: string): Promise<T> {
     const models = [this.config.geminiModel, this.config.geminiTextFallbackModel].filter(
       (model, index, all): model is string => Boolean(model) && all.indexOf(model) === index,
     );
     let lastError: ApiError | undefined;
+    const startedAt = Date.now();
+    const startModel = models[0] || this.config.geminiModel || "unknown";
+    logGeminiStart(this.keyLabel, operation, startModel);
 
     for (const model of models) {
       try {
-        return await this.callModel<T>(model, prompt, file, schema);
+        const result = await this.callModel<T>(model, prompt, file, schema);
+        logGeminiSuccess(this.keyLabel, operation, model, Date.now() - startedAt);
+        return result;
       } catch (error) {
         lastError = error as ApiError;
         const canTryNextModel = RETRYABLE_STATUSES.has(lastError.status) || lastError.status === 404 || lastError.status === 400;
@@ -217,7 +227,9 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       }
     }
 
-    throw this.friendlyError(lastError as ApiError);
+    const finalError = this.friendlyError(lastError as ApiError);
+    logGeminiFailure(this.keyLabel, operation, models[models.length - 1] || startModel, Date.now() - startedAt, finalError);
+    throw finalError;
   }
 
   // Calls a single model, retrying in-place with exponential backoff on
