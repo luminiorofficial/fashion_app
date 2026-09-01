@@ -2,6 +2,7 @@ import type {WardrobeDraftAnalysis} from "./wardrobe.types";
 import type {ProfileAnalysisResult, FullLengthValidationResult} from "./profile.types";
 import type {SuggestOutfitInput, OutfitSuggestion} from "./outfit.types";
 import type {TryOnGenerateInput, TryOnGenerationResult} from "./tryon.types";
+import type {WeatherSummary} from "./weather.types";
 
 export interface UploadedFile {
   buffer: Buffer;
@@ -42,6 +43,10 @@ export interface TextAnalysisProvider {
 
 export interface TryOnProvider {
   generate(input: TryOnGenerateInput): Promise<TryOnGenerationResult>;
+}
+
+export interface WeatherProvider {
+  getCurrentWeather(lat: number, lng: number): Promise<WeatherSummary>;
 }
 
 export interface SmsSendResult {

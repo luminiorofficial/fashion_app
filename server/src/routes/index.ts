@@ -6,12 +6,14 @@ import {createProfileRoutes} from "./profile.routes";
 import {createWardrobeRoutes} from "./wardrobe.routes";
 import {createOutfitRoutes} from "./outfit.routes";
 import {createTryOnRoutes} from "./tryon.routes";
+import {createWeatherRoutes} from "./weather.routes";
 import type {HealthController} from "../controllers/health.controller";
 import type {AuthController} from "../controllers/auth.controller";
 import type {ProfileController} from "../controllers/profile.controller";
 import type {WardrobeController} from "../controllers/wardrobe.controller";
 import type {OutfitController} from "../controllers/outfit.controller";
 import type {TryOnController} from "../controllers/tryon.controller";
+import type {WeatherController} from "../controllers/weather.controller";
 
 export interface Controllers {
   health: HealthController;
@@ -20,6 +22,7 @@ export interface Controllers {
   wardrobe: WardrobeController;
   outfit: OutfitController;
   tryon: TryOnController;
+  weather: WeatherController;
 }
 
 export interface RouteSecurity {
@@ -42,5 +45,6 @@ export function createApiRouter(controllers: Controllers, authenticate: RequestH
   router.use(createWardrobeRoutes(controllers.wardrobe, authenticate, upload, security));
   router.use(createOutfitRoutes(controllers.outfit, authenticate, security));
   router.use(createTryOnRoutes(controllers.tryon, authenticate, security));
+  router.use(createWeatherRoutes(controllers.weather, authenticate));
   return router;
 }

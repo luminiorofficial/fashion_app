@@ -85,6 +85,11 @@ export interface SuggestOutfitInput {
   profile: StyleProfile | undefined;
   wardrobe: WardrobeItem[];
   affinityNotes: AffinityNote[] | null;
+  // A short, pre-formatted one-line weather summary (e.g. "22C, feels 20C,
+  // Partly cloudy, 30% rain chance, wind 12kph") to keep Gemini token usage
+  // low. Null when coordinates weren't provided or the weather lookup
+  // failed — the AI is told nothing and styles without weather context.
+  weatherContext: string | null;
 }
 
 export interface OutfitSuggestion {

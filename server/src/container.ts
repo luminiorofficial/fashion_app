@@ -10,15 +10,17 @@ import {WardrobeService} from "./services/wardrobe.service";
 import {OutfitService} from "./services/outfit.service";
 import {TryOnService} from "./services/tryon.service";
 import {HealthService} from "./services/health.service";
+import {WeatherService} from "./services/weather.service";
 import {AuthController} from "./controllers/auth.controller";
 import {ProfileController} from "./controllers/profile.controller";
 import {WardrobeController} from "./controllers/wardrobe.controller";
 import {OutfitController} from "./controllers/outfit.controller";
 import {TryOnController} from "./controllers/tryon.controller";
 import {HealthController} from "./controllers/health.controller";
+import {WeatherController} from "./controllers/weather.controller";
 import type {AppConfig} from "./config/env";
 import type {Repositories} from "./types/repositories";
-import type {AssetStore, TextAnalysisProvider, TryOnProvider, SmsProvider} from "./types/provider.types";
+import type {AssetStore, TextAnalysisProvider, TryOnProvider, SmsProvider, WeatherProvider} from "./types/provider.types";
 
 // Everything createApiApp needs to wire the app together. bootstrap.ts
 // builds a real instance of this (Postgres/Cloudinary/Gemini/Twilio) for
@@ -32,6 +34,7 @@ export interface AppDependencies {
   textAnalyzer: TextAnalysisProvider;
   tryonProvider: TryOnProvider;
   smsProvider: SmsProvider;
+  weatherProvider: WeatherProvider;
 }
 
 // The composition root: constructs every service and controller from the
@@ -40,12 +43,13 @@ export interface AppDependencies {
 // knows about the full Route → Middleware → Controller → Service →
 // Repository/Provider chain end to end.
 export function createApiApp(deps: AppDependencies): Express {
-  const {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider} = deps;
+  const {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider, weatherProvider} = deps;
 
   const authService = new AuthService(repositories.users, repositories.sessions, repositories.otp, smsProvider, config, assetStore);
   const profileService = new ProfileService(repositories.profiles, repositories.assets, assetStore, textAnalyzer, config);
   const wardrobeService = new WardrobeService(repositories.wardrobe, repositories.assets, assetStore, textAnalyzer, config);
-  const outfitService = new OutfitService(repositories.outfits, repositories.wardrobe, repositories.profiles, textAnalyzer);
+  const weatherService = new WeatherService(weatherProvider, config.weatherCacheTtlMinutes * 60_000);
+  const outfitService = new OutfitService(repositories.outfits, repositories.wardrobe, repositories.profiles, textAnalyzer, weatherService);
   const tryonService = new TryOnService(
     repositories.tryon, repositories.wardrobe, repositories.profiles, repositories.assets, repositories.outfits,
     assetStore, tryonProvider, config,
@@ -59,6 +63,7 @@ export function createApiApp(deps: AppDependencies): Express {
     wardrobe: new WardrobeController(wardrobeService),
     outfit: new OutfitController(outfitService),
     tryon: new TryOnController(tryonService),
+    weather: new WeatherController(weatherService),
   };
 
   const authenticate = createAuthMiddleware({

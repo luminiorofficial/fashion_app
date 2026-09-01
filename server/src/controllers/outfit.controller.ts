@@ -1,11 +1,13 @@
 import type {Request, Response} from "express";
 import type {OutfitService} from "../services/outfit.service";
+import {optionalCoordinates} from "../validators/weather.validators";
 
 export class OutfitController {
   constructor(private readonly outfit: OutfitService) {}
 
   generate = async (request: Request, response: Response): Promise<void> => {
-    const outfit = await this.outfit.generateOutfit(request.auth!.user.id, request.body?.eventType);
+    const coords = optionalCoordinates(request.body?.lat, request.body?.lng);
+    const outfit = await this.outfit.generateOutfit(request.auth!.user.id, request.body?.eventType, coords);
     response.status(201).json({outfit});
   };
 

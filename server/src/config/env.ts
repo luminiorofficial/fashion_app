@@ -94,6 +94,9 @@ export interface AppConfig {
   aiConcurrentRequestsPerUser: number;
   aiReservationTimeoutMinutes: number;
   aiUsageRetentionDays: number;
+  weatherApiBaseUrl: string;
+  weatherRequestTimeoutMs: number;
+  weatherCacheTtlMinutes: number;
 }
 
 export type ConfigOverrides = Partial<AppConfig>;
@@ -180,6 +183,9 @@ const configSchema = z
     aiConcurrentRequestsPerUser: z.number().int().min(1),
     aiReservationTimeoutMinutes: z.number().int().min(1),
     aiUsageRetentionDays: z.number().int().min(1),
+    weatherApiBaseUrl: z.string().min(1),
+    weatherRequestTimeoutMs: z.number().int().min(1000),
+    weatherCacheTtlMinutes: z.number().int().min(1),
   })
   .superRefine((config, ctx) => {
     const cloudinaryFields = [config.cloudinaryCloudName, config.cloudinaryApiKey, config.cloudinaryApiSecret];
@@ -350,6 +356,13 @@ function readEnvConfig(overrides: ConfigOverrides): Omit<AppConfig, "imageStorag
     aiConcurrentRequestsPerUser: readNumber(process.env.AI_CONCURRENT_REQUESTS_PER_USER, 1),
     aiReservationTimeoutMinutes: readNumber(process.env.AI_RESERVATION_TIMEOUT_MINUTES, 10),
     aiUsageRetentionDays: readNumber(process.env.AI_USAGE_RETENTION_DAYS, 400),
+    // Open-Meteo is free and keyless, so these only ever need overriding in
+    // unusual deployments (a self-hosted mirror, tighter timeouts, etc).
+    weatherApiBaseUrl: process.env.WEATHER_API_BASE_URL || "https://api.open-meteo.com/v1/forecast",
+    weatherRequestTimeoutMs: readNumber(process.env.WEATHER_REQUEST_TIMEOUT_MS, 8_000),
+    // How long a rounded-coordinate weather reading is reused before the
+    // next request re-fetches it (30-60 minutes, per product requirements).
+    weatherCacheTtlMinutes: readNumber(process.env.WEATHER_CACHE_TTL_MINUTES, 45),
     // Auto-selected below (Cloudinary if fully configured, otherwise local)
     // unless explicitly set via IMAGE_STORAGE_PROVIDER or an override.
     imageStorageProvider: process.env.IMAGE_STORAGE_PROVIDER || "",

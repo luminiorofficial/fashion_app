@@ -1,9 +1,11 @@
 import {assert} from "../utils/api-error";
 import {outfitEventType, outfitReaction} from "../validators/outfit.validators";
+import type {WeatherService} from "./weather.service";
 import type {OutfitsRepository, WardrobeRepository, ProfilesRepository} from "../types/repositories";
 import type {TextAnalysisProvider} from "../types/provider.types";
 import type {Outfit, PublicOutfit, PublicFeedback, SuggestedPurchaseItem, WardrobeAffinity, AffinityNote} from "../types/outfit.types";
 import type {WardrobeItem} from "../types/wardrobe.types";
+import type {WeatherSummary} from "../types/weather.types";
 
 export interface GeneratedOutfit extends PublicOutfit {
   matchScore: number | null;
@@ -56,21 +58,37 @@ function sanitizeSuggestedPurchase(value: unknown): SuggestedPurchaseItem | null
   return name && type ? {name, type} : null;
 }
 
+// A single compact line (not the full JSON object) so the styling prompt
+// stays cheap in Gemini input tokens.
+function formatWeatherContext(weather: WeatherSummary): string {
+  return `${weather.temperatureC}C, feels ${weather.feelsLikeC}C, ${weather.condition}, ${weather.rainProbabilityPercent}% rain chance, wind ${weather.windKph}kph, ${weather.humidityPercent}% humidity`;
+}
+
 export class OutfitService {
   constructor(
     private readonly outfits: OutfitsRepository,
     private readonly wardrobe: WardrobeRepository,
     private readonly profiles: ProfilesRepository,
     private readonly analyzer: TextAnalysisProvider,
+    private readonly weather: WeatherService,
   ) {}
 
-  async generateOutfit(userId: string, rawEventType: unknown): Promise<GeneratedOutfit> {
+  // `coords` is optional, best-effort context: a denied GPS permission or a
+  // weather-provider outage must never stop outfit generation, so any
+  // failure here silently resolves to no weather context (see
+  // WeatherService.tryGetWeather).
+  async generateOutfit(userId: string, rawEventType: unknown, coords?: {lat: number; lng: number} | null): Promise<GeneratedOutfit> {
     const eventType = outfitEventType(rawEventType);
     const wardrobe = await this.wardrobe.listWardrobe(userId);
     assert(wardrobe.length >= 2, 400, "WARDROBE_TOO_SMALL", "Add at least 2 wardrobe items before generating an outfit.");
     const profile = await this.profiles.getProfile(userId);
     const affinity = await this.outfits.getWardrobeAffinity(userId);
-    const suggestion = await this.analyzer.suggestOutfit({eventType, profile, wardrobe, affinityNotes: buildAffinityNotes(wardrobe, affinity)});
+    const weather = await this.weather.tryGetWeather(coords?.lat, coords?.lng);
+    const suggestion = await this.analyzer.suggestOutfit({
+      eventType, profile, wardrobe,
+      affinityNotes: buildAffinityNotes(wardrobe, affinity),
+      weatherContext: weather ? formatWeatherContext(weather) : null,
+    });
     const wardrobeIds = new Set(wardrobe.map((item) => item.id));
     const wardrobeItemIds = [...new Set(suggestion.wardrobe_item_ids || [])].filter((id) => wardrobeIds.has(id));
     assert(wardrobeItemIds.length > 0, 502, "INVALID_OUTFIT_SELECTION", "The styling AI did not return a valid outfit from your wardrobe.");

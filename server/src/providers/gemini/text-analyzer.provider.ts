@@ -140,7 +140,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
   // owns. Text-only Gemini call (no image), so it shares call()/callModel()
   // with the image-analysis methods above to reuse the same retry/fallback
   // and friendly-error behavior.
-  async suggestOutfit({eventType, profile, wardrobe, affinityNotes}: SuggestOutfitInput): Promise<OutfitSuggestion> {
+  async suggestOutfit({eventType, profile, wardrobe, affinityNotes, weatherContext}: SuggestOutfitInput): Promise<OutfitSuggestion> {
     if (!this.apiKey) return this.fallbackOutfit(eventType, wardrobe);
 
     const catalog = wardrobe.map((item: OutfitWardrobeItem) => ({
@@ -162,6 +162,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       "Never invent an item or id that is not in the wardrobe list. Prefer 2 to 5 complementary items that form a coherent outfit for the event.",
       profileSummary ? `User's style profile: ${JSON.stringify(profileSummary)}` : "No style profile is available yet; style conservatively.",
       affinityNotes ? `Learned preferences from the user's past reactions to outfits (higher affinity = they liked or wore similar items before, lower/negative = they disliked or rejected similar items): ${JSON.stringify(affinityNotes)}. Lean toward items with positive affinity and away from items with negative affinity when a few choices would otherwise be equally valid.` : "",
+      weatherContext ? `Current weather at the wearer's location: ${weatherContext}. Factor this into fabric weight, layering, and rain/wind-appropriate footwear when it matters for comfort.` : "",
       `Wardrobe items (JSON array): ${JSON.stringify(catalog)}`,
       "Return wardrobe_item_ids as the chosen items' ids (each must exactly match an id from the wardrobe list) and a short rationale (2-3 sentences) explaining the choice for this event and profile.",
       "If one complementary piece is genuinely missing from the wardrobe and would elevate this outfit for the event (for example a bag, shoes, a belt, or jewelry), set suggested_purchase_item to a short generic item name and its category type. Do not invent a specific brand, product, or store. Only suggest a purchase when a piece is genuinely missing; otherwise set suggested_purchase_item to null.",

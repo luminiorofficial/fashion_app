@@ -5,6 +5,7 @@ import {CloudinaryAssetStore} from "./providers/cloudinary/cloudinary.provider";
 import {GeminiTextAnalyzerProvider} from "./providers/gemini/text-analyzer.provider";
 import {GeminiVirtualTryOnProvider, UnavailableVirtualTryOnProvider} from "./providers/gemini/image-tryon.provider";
 import {createSmsProvider} from "./providers/sms";
+import {OpenMeteoWeatherProvider} from "./providers/weather/open-meteo.provider";
 import type {AppDependencies} from "./container";
 import type {AssetStore} from "./types/provider.types";
 
@@ -34,6 +35,7 @@ export async function buildDependencies(config: AppConfig): Promise<AppDependenc
   const textAnalyzer = new GeminiTextAnalyzerProvider(config);
   const tryonProvider = config.geminiImageApiKey ? new GeminiVirtualTryOnProvider(config) : new UnavailableVirtualTryOnProvider();
   const smsProvider = createSmsProvider(config);
+  const weatherProvider = new OpenMeteoWeatherProvider(config);
 
-  return {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider};
+  return {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider, weatherProvider};
 }
