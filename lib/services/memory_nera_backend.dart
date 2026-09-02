@@ -33,6 +33,8 @@ class MemoryNeraBackend implements NeraBackend {
   final _profileController = StreamController<StyleProfile>.broadcast();
   final List<WardrobeItem> _items = [];
   final List<OutfitPlan> _outfits = [];
+  final List<PurchaseCandidate> _purchases = [];
+  bool _gmailConnected = false;
   late StyleProfile _styleProfile;
   @override
   ValueListenable<String?> get userId => _userId;
@@ -276,6 +278,81 @@ class MemoryNeraBackend implements NeraBackend {
       throw const NeraException(
         'Virtual try-on is unavailable in preview mode.',
       );
+
+  @override
+  Future<String> beginGmailConnect() async {
+    // No real OAuth round trip in preview mode: connect immediately so the
+    // rest of the flow (status, sync, Purchases UI) can be exercised.
+    _gmailConnected = true;
+    return 'https://accounts.google.com/o/oauth2/v2/auth?preview=1';
+  }
+
+  @override
+  Future<GmailConnectionStatus> getGmailStatus() async => _gmailConnected
+      ? GmailConnectionStatus(
+          connected: true,
+          email: 'preview.user@gmail.com',
+          lastSyncedAt: DateTime.now(),
+          syncStatus: 'completed',
+        )
+      : GmailConnectionStatus.disconnected;
+
+  @override
+  Future<GmailSyncSummary> syncGmail() async {
+    if (!_gmailConnected) {
+      throw const NeraException('Connect Gmail before syncing.');
+    }
+    if (_purchases.isEmpty) {
+      _purchases.addAll(const [
+        PurchaseCandidate(
+          id: 'preview-purchase-1',
+          marketplace: 'amazon',
+          productName: 'Roadster Men Navy Blue Casual Shirt',
+          brand: 'Roadster',
+          sizeLabel: 'L',
+          colorLabel: 'Navy Blue',
+        ),
+      ]);
+    }
+    return const GmailSyncSummary(processed: 1, hasMore: false);
+  }
+
+  @override
+  Future<void> disconnectGmail() async {
+    _gmailConnected = false;
+    _purchases.clear();
+  }
+
+  @override
+  Future<List<PurchaseCandidate>> listPurchaseCandidates() async =>
+      List.unmodifiable(_purchases);
+
+  @override
+  Future<WardrobeItem> addPurchaseToWardrobe(String purchaseId) async {
+    final index = _purchases.indexWhere(
+      (candidate) => candidate.id == purchaseId,
+    );
+    if (index == -1) {
+      throw const NeraException('The purchase was not found.');
+    }
+    final candidate = _purchases.removeAt(index);
+    final item = WardrobeItem(
+      id: 'preview-imported-${DateTime.now().microsecondsSinceEpoch}',
+      name: candidate.productName,
+      category: 'Top',
+      imageUrl: candidate.imageUrl ?? '',
+      imagePath: '',
+      createdAt: DateTime.now(),
+    );
+    _items.insert(0, item);
+    _wardrobeController.add(List.unmodifiable(_items));
+    return item;
+  }
+
+  @override
+  Future<void> ignorePurchase(String purchaseId) async {
+    _purchases.removeWhere((candidate) => candidate.id == purchaseId);
+  }
 
   @override
   void dispose() {

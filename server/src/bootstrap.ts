@@ -6,6 +6,7 @@ import {GeminiTextAnalyzerProvider} from "./providers/gemini/text-analyzer.provi
 import {GeminiVirtualTryOnProvider, UnavailableVirtualTryOnProvider} from "./providers/gemini/image-tryon.provider";
 import {createSmsProvider} from "./providers/sms";
 import {OpenMeteoWeatherProvider} from "./providers/weather/open-meteo.provider";
+import {GoogleGmailApiClient} from "./commerce/gmail/gmail-api-client";
 import type {AppDependencies} from "./container";
 import type {AssetStore} from "./types/provider.types";
 
@@ -36,6 +37,11 @@ export async function buildDependencies(config: AppConfig): Promise<AppDependenc
   const tryonProvider = config.geminiImageApiKey ? new GeminiVirtualTryOnProvider(config) : new UnavailableVirtualTryOnProvider();
   const smsProvider = createSmsProvider(config);
   const weatherProvider = new OpenMeteoWeatherProvider(config);
+  // Always constructed, like GeminiTextAnalyzerProvider above — harmless
+  // when googleClientId/googleClientSecret are unset, since every /commerce
+  // route except the OAuth callback is gated on them being configured
+  // (see commerce.controller.ts's assertGmailConfigured).
+  const gmailApiClient = new GoogleGmailApiClient(config);
 
-  return {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider, weatherProvider};
+  return {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider, weatherProvider, gmailApiClient};
 }

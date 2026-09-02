@@ -12,6 +12,7 @@ psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/002_database_ro
 psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/003_feedback_and_tryon.sql
 psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/004_wardrobe_person_visibility.sql
 psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/005_production_hardening.sql
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f database/migrations/006_gmail_commerce_integration.sql
 ```
 
 The backend also includes a migration command that reads `server/.env`, skips
@@ -43,7 +44,17 @@ users
   |                 +-- wardrobe_item_tags -- tags
   +-- outfits -- outfit_items -- wardrobe_items
   +-- audit_events
+  +-- gmail_connections -- purchase_imports -- wardrobe_items
+                        +-- gmail_processed_messages
 ```
+
+`006_gmail_commerce_integration.sql` adds Gmail-based purchase detection
+(server/src/commerce): one optional `gmail_connections` row per user holding
+encrypted Google OAuth tokens, `purchase_imports` tracking every parsed
+order-lifecycle email (confirmed/shipped/delivered/cancelled/returned) with
+a `review_status` of pending/imported/ignored, and `gmail_processed_messages`
+as an idempotent skip-list so re-scanning an overlapping date window never
+reprocesses a message. No raw email content is stored, only parsed fields.
 
 Composite foreign keys carry `user_id` through analysis, profile, media, wardrobe,
 and outfit relationships. This makes cross-user references invalid at the database

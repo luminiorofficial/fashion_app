@@ -8,6 +8,17 @@ export function safeOperationalError(label: string, error: unknown, context: Rec
   });
 }
 
+// Reduces a caught error to a short, safe-to-log/store reason (an ApiError
+// code, or the error's name) without ever including error.message/details,
+// which could echo sensitive request/response content. Used by the
+// commerce/gmail layer to record why a connection entered an error state.
+export function describeFailure(error: unknown): string {
+  const candidate = error as {code?: unknown; name?: unknown};
+  if (typeof candidate?.code === "string" && candidate.code) return candidate.code.slice(0, 60);
+  if (typeof candidate?.name === "string" && candidate.name) return candidate.name.slice(0, 60);
+  return "UNKNOWN_ERROR";
+}
+
 // Which Gemini API key a call used, safe to print (never the key itself).
 // TEXT/IMAGE mean the split GEMINI_TEXT_API_KEY/GEMINI_IMAGE_API_KEY was
 // set; LEGACY_FALLBACK means that split key was missing and the call fell

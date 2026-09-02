@@ -7,6 +7,7 @@ import type {WardrobeItem} from "../types/wardrobe.types";
 import type {Outfit, OutfitFeedback} from "../types/outfit.types";
 import type {TryOnRequest} from "../types/tryon.types";
 import type {AiOperation} from "../types/repositories";
+import type {GmailConnection, PurchaseImport} from "../types/commerce.types";
 
 export const generateId = (): string => crypto.randomUUID();
 
@@ -30,4 +31,7 @@ export class MemoryStore {
   tryOnRequests = new Map<string, TryOnRequest>();
   rateLimits = new Map<string, {count: number; resetAt: string}>();
   aiUsage = new Map<string, {id: string; userId: string; operation: AiOperation; requestKey: string | null; status: "started" | "succeeded" | "failed"; requestedAt: string; completedAt: string | null}>();
+  gmailConnections = new Map<string, GmailConnection>();
+  purchaseImports = new Map<string, PurchaseImport>();
+  gmailProcessedMessages = new Set<string>();
 }

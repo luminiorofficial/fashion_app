@@ -9,7 +9,7 @@ import {DevelopmentSmsProvider} from "../src/providers/sms";
 import {withTransaction} from "../src/database/postgres";
 import {isCronAuthorized} from "../api/cron/cleanup";
 import {MaintenanceService} from "../src/services/maintenance.service";
-import type {AssetStore, StoredFileMetadata, UploadedFile} from "../src/types/provider.types";
+import type {AssetStore, StoredFileMetadata, UploadedFile, GmailApiClient} from "../src/types/provider.types";
 
 const jpeg = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAEf/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9oADAMBAAIAAwAAABD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/EB//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/EB//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/EB//2Q==", "base64");
 
@@ -26,6 +26,19 @@ class PrivateStore implements AssetStore {
   async signedUrl(storageKey: string | null | undefined): Promise<string> { return storageKey ? `https://private.invalid/${storageKey}` : ""; }
   async readBytes(storageKey: string) { const value = this.objects.get(storageKey); if (!value) throw new Error("missing"); return value; }
 }
+
+// This suite doesn't configure GOOGLE_CLIENT_ID/SECRET, so /commerce/gmail
+// routes stay gated (503) and never actually call this client — it only
+// needs to satisfy the AppDependencies type.
+const noopGmailApiClient: GmailApiClient = {
+  buildAuthUrl: () => "https://accounts.google.com/o/oauth2/v2/auth",
+  exchangeCode: async () => { throw new Error("not used in this suite"); },
+  refreshAccessToken: async () => { throw new Error("not used in this suite"); },
+  revokeToken: async () => {},
+  getUserEmail: async () => { throw new Error("not used in this suite"); },
+  listMessageIds: async () => ({ids: [], nextPageToken: null}),
+  getMessage: async () => { throw new Error("not used in this suite"); },
+};
 
 function fixture(overrides: Parameters<typeof loadConfig>[0] = {}, assetStore = new PrivateStore()) {
   const repositories = createMemoryRepositories();
@@ -62,6 +75,7 @@ function fixture(overrides: Parameters<typeof loadConfig>[0] = {}, assetStore = 
         windKph: 8,
       }),
     },
+    gmailApiClient: noopGmailApiClient,
   });
   return {app, repositories, assetStore};
 }

@@ -354,6 +354,54 @@ class RemoteNeraBackend implements NeraBackend {
   }
 
   @override
+  Future<String> beginGmailConnect() async {
+    final response = await _api.post('/commerce/gmail/connect', const {});
+    return response['authUrl'] as String;
+  }
+
+  @override
+  Future<GmailConnectionStatus> getGmailStatus() async {
+    final response = await _api.get('/commerce/gmail/status');
+    return GmailConnectionStatus.fromJson(response);
+  }
+
+  @override
+  Future<GmailSyncSummary> syncGmail() async {
+    final response = await _api.post('/commerce/gmail/sync', const {});
+    return GmailSyncSummary.fromJson(response);
+  }
+
+  @override
+  Future<void> disconnectGmail() => _api.delete('/commerce/gmail/connection');
+
+  @override
+  Future<List<PurchaseCandidate>> listPurchaseCandidates() async {
+    final response = await _api.get('/commerce/purchases');
+    return (response['purchases'] as List? ?? const [])
+        .map(
+          (purchase) =>
+              PurchaseCandidate.fromJson(purchase as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
+  @override
+  Future<WardrobeItem> addPurchaseToWardrobe(String purchaseId) async {
+    final response = await _api.post(
+      '/commerce/purchases/$purchaseId/add-to-wardrobe',
+      const {},
+    );
+    final item = WardrobeItem.fromJson(response['item'] as Map<String, dynamic>);
+    await _refreshWardrobe();
+    return item;
+  }
+
+  @override
+  Future<void> ignorePurchase(String purchaseId) async {
+    await _api.post('/commerce/purchases/$purchaseId/ignore', const {});
+  }
+
+  @override
   void dispose() {
     _api.close();
     _userId.dispose();

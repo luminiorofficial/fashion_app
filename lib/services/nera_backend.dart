@@ -54,6 +54,17 @@ abstract interface class NeraBackend {
   Future<TryOnResult> saveTryOnLook(String tryOnId);
   Future<List<TryOnResult>> listSavedLooks();
   Future<TryOnResult> unsaveTryOnLook(String tryOnId);
+
+  /// Returns the Google consent URL to open in an external browser. The
+  /// backend never returns a Google token to this client — only this URL
+  /// and, afterward, connection status via [getGmailStatus].
+  Future<String> beginGmailConnect();
+  Future<GmailConnectionStatus> getGmailStatus();
+  Future<GmailSyncSummary> syncGmail();
+  Future<void> disconnectGmail();
+  Future<List<PurchaseCandidate>> listPurchaseCandidates();
+  Future<WardrobeItem> addPurchaseToWardrobe(String purchaseId);
+  Future<void> ignorePurchase(String purchaseId);
   void dispose();
 }
 

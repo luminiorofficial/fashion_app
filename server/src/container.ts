@@ -18,9 +18,15 @@ import {OutfitController} from "./controllers/outfit.controller";
 import {TryOnController} from "./controllers/tryon.controller";
 import {HealthController} from "./controllers/health.controller";
 import {WeatherController} from "./controllers/weather.controller";
+import {CommerceController} from "./controllers/commerce.controller";
+import {GmailOAuthService} from "./commerce/gmail/gmail-oauth.service";
+import {GmailParserService} from "./commerce/gmail/gmail-parser.service";
+import {GmailSyncService} from "./commerce/gmail/gmail-sync.service";
+import {PurchaseImportService} from "./commerce/purchase-import.service";
+import {AmazonEmailParser} from "./commerce/parsers/amazon-email.parser";
 import type {AppConfig} from "./config/env";
 import type {Repositories} from "./types/repositories";
-import type {AssetStore, TextAnalysisProvider, TryOnProvider, SmsProvider, WeatherProvider} from "./types/provider.types";
+import type {AssetStore, TextAnalysisProvider, TryOnProvider, SmsProvider, WeatherProvider, GmailApiClient} from "./types/provider.types";
 
 // Everything createApiApp needs to wire the app together. bootstrap.ts
 // builds a real instance of this (Postgres/Cloudinary/Gemini/Twilio) for
@@ -35,6 +41,7 @@ export interface AppDependencies {
   tryonProvider: TryOnProvider;
   smsProvider: SmsProvider;
   weatherProvider: WeatherProvider;
+  gmailApiClient: GmailApiClient;
 }
 
 // The composition root: constructs every service and controller from the
@@ -43,7 +50,7 @@ export interface AppDependencies {
 // knows about the full Route → Middleware → Controller → Service →
 // Repository/Provider chain end to end.
 export function createApiApp(deps: AppDependencies): Express {
-  const {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider, weatherProvider} = deps;
+  const {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider, weatherProvider, gmailApiClient} = deps;
 
   const authService = new AuthService(repositories.users, repositories.sessions, repositories.otp, smsProvider, config, assetStore);
   const profileService = new ProfileService(repositories.profiles, repositories.assets, assetStore, textAnalyzer, config);
@@ -56,6 +63,19 @@ export function createApiApp(deps: AppDependencies): Express {
   );
   const healthService = new HealthService(repositories);
 
+  // Commerce/Gmail purchase detection (server/src/commerce): kept fully
+  // separate from WardrobeService, which is never modified for this —
+  // PurchaseImportService only ever calls wardrobeService's existing public
+  // methods (analyzeDraft/createWardrobeItem) to reuse its AI-analysis
+  // pipeline. Amazon is the only registered parser today; Flipkart/Myntra/
+  // AJIO/Meesho support is a new commerce/parsers/*.ts file added here.
+  const gmailOAuthService = new GmailOAuthService(repositories.gmail, gmailApiClient, config);
+  const gmailParserService = new GmailParserService([new AmazonEmailParser()]);
+  const purchaseImportService = new PurchaseImportService(repositories.purchaseImports, wardrobeService);
+  const gmailSyncService = new GmailSyncService(
+    repositories.gmail, repositories.purchaseImports, purchaseImportService, gmailOAuthService, gmailApiClient, gmailParserService, config,
+  );
+
   const controllers: Controllers = {
     health: new HealthController(healthService),
     auth: new AuthController(authService),
@@ -64,6 +84,7 @@ export function createApiApp(deps: AppDependencies): Express {
     outfit: new OutfitController(outfitService),
     tryon: new TryOnController(tryonService),
     weather: new WeatherController(weatherService),
+    commerce: new CommerceController(repositories.gmail, gmailOAuthService, gmailSyncService, purchaseImportService, config),
   };
 
   const authenticate = createAuthMiddleware({
@@ -74,6 +95,7 @@ export function createApiApp(deps: AppDependencies): Express {
   });
   const ipKey = (request: import("express").Request) => request.ip || request.socket.remoteAddress || "unknown";
   const phoneKey = (request: import("express").Request) => typeof request.body?.phoneNumber === "string" ? request.body.phoneNumber : "invalid";
+  const userKey = (request: import("express").Request) => request.auth?.user.id || "unknown";
   const rate = (namespace: string, limit: number, windowSeconds: number, key: (request: import("express").Request) => string) =>
     createRateLimitMiddleware({security: repositories.security, namespace, limit, windowSeconds, key});
   const routeSecurity = {
@@ -88,6 +110,14 @@ export function createApiApp(deps: AppDependencies): Express {
     wardrobeAnalysis: createAiProtectionMiddleware(repositories.security, config, "wardrobe_analysis"),
     outfitGeneration: createAiProtectionMiddleware(repositories.security, config, "outfit_generation"),
     virtualTryon: createAiProtectionMiddleware(repositories.security, config, "virtual_tryon"),
+    // Not billed AI usage (createAiProtectionMiddleware is the wrong fit) —
+    // just a per-user cap on how often a Gmail sync can be triggered.
+    gmailSync: [rate("gmail-sync-user", config.gmailSyncRateLimitMax, config.rateLimitWindowSeconds, userKey)],
+    // The OAuth callback bypasses `authenticate` entirely (Google redirects
+    // the browser directly, no bearer token), so it also bypasses the
+    // blanket per-user API rate limit baked into authenticate — rate-limit
+    // it by IP instead so the Google token-exchange call isn't wide open.
+    gmailOAuthCallback: [rate("gmail-oauth-callback-ip", config.rateLimitAuthMax, config.rateLimitWindowSeconds, ipKey)],
   };
   const apiRouter = createApiRouter(controllers, authenticate, upload, routeSecurity);
 

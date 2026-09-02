@@ -58,3 +58,36 @@ export interface SmsProvider {
   exposeOtp: boolean;
   sendOtp(phoneNumber: string, otp: string): Promise<SmsSendResult>;
 }
+
+export interface GoogleTokenResponse {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresInSeconds: number;
+  scope: string | null;
+  tokenType: string;
+}
+
+export interface NormalizedGmailMessage {
+  id: string;
+  internalDate: string | null;
+  from: string;
+  subject: string;
+  textBody: string;
+  htmlBody: string;
+}
+
+// Thin, hand-rolled Google OAuth + Gmail REST client (no googleapis SDK —
+// matches this codebase's fetch()-based provider style, see
+// providers/gemini/text-analyzer.provider.ts and
+// providers/weather/open-meteo.provider.ts). Injected via AppDependencies
+// so commerce/gmail services never call Google directly and tests can
+// supply a fake.
+export interface GmailApiClient {
+  buildAuthUrl(input: {state: string; redirectUri: string; scope: string}): string;
+  exchangeCode(code: string, redirectUri: string): Promise<GoogleTokenResponse>;
+  refreshAccessToken(refreshToken: string): Promise<GoogleTokenResponse>;
+  revokeToken(token: string): Promise<void>;
+  getUserEmail(accessToken: string): Promise<string>;
+  listMessageIds(accessToken: string, query: string, pageToken?: string | null): Promise<{ids: string[]; nextPageToken: string | null}>;
+  getMessage(accessToken: string, messageId: string): Promise<NormalizedGmailMessage>;
+}

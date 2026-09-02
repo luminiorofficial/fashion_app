@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -43,6 +44,11 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   bool _processing = false;
   String? _progress;
   String _filter = 'All';
+  String _section = 'wardrobe';
+  List<PurchaseCandidate> _purchases = [];
+  bool _purchasesLoading = false;
+  String? _purchasesError;
+  final Set<String> _busyPurchaseIds = {};
 
   List<WardrobeItem> get _visible => _filter == 'All'
       ? widget.items
@@ -314,6 +320,128 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     }
   }
 
+  void _selectSection(String section) {
+    setState(() => _section = section);
+    if (section == 'purchases' && _purchases.isEmpty && !_purchasesLoading) {
+      unawaited(_loadPurchases());
+    }
+  }
+
+  Future<void> _loadPurchases() async {
+    setState(() {
+      _purchasesLoading = true;
+      _purchasesError = null;
+    });
+    try {
+      final purchases = await widget.backend.listPurchaseCandidates();
+      if (mounted) setState(() => _purchases = purchases);
+    } catch (error) {
+      if (mounted) setState(() => _purchasesError = friendlyError(error));
+    } finally {
+      if (mounted) setState(() => _purchasesLoading = false);
+    }
+  }
+
+  Future<void> _addPurchaseToWardrobe(PurchaseCandidate purchase) async {
+    setState(() => _busyPurchaseIds.add(purchase.id));
+    try {
+      await widget.backend.addPurchaseToWardrobe(purchase.id);
+      if (mounted) {
+        setState(
+          () => _purchases.removeWhere((item) => item.id == purchase.id),
+        );
+        showNeraSnackBar(
+          context,
+          '${purchase.productName} was added to your wardrobe.',
+        );
+      }
+    } catch (error) {
+      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+    } finally {
+      if (mounted) setState(() => _busyPurchaseIds.remove(purchase.id));
+    }
+  }
+
+  Future<void> _ignorePurchase(PurchaseCandidate purchase) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ignore this purchase?'),
+        content: Text(
+          '${purchase.productName} will no longer be suggested for your '
+          'wardrobe.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Ignore'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _busyPurchaseIds.add(purchase.id));
+    try {
+      await widget.backend.ignorePurchase(purchase.id);
+      if (mounted) {
+        setState(
+          () => _purchases.removeWhere((item) => item.id == purchase.id),
+        );
+      }
+    } catch (error) {
+      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+    } finally {
+      if (mounted) setState(() => _busyPurchaseIds.remove(purchase.id));
+    }
+  }
+
+  Widget _buildPurchasesSection(BuildContext context) {
+    if (_purchasesError != null) {
+      return NeraErrorState(message: _purchasesError!, onRetry: _loadPurchases);
+    }
+    if (_purchasesLoading) {
+      return Column(
+        children: [
+          for (var i = 0; i < 3; i++) ...[
+            const NeraSkeleton(
+              width: double.infinity,
+              height: 120,
+              radius: NeraRadius.md,
+            ),
+            const SizedBox(height: 12),
+          ],
+        ],
+      );
+    }
+    if (_purchases.isEmpty) {
+      return NeraCard(
+        child: NeraEmptyState(
+          icon: Icons.local_shipping_outlined,
+          title: 'No purchases detected yet',
+          message: 'Connect Gmail from your Profile to detect delivered '
+              'fashion purchases automatically.',
+        ),
+      );
+    }
+    return Column(
+      children: [
+        for (final purchase in _purchases) ...[
+          _PurchaseCandidateCard(
+            purchase: purchase,
+            busy: _busyPurchaseIds.contains(purchase.id),
+            onAdd: () => _addPurchaseToWardrobe(purchase),
+            onIgnore: () => _ignorePurchase(purchase),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Stack(
     children: [
@@ -336,6 +464,18 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: NeraSpacing.xl),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'wardrobe', label: Text('My Wardrobe')),
+              ButtonSegment(value: 'purchases', label: Text('Purchases')),
+            ],
+            selected: {_section},
+            onSelectionChanged: (selection) => _selectSection(selection.first),
+          ),
+          const SizedBox(height: NeraSpacing.lg),
+          if (_section == 'purchases') ...[
+            _buildPurchasesSection(context),
+          ] else ...[
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -436,6 +576,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                 );
               },
             ),
+          ],
         ],
       ),
       if (_processing)
@@ -457,5 +598,114 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
           ),
         ),
     ],
+  );
+}
+
+/// One detected delivered purchase awaiting a decision, shown in the
+/// Purchases section: marketplace, product name, brand, image, size/color,
+/// delivery date, and Add to Wardrobe / Ignore actions.
+class _PurchaseCandidateCard extends StatelessWidget {
+  const _PurchaseCandidateCard({
+    required this.purchase,
+    required this.busy,
+    required this.onAdd,
+    required this.onIgnore,
+  });
+
+  final PurchaseCandidate purchase;
+  final bool busy;
+  final VoidCallback onAdd;
+  final VoidCallback onIgnore;
+
+  String _formatDate(DateTime date) =>
+      '${date.day}/${date.month}/${date.year}';
+
+  @override
+  Widget build(BuildContext context) => NeraCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 64,
+              height: 64,
+              child: NeraNetworkImage(
+                url: purchase.imageUrl ?? '',
+                placeholderIcon: Icons.shopping_bag_outlined,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    purchase.marketplace.toUpperCase(),
+                    style: const TextStyle(
+                      color: NeraColors.gold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: .6,
+                    ),
+                  ),
+                  Text(
+                    purchase.productName,
+                    style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (purchase.brand != null)
+                    Text(
+                      purchase.brand!,
+                      style: const TextStyle(color: NeraColors.muted),
+                    ),
+                  if (purchase.sizeLabel != null || purchase.colorLabel != null)
+                    Text(
+                      [
+                        purchase.sizeLabel,
+                        purchase.colorLabel,
+                      ].whereType<String>().join(' · '),
+                      style: const TextStyle(
+                        color: NeraColors.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  if (purchase.deliveredAt != null)
+                    Text(
+                      'Delivered ${_formatDate(purchase.deliveredAt!)}',
+                      style: const TextStyle(
+                        color: NeraColors.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: NeraButton(
+                label: 'Ignore',
+                style: NeraButtonStyleType.secondary,
+                onPressed: busy ? null : onIgnore,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: NeraButton(
+                label: 'Add to Wardrobe',
+                loading: busy,
+                onPressed: busy ? null : onAdd,
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
   );
 }

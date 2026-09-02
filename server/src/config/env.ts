@@ -97,6 +97,18 @@ export interface AppConfig {
   weatherApiBaseUrl: string;
   weatherRequestTimeoutMs: number;
   weatherCacheTtlMinutes: number;
+  // Gmail purchase-detection integration (server/src/commerce). Entirely
+  // optional: unset, the feature is inert (routes return 503) and every
+  // other endpoint is unaffected.
+  googleClientId: string;
+  googleClientSecret: string;
+  googleOAuthRedirectUri: string;
+  commerceTokenEncryptionKey: string;
+  gmailLookbackDays: number;
+  gmailMaxMessagesPerSyncRun: number;
+  gmailSyncBudgetMs: number;
+  gmailSyncRateLimitMax: number;
+  gmailApiRequestTimeoutMs: number;
 }
 
 export type ConfigOverrides = Partial<AppConfig>;
@@ -186,6 +198,15 @@ const configSchema = z
     weatherApiBaseUrl: z.string().min(1),
     weatherRequestTimeoutMs: z.number().int().min(1000),
     weatherCacheTtlMinutes: z.number().int().min(1),
+    googleClientId: z.string(),
+    googleClientSecret: z.string(),
+    googleOAuthRedirectUri: z.string(),
+    commerceTokenEncryptionKey: z.string(),
+    gmailLookbackDays: z.number().int().min(1).max(365),
+    gmailMaxMessagesPerSyncRun: z.number().int().min(1),
+    gmailSyncBudgetMs: z.number().int().min(1000),
+    gmailSyncRateLimitMax: z.number().int().min(1),
+    gmailApiRequestTimeoutMs: z.number().int().min(1000),
   })
   .superRefine((config, ctx) => {
     const cloudinaryFields = [config.cloudinaryCloudName, config.cloudinaryApiKey, config.cloudinaryApiSecret];
@@ -240,6 +261,15 @@ const configSchema = z
     if (config.cloudinarySignedUrlTtlSeconds < 60 || config.cloudinarySignedUrlTtlSeconds > 3600) {
       ctx.addIssue({code: z.ZodIssueCode.custom, path: ["cloudinarySignedUrlTtlSeconds"], message: "CLOUDINARY_SIGNED_URL_TTL_SECONDS must be between 60 and 3600."});
     }
+
+    const googleConfigured = Boolean(config.googleClientId && config.googleClientSecret);
+    const googlePartiallyConfigured = Boolean(config.googleClientId || config.googleClientSecret) && !googleConfigured;
+    if (googlePartiallyConfigured) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["googleClientId"], message: "Gmail integration requires both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."});
+    }
+    if (config.env === "production" && googleConfigured && (config.commerceTokenEncryptionKey.length < 32 || config.commerceTokenEncryptionKey.includes("development-only"))) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["commerceTokenEncryptionKey"], message: "Production Gmail integration requires a unique COMMERCE_TOKEN_ENCRYPTION_KEY of at least 32 characters."});
+    }
   });
 
 function readNumber(value: string | undefined, fallback: number): number {
@@ -260,11 +290,12 @@ function readCsv(value: string | undefined): string[] {
  * config.js did with its trailing `...overrides` spread. */
 function readEnvConfig(overrides: ConfigOverrides): Omit<AppConfig, "imageStorageProvider"> & {imageStorageProvider?: string} {
   const root = path.resolve(__dirname, "../..");
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || "http://localhost:8080";
   return {
     env: process.env.NODE_ENV || "development",
     host: process.env.HOST || "0.0.0.0",
     port: readNumber(process.env.PORT, 8080),
-    publicBaseUrl: process.env.PUBLIC_BASE_URL || "http://localhost:8080",
+    publicBaseUrl,
     uploadDir: path.resolve(root, process.env.UPLOAD_DIR || "data/uploads"),
     allowedOrigins: readCsv(process.env.ALLOWED_ORIGINS),
     trustProxy: readBoolean(process.env.TRUST_PROXY),
@@ -366,6 +397,17 @@ function readEnvConfig(overrides: ConfigOverrides): Omit<AppConfig, "imageStorag
     // Auto-selected below (Cloudinary if fully configured, otherwise local)
     // unless explicitly set via IMAGE_STORAGE_PROVIDER or an override.
     imageStorageProvider: process.env.IMAGE_STORAGE_PROVIDER || "",
+    // Gmail purchase-detection integration — all optional; unset, the
+    // feature stays inert (see commerce.controller.ts's configured guard).
+    googleClientId: process.env.GOOGLE_CLIENT_ID || "",
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+    googleOAuthRedirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI || `${publicBaseUrl.replace(/\/$/, "")}/api/v1/commerce/gmail/oauth/callback`,
+    commerceTokenEncryptionKey: process.env.COMMERCE_TOKEN_ENCRYPTION_KEY || "development-only-commerce-key-change-me",
+    gmailLookbackDays: readNumber(process.env.GMAIL_LOOKBACK_DAYS, 90),
+    gmailMaxMessagesPerSyncRun: readNumber(process.env.GMAIL_MAX_MESSAGES_PER_SYNC_RUN, 40),
+    gmailSyncBudgetMs: readNumber(process.env.GMAIL_SYNC_BUDGET_MS, 45_000),
+    gmailSyncRateLimitMax: readNumber(process.env.GMAIL_SYNC_RATE_LIMIT_MAX, 5),
+    gmailApiRequestTimeoutMs: readNumber(process.env.GMAIL_API_REQUEST_TIMEOUT_MS, 10_000),
     ...overrides,
   };
 }

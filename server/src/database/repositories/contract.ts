@@ -13,6 +13,8 @@ export const repositoryContracts = {
   outfits: ["createOutfit", "getOutfit", "listOutfits", "upsertOutfitFeedback", "getWardrobeAffinity"],
   tryon: ["createTryOnRequest", "getTryOnRequest", "markTryOnSaved", "listSavedTryOns", "unsaveTryOn", "listExpiredUnsavedTryOns", "deleteTryOnRequest"],
   security: ["consumeRateLimit", "reserveAiUsage", "completeAiUsage", "pruneSecurityData"],
+  gmail: ["getConnectionByUserId", "getConnectionById", "upsertConnection", "updateConnection", "disconnectConnection"],
+  purchaseImports: ["upsertParsedOrder", "listPending", "getById", "markImported", "markIgnored", "isMessageProcessed", "markMessageProcessed"],
 } as const;
 
 export function assertRepositoriesContract(repositories: unknown): void {

@@ -9,7 +9,7 @@ import {assertRepositoriesContract} from "../src/database/repositories/contract"
 import {
   PostgresUsersRepository, PostgresSessionsRepository, PostgresOtpRepository, PostgresAssetsRepository,
   PostgresProfilesRepository, PostgresWardrobeRepository, PostgresOutfitsRepository, PostgresTryOnRepository,
-  PostgresSecurityRepository,
+  PostgresSecurityRepository, PostgresGmailRepository, PostgresPurchaseImportsRepository,
 } from "../src/database/repositories/postgres";
 
 const migrationsDirectory = path.resolve(__dirname, "../../database/migrations");
@@ -17,6 +17,7 @@ const initialSchema = fs.readFileSync(path.join(migrationsDirectory, "001_initia
 const roles = fs.readFileSync(path.join(migrationsDirectory, "002_database_roles.sql"), "utf8");
 const feedbackAndTryon = fs.readFileSync(path.join(migrationsDirectory, "003_feedback_and_tryon.sql"), "utf8");
 const productionHardening = fs.readFileSync(path.join(migrationsDirectory, "005_production_hardening.sql"), "utf8");
+const gmailCommerceIntegration = fs.readFileSync(path.join(migrationsDirectory, "006_gmail_commerce_integration.sql"), "utf8");
 
 test("initial migration contains the complete phase-one data model", () => {
   const tables = [...initialSchema.matchAll(/CREATE TABLE\s+([a-z_]+)/g)].map((match) => match[1]);
@@ -62,6 +63,18 @@ test("production hardening migration adds distributed limits, AI usage, and clea
   assert.match(productionHardening, /^BEGIN;[\s\S]*COMMIT;\s*$/);
 });
 
+test("Gmail commerce migration adds gmail_connections, purchase_imports, and gmail_processed_messages inside a single transaction", () => {
+  const tables = [...gmailCommerceIntegration.matchAll(/CREATE TABLE\s+([a-z_]+)/g)].map((match) => match[1]);
+  assert.deepEqual(tables, ["gmail_connections", "purchase_imports", "gmail_processed_messages"]);
+  assert.match(gmailCommerceIntegration, /purchase_import_connection_owner_fk/);
+  assert.match(gmailCommerceIntegration, /purchase_import_wardrobe_owner_fk/);
+  assert.match(gmailCommerceIntegration, /REFERENCES wardrobe_items\(id, user_id\) ON DELETE SET NULL/);
+  assert.match(gmailCommerceIntegration, /CREATE UNIQUE INDEX purchase_imports_order_uk ON purchase_imports \(user_id, marketplace, order_id, product_identity\) WHERE order_id IS NOT NULL/);
+  assert.match(gmailCommerceIntegration, /CREATE UNIQUE INDEX purchase_imports_no_order_uk ON purchase_imports \(user_id, marketplace, product_identity\) WHERE order_id IS NULL/);
+  assert.match(gmailCommerceIntegration, /GRANT SELECT, INSERT, UPDATE, DELETE ON gmail_connections, purchase_imports, gmail_processed_messages TO nera_app/);
+  assert.match(gmailCommerceIntegration, /^BEGIN;[\s\S]*COMMIT;\s*$/);
+});
+
 test("in-memory development adapter satisfies the checked repository contract", () => {
   assert.doesNotThrow(() => assertRepositoriesContract(createMemoryRepositories()));
 });
@@ -79,6 +92,8 @@ test("PostgreSQL adapter satisfies the checked repository contract", () => {
       outfits: new PostgresOutfitsRepository(pool),
       tryon: new PostgresTryOnRepository(pool),
       security: new PostgresSecurityRepository(pool),
+      gmail: new PostgresGmailRepository(pool),
+      purchaseImports: new PostgresPurchaseImportsRepository(pool),
       health: async () => ({status: "ok", adapter: "postgresql"}),
       close: async () => {},
     }),

@@ -5,6 +5,7 @@ import type {StyleProfile, SaveProfileInput} from "./profile.types";
 import type {WardrobeItem, CreateWardrobeItemInput} from "./wardrobe.types";
 import type {Outfit, CreateOutfitInput, OutfitFeedback, UpsertOutfitFeedbackInput, WardrobeAffinity} from "./outfit.types";
 import type {TryOnRequest, CreateTryOnRequestInput} from "./tryon.types";
+import type {GmailConnection, CreateGmailConnectionInput, UpdateGmailConnectionInput, PurchaseImport, RecordParsedOrderInput} from "./commerce.types";
 
 export interface UsersRepository {
   findUserByPhone(phoneNumber: string): Promise<User | null>;
@@ -92,6 +93,31 @@ export interface TryOnRepository {
   deleteTryOnRequest(tryOnId: string): Promise<void>;
 }
 
+export interface GmailRepository {
+  getConnectionByUserId(userId: string): Promise<GmailConnection | null>;
+  getConnectionById(connectionId: string): Promise<GmailConnection | null>;
+  upsertConnection(userId: string, input: CreateGmailConnectionInput): Promise<GmailConnection>;
+  updateConnection(connectionId: string, input: UpdateGmailConnectionInput): Promise<GmailConnection | null>;
+  disconnectConnection(connectionId: string): Promise<void>;
+}
+
+export interface PurchaseImportsRepository {
+  // `allowCreate` gates only the creation of a brand-new row (the caller's
+  // fashion-keyword filter — see PurchaseImportService.recordParsedOrder):
+  // an update to an existing row always proceeds regardless, since a later
+  // lifecycle email (e.g. a bare "order cancelled" notice) often carries
+  // far less product detail than the original email that earned the row's
+  // place, and must still be able to update its status. Returns null only
+  // when no existing row matched and allowCreate was false.
+  upsertParsedOrder(userId: string, connectionId: string, input: RecordParsedOrderInput, options: {allowCreate: boolean}): Promise<PurchaseImport | null>;
+  listPending(userId: string): Promise<PurchaseImport[]>;
+  getById(purchaseId: string): Promise<PurchaseImport | null>;
+  markImported(purchaseId: string, wardrobeItemId: string): Promise<PurchaseImport | null>;
+  markIgnored(purchaseId: string): Promise<PurchaseImport | null>;
+  isMessageProcessed(connectionId: string, messageId: string): Promise<boolean>;
+  markMessageProcessed(connectionId: string, messageId: string, marketplace: string | null): Promise<void>;
+}
+
 export interface DatabaseHealth {
   status: string;
   adapter: string;
@@ -109,6 +135,8 @@ export interface Repositories {
   outfits: OutfitsRepository;
   tryon: TryOnRepository;
   security: SecurityRepository;
+  gmail: GmailRepository;
+  purchaseImports: PurchaseImportsRepository;
   health(): Promise<DatabaseHealth>;
   close(): Promise<void>;
 }

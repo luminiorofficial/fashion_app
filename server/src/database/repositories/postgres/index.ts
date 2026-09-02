@@ -11,6 +11,8 @@ import {PostgresWardrobeRepository} from "./wardrobe.repository";
 import {PostgresOutfitsRepository} from "./outfits.repository";
 import {PostgresTryOnRepository} from "./tryon.repository";
 import {PostgresSecurityRepository} from "./security.repository";
+import {PostgresGmailRepository} from "./gmail.repository";
+import {PostgresPurchaseImportsRepository} from "./purchase-imports.repository";
 
 export interface PostgresRepositories extends Repositories {
   readonly pool: Pool;
@@ -30,6 +32,8 @@ export function createPostgresRepositories(config: Pick<AppConfig, "databaseUrl"
     outfits: new PostgresOutfitsRepository(pool),
     tryon: new PostgresTryOnRepository(pool),
     security: new PostgresSecurityRepository(pool),
+    gmail: new PostgresGmailRepository(pool),
+    purchaseImports: new PostgresPurchaseImportsRepository(pool),
     connect: () => connectPool(pool),
     health: () => poolHealth(pool),
     close: async () => {
@@ -40,4 +44,4 @@ export function createPostgresRepositories(config: Pick<AppConfig, "databaseUrl"
 
 // Exposed for tests that want to construct one domain repository directly
 // against a fake pool-like object, without a real DATABASE_URL.
-export {PostgresUsersRepository, PostgresSessionsRepository, PostgresOtpRepository, PostgresAssetsRepository, PostgresProfilesRepository, PostgresWardrobeRepository, PostgresOutfitsRepository, PostgresTryOnRepository, PostgresSecurityRepository};
+export {PostgresUsersRepository, PostgresSessionsRepository, PostgresOtpRepository, PostgresAssetsRepository, PostgresProfilesRepository, PostgresWardrobeRepository, PostgresOutfitsRepository, PostgresTryOnRepository, PostgresSecurityRepository, PostgresGmailRepository, PostgresPurchaseImportsRepository};
