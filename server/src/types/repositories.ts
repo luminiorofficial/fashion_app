@@ -72,6 +72,9 @@ export interface WardrobeRepository {
   createWardrobeItem(userId: string, item: CreateWardrobeItemInput): Promise<WardrobeItem>;
   createWardrobeItemsBatch(userId: string, items: CreateWardrobeItemInput[]): Promise<WardrobeItem[]>;
   getWardrobeItem(itemId: string): Promise<WardrobeItem | null>;
+  // Idempotently clears isNew (a no-op if it's already false). Returns null
+  // only if the item itself doesn't exist.
+  markWardrobeItemViewed(itemId: string): Promise<WardrobeItem | null>;
   deleteWardrobeItem(itemId: string, mediaAssetId: string | null): Promise<void>;
 }
 

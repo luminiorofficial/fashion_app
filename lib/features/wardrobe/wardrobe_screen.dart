@@ -293,6 +293,27 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     }
   }
 
+  Future<void> _openItemDetail(WardrobeItem item) async {
+    if (item.isNew) unawaited(_markViewed(item));
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => _WardrobeItemDetailSheet(item: item),
+    );
+  }
+
+  Future<void> _markViewed(WardrobeItem item) async {
+    try {
+      await widget.backend.markWardrobeItemViewed(item.id);
+    } catch (_) {
+      // Best-effort: a failed "mark as viewed" call shouldn't block or
+      // interrupt the user looking at the item — it'll simply be retried
+      // (harmlessly, see markWardrobeItemViewed's idempotency) next time
+      // they open it.
+    }
+  }
+
   Future<void> _delete(WardrobeItem item) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -537,6 +558,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                 final item = _visible[index];
                 return NeraCard(
                   padding: const EdgeInsets.all(9),
+                  onTap: () => _openItemDetail(item),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -545,6 +567,12 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                           fit: StackFit.expand,
                           children: [
                             WardrobeItemImage(item: item),
+                            if (item.isNew)
+                              const Positioned(
+                                top: 4,
+                                left: 4,
+                                child: _NewBadge(),
+                              ),
                             Positioned(
                               top: 4,
                               right: 4,
@@ -706,6 +734,97 @@ class _PurchaseCandidateCard extends StatelessWidget {
           ],
         ),
       ],
+    ),
+  );
+}
+
+/// Small pill shown on a wardrobe item's grid card while it's flagged
+/// [WardrobeItem.isNew] — cleared once its detail view is opened (see
+/// _WardrobeScreenState._openItemDetail).
+class _NewBadge extends StatelessWidget {
+  const _NewBadge();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      gradient: NeraColors.goldGradient,
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: const Text(
+      'NEW',
+      style: TextStyle(
+        color: NeraColors.background,
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+        letterSpacing: .6,
+      ),
+    ),
+  );
+}
+
+/// Full detail view for one wardrobe item, opened by tapping its grid card.
+/// Opening this is what clears the item's "NEW" badge — see
+/// _WardrobeScreenState._openItemDetail, which calls markWardrobeItemViewed
+/// before this sheet is shown.
+class _WardrobeItemDetailSheet extends StatelessWidget {
+  const _WardrobeItemDetailSheet({required this.item});
+
+  final WardrobeItem item;
+
+  String _marketplaceLabel(String marketplace) => switch (marketplace) {
+    'amazon' => 'Amazon',
+    'flipkart' => 'Flipkart',
+    'myntra' => 'Myntra',
+    'ajio' => 'Ajio',
+    'meesho' => 'Meesho',
+    _ => 'a marketplace purchase',
+  };
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(NeraRadius.md),
+            child: SizedBox(
+              height: 280,
+              width: double.infinity,
+              child: WardrobeItemImage(item: item),
+            ),
+          ),
+          const SizedBox(height: NeraSpacing.lg),
+          if (item.sourceMarketplace != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                'DETECTED FROM ${_marketplaceLabel(item.sourceMarketplace!).toUpperCase()}',
+                style: const TextStyle(
+                  color: NeraColors.gold,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: .6,
+                ),
+              ),
+            ),
+          Text(item.name, style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 4),
+          Text(item.category, style: Theme.of(context).textTheme.bodyLarge),
+          if (item.tags.isNotEmpty) ...[
+            const SizedBox(height: NeraSpacing.lg),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [for (final tag in item.tags) Chip(label: Text(tag))],
+            ),
+          ],
+        ],
+      ),
     ),
   );
 }

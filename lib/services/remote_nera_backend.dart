@@ -227,6 +227,14 @@ class RemoteNeraBackend implements NeraBackend {
   }
 
   @override
+  Future<WardrobeItem> markWardrobeItemViewed(String itemId) async {
+    final response = await _api.post('/wardrobe/items/$itemId/viewed', const {});
+    final item = WardrobeItem.fromJson(response['item'] as Map<String, dynamic>);
+    await _refreshWardrobe();
+    return item;
+  }
+
+  @override
   Future<StyleProfile> analyzeProfileImage(
     Uint8List bytes,
     String fileName,

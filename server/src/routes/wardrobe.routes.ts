@@ -11,6 +11,7 @@ export function createWardrobeRoutes(controller: WardrobeController, authenticat
   router.post("/wardrobe/items", authenticate, controller.createItem);
   router.post("/wardrobe/items/batch", authenticate, controller.createItemsBatch);
   router.post("/wardrobe/links", authenticate, controller.createLink);
+  router.post("/wardrobe/items/:itemId/viewed", authenticate, controller.markItemViewed);
   router.delete("/wardrobe/items/:itemId", authenticate, controller.deleteItem);
   return router;
 }

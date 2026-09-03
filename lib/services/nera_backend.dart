@@ -33,6 +33,11 @@ abstract interface class NeraBackend {
     required String productUrl,
   });
   Future<void> deleteWardrobeItem(WardrobeItem item);
+
+  /// Marks a wardrobe item as viewed, clearing its "NEW" badge if it has
+  /// one. Safe to call even if the item was never NEW or was already
+  /// viewed.
+  Future<WardrobeItem> markWardrobeItemViewed(String itemId);
   Future<StyleProfile> analyzeProfileImage(Uint8List bytes, String fileName);
   Future<OutfitPlan> generateOutfit(
     String eventType,

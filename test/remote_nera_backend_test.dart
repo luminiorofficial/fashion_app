@@ -310,6 +310,57 @@ void main() {
     },
   );
 
+  test(
+    'markWardrobeItemViewed posts to the viewed endpoint and refreshes the wardrobe',
+    () async {
+      final captured = <http.Request>[];
+      final mockClient = MockClient((request) async {
+        captured.add(request);
+        if (request.method == 'POST') {
+          return http.Response(
+            jsonEncode({
+              'item': {
+                'id': 'item-1',
+                'name': 'Roadster Shirt',
+                'category': 'Top',
+                'imageUrl': 'https://example.test/shirt.jpg',
+                'sourceMarketplace': 'amazon',
+                'isNew': false,
+                'createdAt': '2026-01-01T00:00:00.000Z',
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({'items': <Map<String, dynamic>>[]}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+
+      final item = await backend.markWardrobeItemViewed('item-1');
+
+      final posts = captured.where((request) => request.method == 'POST');
+      expect(posts, hasLength(1));
+      expect(posts.single.url.path, '/api/v1/wardrobe/items/item-1/viewed');
+      expect(
+        captured.any(
+          (request) =>
+              request.method == 'GET' &&
+              request.url.path == '/api/v1/wardrobe/items',
+        ),
+        isTrue,
+        reason: 'a follow-up wardrobe refresh must run after marking viewed',
+      );
+      expect(item.id, 'item-1');
+      expect(item.sourceMarketplace, 'amazon');
+      expect(item.isNew, isFalse);
+    },
+  );
+
   test('API errors retain the backend code and friendly message', () async {
     final mockClient = MockClient(
       (request) async => http.Response(

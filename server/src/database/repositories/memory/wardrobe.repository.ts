@@ -23,6 +23,8 @@ export class MemoryWardrobeRepository implements WardrobeRepository {
       season: [],
       occasion: [],
       styleTags: [],
+      sourceMarketplace: null,
+      isNew: false,
       ...item,
       id: generateId(),
       userId,
@@ -42,6 +44,13 @@ export class MemoryWardrobeRepository implements WardrobeRepository {
 
   async getWardrobeItem(itemId: string): Promise<WardrobeItem | null> {
     return this.store.wardrobe.get(itemId) ?? null;
+  }
+
+  async markWardrobeItemViewed(itemId: string): Promise<WardrobeItem | null> {
+    const item = this.store.wardrobe.get(itemId);
+    if (!item) return null;
+    if (item.isNew) Object.assign(item, {isNew: false, updatedAt: new Date().toISOString()});
+    return item;
   }
 
   // Soft-deletes the item but also drops its now-useless AI analysis

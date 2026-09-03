@@ -25,6 +25,8 @@ interface WardrobeRow {
   contains_person: boolean;
   garment_visibility: string | null;
   virtual_tryon_eligible: boolean;
+  source_marketplace: string | null;
+  is_new: boolean;
   created_at: string | Date;
   updated_at: string | Date;
   deleted_at: string | Date | null;
@@ -77,6 +79,8 @@ function wardrobeFromRow(row: WardrobeRow | undefined): WardrobeItem | null {
     containsPerson: !!row.contains_person,
     garmentVisibility: (row.garment_visibility || "full") as WardrobeItem["garmentVisibility"],
     virtualTryOnEligible: row.virtual_tryon_eligible !== false,
+    sourceMarketplace: (row.source_marketplace || null) as WardrobeItem["sourceMarketplace"],
+    isNew: !!row.is_new,
     createdAt: iso(row.created_at) as string,
     updatedAt: iso(row.updated_at) as string,
     deletedAt: iso(row.deleted_at),
@@ -103,6 +107,11 @@ export class PostgresWardrobeRepository implements WardrobeRepository {
     return wardrobeFromRow(result.rows[0]);
   }
 
+  async markWardrobeItemViewed(itemId: string): Promise<WardrobeItem | null> {
+    await this.pool.query("UPDATE wardrobe_items SET is_new = false WHERE id = $1 AND is_new", [itemId]);
+    return this.getWardrobeItemWith(this.pool, itemId);
+  }
+
   private async insertWardrobeItem(client: PoolClient, userId: string, item: CreateWardrobeItemInput): Promise<string> {
     const category = await client.query<{id: string}>("SELECT id FROM wardrobe_categories WHERE display_name = $1 AND is_active", [item.category]);
     if (!category.rows[0]) throw Object.assign(new Error(`Unknown wardrobe category: ${item.category}`), {code: "INVALID_CATEGORY"});
@@ -111,14 +120,15 @@ export class PostgresWardrobeRepository implements WardrobeRepository {
       `INSERT INTO wardrobe_items
          (user_id, category_id, source_type, name, product_url, product_domain, analysis_job_id,
           primary_color, secondary_colors, material, pattern, season, occasion, attributes,
-          contains_person, garment_visibility, virtual_tryon_eligible)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+          contains_person, garment_visibility, virtual_tryon_eligible, source_marketplace, is_new)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING id`,
       [
         userId, category.rows[0].id, item.sourceType, item.name, item.productUrl, productDomain, item.analysisJobId || null,
         item.primaryColor || null, item.secondaryColors || [], item.material || null, item.pattern || null,
         item.season || [], item.occasion || [], JSON.stringify(item.styleTags?.length ? {style: item.styleTags} : {}),
         !!item.containsPerson, item.garmentVisibility || "full", item.virtualTryOnEligible !== false,
+        item.sourceMarketplace || null, !!item.isNew,
       ],
     );
     const itemId = inserted.rows[0]?.id as string;

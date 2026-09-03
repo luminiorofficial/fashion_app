@@ -21,6 +21,8 @@ class WardrobeItem {
     this.containsPerson = false,
     this.garmentVisibility = 'full',
     this.virtualTryOnEligible = true,
+    this.sourceMarketplace,
+    this.isNew = false,
     this.createdAt,
   });
   final String id;
@@ -46,6 +48,15 @@ class WardrobeItem {
   /// Virtual Try-On (always false when [containsPerson] is true, since
   /// there's no garment-isolation step to crop a person out of the shot).
   final bool virtualTryOnEligible;
+
+  /// Which marketplace this item was imported from via a detected Gmail
+  /// purchase (e.g. 'amazon'), or null for a manually photographed/linked
+  /// item.
+  final String? sourceMarketplace;
+
+  /// True until the item's detail view has been opened once — drives the
+  /// "NEW" badge. Always false when [sourceMarketplace] is null.
+  final bool isNew;
   final DateTime? createdAt;
 
   bool get hasPhoto => imageUrl.isNotEmpty || imagePath.isNotEmpty;
@@ -92,7 +103,27 @@ class WardrobeItem {
     containsPerson: json['containsPerson'] as bool? ?? false,
     garmentVisibility: json['garmentVisibility'] as String? ?? 'full',
     virtualTryOnEligible: json['virtualTryOnEligible'] as bool? ?? true,
+    sourceMarketplace: json['sourceMarketplace'] as String?,
+    isNew: json['isNew'] as bool? ?? false,
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
+  );
+
+  WardrobeItem copyWith({bool? isNew}) => WardrobeItem(
+    id: id,
+    name: name,
+    category: category,
+    imageUrl: imageUrl,
+    imagePath: imagePath,
+    productUrl: productUrl,
+    sourceType: sourceType,
+    imageStorageProvider: imageStorageProvider,
+    tags: tags,
+    containsPerson: containsPerson,
+    garmentVisibility: garmentVisibility,
+    virtualTryOnEligible: virtualTryOnEligible,
+    sourceMarketplace: sourceMarketplace,
+    isNew: isNew ?? this.isNew,
+    createdAt: createdAt,
   );
 }
 

@@ -9,7 +9,7 @@ export const repositoryContracts = {
   otp: ["createChallenge", "countRecentChallenges", "getChallenge", "recordChallengeAttempt", "markChallengeDelivered", "deleteExpiredOtpChallenges"],
   assets: ["createAsset", "getAsset", "archiveAsset", "createAnalysisJob", "getAnalysisJob", "pruneAnalysisJobResult", "deleteOrphanedAnalysisJobs", "listPurgeableMediaAssets", "archiveOrphanedMediaAssets", "deleteMediaAssetRow"],
   profiles: ["saveProfile", "getProfile"],
-  wardrobe: ["listWardrobe", "createWardrobeItem", "createWardrobeItemsBatch", "getWardrobeItem", "deleteWardrobeItem"],
+  wardrobe: ["listWardrobe", "createWardrobeItem", "createWardrobeItemsBatch", "getWardrobeItem", "markWardrobeItemViewed", "deleteWardrobeItem"],
   outfits: ["createOutfit", "getOutfit", "listOutfits", "upsertOutfitFeedback", "getWardrobeAffinity"],
   tryon: ["createTryOnRequest", "getTryOnRequest", "markTryOnSaved", "listSavedTryOns", "unsaveTryOn", "listExpiredUnsavedTryOns", "deleteTryOnRequest"],
   security: ["consumeRateLimit", "reserveAiUsage", "completeAiUsage", "pruneSecurityData"],

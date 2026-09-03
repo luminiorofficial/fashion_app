@@ -8,7 +8,7 @@ import {wardrobeCategory, productUrl} from "../validators/wardrobe.validators";
 import type {AppConfig} from "../config/env";
 import type {AssetsRepository, WardrobeRepository} from "../types/repositories";
 import type {AssetStore, TextAnalysisProvider, UploadedFile} from "../types/provider.types";
-import type {WardrobeItem, PublicWardrobeItem, PublicWardrobeDraft, GarmentVisibility, CreateWardrobeItemInput} from "../types/wardrobe.types";
+import type {WardrobeItem, PublicWardrobeItem, PublicWardrobeDraft, GarmentVisibility, CreateWardrobeItemInput, WardrobeSourceMarketplace} from "../types/wardrobe.types";
 import {safeOperationalError} from "../utils/safe-logging";
 
 export type WardrobeServiceConfig = Pick<AppConfig, "geminiTextApiKey" | "geminiModel">;
@@ -26,6 +26,15 @@ export interface WardrobeLinkPayload {
   category: unknown;
   productUrl: unknown;
   tags?: unknown;
+}
+
+// Trusted, server-only creation options — deliberately never sourced from
+// request-body input (compare WardrobeItemDraftPayload's `unknown` fields).
+// Only PurchaseImportService.addToWardrobe passes sourceMarketplace, so a
+// client can never forge purchase provenance or the "NEW" badge on a
+// manually created item via POST /wardrobe/items.
+export interface CreateWardrobeItemOptions {
+  sourceMarketplace?: WardrobeSourceMarketplace | null;
 }
 
 export const cleanTags = (value: unknown): string[] =>
@@ -61,6 +70,8 @@ export async function toPublicWardrobeItem(assetStore: AssetStore, item: Wardrob
     containsPerson: !!item.containsPerson,
     garmentVisibility: sanitizeGarmentVisibility(item.garmentVisibility),
     virtualTryOnEligible: item.virtualTryOnEligible !== false,
+    sourceMarketplace: item.sourceMarketplace,
+    isNew: !!item.isNew,
     createdAt: item.createdAt,
   };
 }
@@ -134,10 +145,18 @@ export class WardrobeService {
     await this.assets.archiveAsset(asset.id);
   }
 
-  async createWardrobeItem(userId: string, raw: WardrobeItemDraftPayload): Promise<PublicWardrobeItem> {
+  async createWardrobeItem(userId: string, raw: WardrobeItemDraftPayload, options: CreateWardrobeItemOptions = {}): Promise<PublicWardrobeItem> {
     const inUseAssetIds = new Set((await this.wardrobe.listWardrobe(userId)).map((item) => item.mediaAssetId));
     const resolved = await this.resolveWardrobeDraft(userId, raw, inUseAssetIds);
-    const item = await this.wardrobe.createWardrobeItem(userId, resolved.payload);
+    const sourceMarketplace = options.sourceMarketplace ?? null;
+    const item = await this.wardrobe.createWardrobeItem(userId, {
+      ...resolved.payload,
+      sourceMarketplace,
+      // Derived, never independently settable: a "NEW" badge only ever
+      // means "this item came from a detected purchase and hasn't been
+      // opened yet" (see markWardrobeItemViewed).
+      isNew: sourceMarketplace !== null,
+    });
     // See the matching comment in analyzeDraft/createWardrobeItemsBatch: the
     // full analysis JSON is redundant the moment it's normalized into
     // wardrobe_items columns.
@@ -171,6 +190,16 @@ export class WardrobeService {
       virtualTryOnEligible: false,
     });
     return toPublicWardrobeItem(this.assetStore, item);
+  }
+
+  // Called when the user opens a wardrobe item's detail view — clears the
+  // "NEW" badge (see toPublicWardrobeItem's isNew doc) the first time, and
+  // is a harmless no-op on every view after that.
+  async markWardrobeItemViewed(userId: string, itemId: string): Promise<PublicWardrobeItem> {
+    const item = await this.wardrobe.getWardrobeItem(itemId);
+    assert(item && item.userId === userId && !item.deletedAt, 404, "WARDROBE_ITEM_NOT_FOUND", "The wardrobe item was not found.");
+    const updated = item.isNew ? await this.wardrobe.markWardrobeItemViewed(item.id) : item;
+    return toPublicWardrobeItem(this.assetStore, updated ?? item);
   }
 
   async deleteWardrobeItem(userId: string, itemId: string): Promise<void> {

@@ -179,6 +179,18 @@ class MemoryNeraBackend implements NeraBackend {
   }
 
   @override
+  Future<WardrobeItem> markWardrobeItemViewed(String itemId) async {
+    final index = _items.indexWhere((item) => item.id == itemId);
+    if (index == -1) {
+      throw const NeraException('The wardrobe item was not found.');
+    }
+    final updated = _items[index].copyWith(isNew: false);
+    _items[index] = updated;
+    _wardrobeController.add(List.unmodifiable(_items));
+    return updated;
+  }
+
+  @override
   Future<StyleProfile> analyzeProfileImage(
     Uint8List bytes,
     String fileName,
@@ -342,6 +354,8 @@ class MemoryNeraBackend implements NeraBackend {
       category: 'Top',
       imageUrl: candidate.imageUrl ?? '',
       imagePath: '',
+      sourceMarketplace: candidate.marketplace,
+      isNew: true,
       createdAt: DateTime.now(),
     );
     _items.insert(0, item);

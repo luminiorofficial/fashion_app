@@ -39,4 +39,9 @@ export class WardrobeController {
     await this.wardrobe.deleteWardrobeItem(request.auth!.user.id, request.params.itemId as string);
     response.sendStatus(204);
   };
+
+  markItemViewed = async (request: Request, response: Response): Promise<void> => {
+    const item = await this.wardrobe.markWardrobeItemViewed(request.auth!.user.id, request.params.itemId as string);
+    response.status(200).json({item});
+  };
 }

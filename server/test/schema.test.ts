@@ -19,6 +19,7 @@ const feedbackAndTryon = fs.readFileSync(path.join(migrationsDirectory, "003_fee
 const productionHardening = fs.readFileSync(path.join(migrationsDirectory, "005_production_hardening.sql"), "utf8");
 const gmailCommerceIntegration = fs.readFileSync(path.join(migrationsDirectory, "006_gmail_commerce_integration.sql"), "utf8");
 const genericMarketplaceFallback = fs.readFileSync(path.join(migrationsDirectory, "007_generic_marketplace_fallback.sql"), "utf8");
+const wardrobePurchaseSource = fs.readFileSync(path.join(migrationsDirectory, "008_wardrobe_purchase_source.sql"), "utf8");
 
 test("initial migration contains the complete phase-one data model", () => {
   const tables = [...initialSchema.matchAll(/CREATE TABLE\s+([a-z_]+)/g)].map((match) => match[1]);
@@ -80,6 +81,14 @@ test("generic marketplace fallback migration widens the marketplace check constr
   assert.match(genericMarketplaceFallback, /ALTER TABLE purchase_imports DROP CONSTRAINT purchase_imports_marketplace_check/);
   assert.match(genericMarketplaceFallback, /CHECK \(marketplace IN \('amazon', 'flipkart', 'myntra', 'ajio', 'meesho', 'other'\)\)/);
   assert.match(genericMarketplaceFallback, /^BEGIN;[\s\S]*COMMIT;\s*$/);
+});
+
+test("wardrobe purchase source migration adds source_marketplace/is_new with a badge-requires-source constraint", () => {
+  assert.match(wardrobePurchaseSource, /ADD COLUMN source_marketplace varchar\(40\)/);
+  assert.match(wardrobePurchaseSource, /source_marketplace IN \('amazon', 'flipkart', 'myntra', 'ajio', 'meesho', 'other'\)/);
+  assert.match(wardrobePurchaseSource, /ADD COLUMN is_new boolean NOT NULL DEFAULT false/);
+  assert.match(wardrobePurchaseSource, /CHECK \(NOT is_new OR source_marketplace IS NOT NULL\)/);
+  assert.match(wardrobePurchaseSource, /^BEGIN;[\s\S]*COMMIT;\s*$/);
 });
 
 test("in-memory development adapter satisfies the checked repository contract", () => {

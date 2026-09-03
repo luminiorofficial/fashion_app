@@ -91,13 +91,19 @@ export class PurchaseImportService {
     const image = await this.downloadImage(purchase.productImageUrl);
     const uploadedFile = {buffer: image.buffer, mimetype: image.mimetype, originalname: `${purchase.marketplace}-purchase.jpg`, size: image.buffer.length};
     const draft = await this.wardrobeService.analyzeDraft(userId, uploadedFile as unknown as Express.Multer.File);
-    const item = await this.wardrobeService.createWardrobeItem(userId, {
-      assetId: draft.assetId,
-      analysisJobId: draft.analysisJobId,
-      name: purchase.productName,
-      category: draft.category,
-      tags: draft.tags,
-    });
+    const item = await this.wardrobeService.createWardrobeItem(
+      userId,
+      {
+        assetId: draft.assetId,
+        analysisJobId: draft.analysisJobId,
+        name: purchase.productName,
+        category: draft.category,
+        tags: draft.tags,
+      },
+      // Records provenance and (via WardrobeService.createWardrobeItem's
+      // derivation) puts a "NEW" badge on the item until the user opens it.
+      {sourceMarketplace: purchase.marketplace},
+    );
     await this.purchaseImports.markImported(purchase.id, item.id);
     return item;
   }

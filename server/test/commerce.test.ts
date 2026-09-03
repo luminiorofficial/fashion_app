@@ -379,7 +379,7 @@ test("add to wardrobe downloads the captured product image and reuses the AI-ana
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => (String(input) === TEST_IMAGE_URL ? new Response(jpeg, {status: 200, headers: {"content-type": "image/jpeg"}}) : originalFetch(input as never))) as typeof fetch;
-  let created: {item: {id: string; name: string; category: string; primaryColor: string | null}};
+  let created: {item: {id: string; name: string; category: string; primaryColor: string | null; sourceMarketplace: string | null; isNew: boolean}};
   try {
     const response = await request(app).post(`/api/v1/commerce/purchases/${purchaseId}/add-to-wardrobe`).set("authorization", `Bearer ${token}`).send().expect(201);
     created = response.body;
@@ -390,6 +390,11 @@ test("add to wardrobe downloads the captured product image and reuses the AI-ana
   assert.equal(created.item.name, "Roadster Men Navy Blue Casual Shirt");
   assert.equal(created.item.category, "Top");
   assert.equal(created.item.primaryColor, "Navy");
+  // The Gmail/marketplace source is recorded and the item starts flagged
+  // "NEW" (see WardrobeService.createWardrobeItem) until it's opened —
+  // covered end-to-end in wardrobe.test.ts's "mark viewed" tests.
+  assert.equal(created.item.sourceMarketplace, "amazon");
+  assert.equal(created.item.isNew, true);
 
   const afterImport = await request(app).get("/api/v1/commerce/purchases").set("authorization", `Bearer ${token}`).expect(200);
   assert.equal(afterImport.body.purchases.length, 0);
