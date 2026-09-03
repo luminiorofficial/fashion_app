@@ -66,63 +66,78 @@ export class PostgresPurchaseImportsRepository implements PurchaseImportsReposit
   constructor(private readonly pool: Pool) {}
 
   // Transaction + row lock (mirrors PostgresSecurityRepository.reserveAiUsage's
-  // advisory-lock pattern) rather than a single ON CONFLICT statement: the
-  // two dedup keys (order_id present vs absent) map to two different
-  // partial unique indexes, and the terminal-state / out-of-order guards
-  // are easier to express correctly as plain conditional TS than as a
-  // single DO UPDATE ... WHERE clause. gmail-sync processes one
-  // connection's messages sequentially, so contention here is not a
-  // practical concern.
+  // advisory-lock pattern): findExisting's SELECT ... FOR UPDATE serializes
+  // concurrent updates to a row that already exists. It cannot lock a row
+  // that doesn't exist yet, though — two concurrent syncs both processing
+  // the first email for the same brand-new order can both see "no existing
+  // row" and race to insert. insert() below uses ON CONFLICT DO NOTHING (no
+  // exception, so the transaction never aborts) against exactly the same
+  // partial unique indexes findExisting mirrors in TS; if it loses that
+  // race, the code below falls back to the normal applyUpdate path against
+  // the row the winner just committed, instead of silently dropping this
+  // email's contribution to the order's lifecycle.
   async upsertParsedOrder(userId: string, connectionId: string, input: RecordParsedOrderInput, {allowCreate}: {allowCreate: boolean}): Promise<PurchaseImport | null> {
     return withTransaction(this.pool, async (client) => {
       const match = await this.findExisting(client, userId, input);
-      if (!match) {
-        if (!allowCreate) return null;
-        return purchaseFromRow((await this.insert(client, userId, connectionId, input)).rows[0]) as PurchaseImport;
-      }
-      const {row: existing, strongMatch} = match;
+      if (match) return this.applyUpdate(client, match, input);
+      if (!allowCreate) return null;
 
-      if (existing.review_status === "imported" || existing.review_status === "ignored") {
-        return purchaseFromRow((await this.appendMessageId(client, existing.id, input.messageId)).rows[0]) as PurchaseImport;
-      }
-      if (new Date(input.latestEventAt).getTime() < new Date(iso(existing.latest_event_at) as string).getTime()) {
-        return purchaseFromRow((await this.appendMessageId(client, existing.id, input.messageId)).rows[0]) as PurchaseImport;
-      }
+      const inserted = await this.insert(client, userId, connectionId, input);
+      if (inserted.rows[0]) return purchaseFromRow(inserted.rows[0]) as PurchaseImport;
 
-      const deliveredAt = input.orderStatus === "delivered" ? input.deliveredAt ?? input.latestEventAt : null;
-      // A "weak" match (fell back to order-id-only, see findExisting) means
-      // this email's own product detail is less trustworthy than what's
-      // already stored — e.g. a bare "order cancelled" notice — so only the
-      // lifecycle/status columns are updated, not the product description.
-      const result = strongMatch
-        ? await client.query<PurchaseImportRow>(
-            `UPDATE purchase_imports SET
-               product_name = $2, brand = COALESCE($3, brand), product_image_url = COALESCE($4, product_image_url),
-               size_label = COALESCE($5, size_label), color_label = COALESCE($6, color_label),
-               currency = COALESCE($7, currency), price_amount = COALESCE($8, price_amount),
-               order_status = $9, ordered_at = COALESCE(ordered_at, $10),
-               delivered_at = COALESCE($11, delivered_at),
-               latest_event_at = $12, email_subject = COALESCE($13, email_subject), latest_message_id = $14,
-               source_message_ids = CASE WHEN $14 = ANY(source_message_ids) THEN source_message_ids ELSE array_append(source_message_ids, $14) END
-             WHERE id = $1
-             RETURNING *`,
-            [
-              existing.id, input.productName, input.brand, input.productImageUrl, input.sizeLabel, input.colorLabel,
-              input.currency, input.priceAmount, input.orderStatus, input.orderedAt, deliveredAt, input.latestEventAt,
-              input.emailSubject, input.messageId,
-            ],
-          )
-        : await client.query<PurchaseImportRow>(
-            `UPDATE purchase_imports SET
-               order_status = $2, ordered_at = COALESCE(ordered_at, $3), delivered_at = COALESCE($4, delivered_at),
-               latest_event_at = $5, email_subject = COALESCE($6, email_subject), latest_message_id = $7,
-               source_message_ids = CASE WHEN $7 = ANY(source_message_ids) THEN source_message_ids ELSE array_append(source_message_ids, $7) END
-             WHERE id = $1
-             RETURNING *`,
-            [existing.id, input.orderStatus, input.orderedAt, deliveredAt, input.latestEventAt, input.emailSubject, input.messageId],
-          );
-      return purchaseFromRow(result.rows[0]) as PurchaseImport;
+      const raced = await this.findExisting(client, userId, input);
+      if (!raced) return null;
+      return this.applyUpdate(client, raced, input);
     });
+  }
+
+  private async applyUpdate(client: PoolClient, match: {row: PurchaseImportRow; strongMatch: boolean}, input: RecordParsedOrderInput): Promise<PurchaseImport> {
+    const {row: existing, strongMatch} = match;
+
+    // Terminal states: a user's own decision is never reversed by a later
+    // marketplace email.
+    if (existing.review_status === "imported" || existing.review_status === "ignored") {
+      return purchaseFromRow((await this.appendMessageId(client, existing.id, input.messageId)).rows[0]) as PurchaseImport;
+    }
+    // Out-of-order guard: Gmail list ordering isn't a chronological
+    // guarantee, so an older event must never regress a newer one.
+    if (new Date(input.latestEventAt).getTime() < new Date(iso(existing.latest_event_at) as string).getTime()) {
+      return purchaseFromRow((await this.appendMessageId(client, existing.id, input.messageId)).rows[0]) as PurchaseImport;
+    }
+
+    const deliveredAt = input.orderStatus === "delivered" ? input.deliveredAt ?? input.latestEventAt : null;
+    // A "weak" match (fell back to order-id-only, see findExisting) means
+    // this email's own product detail is less trustworthy than what's
+    // already stored — e.g. a bare "order cancelled" notice — so only the
+    // lifecycle/status columns are updated, not the product description.
+    const result = strongMatch
+      ? await client.query<PurchaseImportRow>(
+          `UPDATE purchase_imports SET
+             product_name = $2, brand = COALESCE($3, brand), product_image_url = COALESCE($4, product_image_url),
+             size_label = COALESCE($5, size_label), color_label = COALESCE($6, color_label),
+             currency = COALESCE($7, currency), price_amount = COALESCE($8, price_amount),
+             order_status = $9, ordered_at = COALESCE(ordered_at, $10),
+             delivered_at = COALESCE($11, delivered_at),
+             latest_event_at = $12, email_subject = COALESCE($13, email_subject), latest_message_id = $14,
+             source_message_ids = CASE WHEN $14 = ANY(source_message_ids) THEN source_message_ids ELSE array_append(source_message_ids, $14) END
+           WHERE id = $1
+           RETURNING *`,
+          [
+            existing.id, input.productName, input.brand, input.productImageUrl, input.sizeLabel, input.colorLabel,
+            input.currency, input.priceAmount, input.orderStatus, input.orderedAt, deliveredAt, input.latestEventAt,
+            input.emailSubject, input.messageId,
+          ],
+        )
+      : await client.query<PurchaseImportRow>(
+          `UPDATE purchase_imports SET
+             order_status = $2, ordered_at = COALESCE(ordered_at, $3), delivered_at = COALESCE($4, delivered_at),
+             latest_event_at = $5, email_subject = COALESCE($6, email_subject), latest_message_id = $7,
+             source_message_ids = CASE WHEN $7 = ANY(source_message_ids) THEN source_message_ids ELSE array_append(source_message_ids, $7) END
+           WHERE id = $1
+           RETURNING *`,
+          [existing.id, input.orderStatus, input.orderedAt, deliveredAt, input.latestEventAt, input.emailSubject, input.messageId],
+        );
+    return purchaseFromRow(result.rows[0]) as PurchaseImport;
   }
 
   // See MemoryPurchaseImportsRepository.findExisting's comment: a later
@@ -149,8 +164,19 @@ export class PostgresPurchaseImportsRepository implements PurchaseImportsReposit
     return sameOrder.rows.length === 1 ? {row: sameOrder.rows[0] as PurchaseImportRow, strongMatch: false} : undefined;
   }
 
+  // ON CONFLICT DO NOTHING (never raises, unlike a plain INSERT hitting the
+  // unique index) rather than letting a losing race abort the transaction:
+  // an empty `rows` here is upsertParsedOrder's signal to fall back to
+  // applyUpdate. The conflict target must name the exact same columns and
+  // partial-index predicate as whichever of purchase_imports_order_uk /
+  // purchase_imports_no_order_uk applies (see
+  // database/migrations/006_gmail_commerce_integration.sql) — order_id
+  // present vs absent picks which one this row could actually collide on.
   private insert(client: PoolClient, userId: string, connectionId: string, input: RecordParsedOrderInput) {
     const deliveredAt = input.orderStatus === "delivered" ? input.deliveredAt ?? input.latestEventAt : null;
+    const conflictTarget = input.orderId
+      ? "(user_id, marketplace, order_id, product_identity) WHERE order_id IS NOT NULL"
+      : "(user_id, marketplace, product_identity) WHERE order_id IS NULL";
     return client.query<PurchaseImportRow>(
       `INSERT INTO purchase_imports
          (user_id, gmail_connection_id, marketplace, order_id, product_identity, product_name, brand, product_image_url,
@@ -158,6 +184,7 @@ export class PostgresPurchaseImportsRepository implements PurchaseImportsReposit
           latest_event_at, review_status, email_subject, latest_message_id, source_message_ids)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
                $17, 'pending', $18, $19, ARRAY[$19]::text[])
+       ON CONFLICT ${conflictTarget} DO NOTHING
        RETURNING *`,
       [
         userId, connectionId, input.marketplace, input.orderId, input.productIdentity, input.productName, input.brand,

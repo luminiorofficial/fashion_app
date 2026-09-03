@@ -24,6 +24,7 @@ import {GmailParserService} from "./commerce/gmail/gmail-parser.service";
 import {GmailSyncService} from "./commerce/gmail/gmail-sync.service";
 import {PurchaseImportService} from "./commerce/purchase-import.service";
 import {AmazonEmailParser} from "./commerce/parsers/amazon-email.parser";
+import {GenericEmailParser} from "./commerce/parsers/generic-email.parser";
 import type {AppConfig} from "./config/env";
 import type {Repositories} from "./types/repositories";
 import type {AssetStore, TextAnalysisProvider, TryOnProvider, SmsProvider, WeatherProvider, GmailApiClient} from "./types/provider.types";
@@ -67,10 +68,12 @@ export function createApiApp(deps: AppDependencies): Express {
   // separate from WardrobeService, which is never modified for this —
   // PurchaseImportService only ever calls wardrobeService's existing public
   // methods (analyzeDraft/createWardrobeItem) to reuse its AI-analysis
-  // pipeline. Amazon is the only registered parser today; Flipkart/Myntra/
-  // AJIO/Meesho support is a new commerce/parsers/*.ts file added here.
+  // pipeline. Amazon has a structured parser; GenericEmailParser is the
+  // fallback for every other allow-listed fashion retailer domain (see its
+  // header comment) and must stay registered last so a marketplace-specific
+  // parser is always preferred when both could match.
   const gmailOAuthService = new GmailOAuthService(repositories.gmail, gmailApiClient, config);
-  const gmailParserService = new GmailParserService([new AmazonEmailParser()]);
+  const gmailParserService = new GmailParserService([new AmazonEmailParser(), new GenericEmailParser()]);
   const purchaseImportService = new PurchaseImportService(repositories.purchaseImports, wardrobeService);
   const gmailSyncService = new GmailSyncService(
     repositories.gmail, repositories.purchaseImports, purchaseImportService, gmailOAuthService, gmailApiClient, gmailParserService, config,

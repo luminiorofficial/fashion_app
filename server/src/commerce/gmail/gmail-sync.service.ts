@@ -1,3 +1,4 @@
+import {assert} from "../../utils/api-error";
 import {safeOperationalError, describeFailure} from "../../utils/safe-logging";
 import type {GmailOAuthService} from "./gmail-oauth.service";
 import type {GmailParserService} from "./gmail-parser.service";
@@ -33,6 +34,19 @@ function toGmailDateParam(date: Date): string {
 // request — see container.ts/bootstrap.ts wiring), and returns whether
 // more work remains so the caller can re-invoke.
 export class GmailSyncService {
+  // In-process guard against two overlapping syncConnection() calls for the
+  // SAME connection (e.g. a client double-tapping "sync", or a timed-out
+  // request retried while the first is still running). Deliberately
+  // separate from GmailConnection.lastSyncStatus, which already uses
+  // "syncing" to mean something else — "the backlog isn't fully drained
+  // yet, call sync again" (see the hasMore handling below) — so gating on
+  // that value would incorrectly block the very continuation calls that
+  // value exists to invite. Note this only protects one server instance;
+  // it does not replace the database-level race handling in
+  // PostgresPurchaseImportsRepository.upsertParsedOrder for a multi-instance
+  // deployment.
+  private readonly inFlightConnectionIds = new Set<string>();
+
   constructor(
     private readonly gmail: GmailRepository,
     private readonly purchaseImports: PurchaseImportsRepository,
@@ -44,6 +58,16 @@ export class GmailSyncService {
   ) {}
 
   async syncConnection(connection: GmailConnection): Promise<GmailSyncResult> {
+    assert(!this.inFlightConnectionIds.has(connection.id), 409, "GMAIL_SYNC_ALREADY_IN_PROGRESS", "A Gmail sync for this account is already running.");
+    this.inFlightConnectionIds.add(connection.id);
+    try {
+      return await this.runSync(connection);
+    } finally {
+      this.inFlightConnectionIds.delete(connection.id);
+    }
+  }
+
+  private async runSync(connection: GmailConnection): Promise<GmailSyncResult> {
     const startedAt = Date.now();
     const isFirstSync = !connection.initialSyncCompletedAt;
     await this.gmail.updateConnection(connection.id, {lastSyncStatus: "syncing"});

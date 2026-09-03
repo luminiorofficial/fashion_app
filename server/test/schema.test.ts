@@ -18,6 +18,7 @@ const roles = fs.readFileSync(path.join(migrationsDirectory, "002_database_roles
 const feedbackAndTryon = fs.readFileSync(path.join(migrationsDirectory, "003_feedback_and_tryon.sql"), "utf8");
 const productionHardening = fs.readFileSync(path.join(migrationsDirectory, "005_production_hardening.sql"), "utf8");
 const gmailCommerceIntegration = fs.readFileSync(path.join(migrationsDirectory, "006_gmail_commerce_integration.sql"), "utf8");
+const genericMarketplaceFallback = fs.readFileSync(path.join(migrationsDirectory, "007_generic_marketplace_fallback.sql"), "utf8");
 
 test("initial migration contains the complete phase-one data model", () => {
   const tables = [...initialSchema.matchAll(/CREATE TABLE\s+([a-z_]+)/g)].map((match) => match[1]);
@@ -73,6 +74,12 @@ test("Gmail commerce migration adds gmail_connections, purchase_imports, and gma
   assert.match(gmailCommerceIntegration, /CREATE UNIQUE INDEX purchase_imports_no_order_uk ON purchase_imports \(user_id, marketplace, product_identity\) WHERE order_id IS NULL/);
   assert.match(gmailCommerceIntegration, /GRANT SELECT, INSERT, UPDATE, DELETE ON gmail_connections, purchase_imports, gmail_processed_messages TO nera_app/);
   assert.match(gmailCommerceIntegration, /^BEGIN;[\s\S]*COMMIT;\s*$/);
+});
+
+test("generic marketplace fallback migration widens the marketplace check constraint to include 'other'", () => {
+  assert.match(genericMarketplaceFallback, /ALTER TABLE purchase_imports DROP CONSTRAINT purchase_imports_marketplace_check/);
+  assert.match(genericMarketplaceFallback, /CHECK \(marketplace IN \('amazon', 'flipkart', 'myntra', 'ajio', 'meesho', 'other'\)\)/);
+  assert.match(genericMarketplaceFallback, /^BEGIN;[\s\S]*COMMIT;\s*$/);
 });
 
 test("in-memory development adapter satisfies the checked repository contract", () => {

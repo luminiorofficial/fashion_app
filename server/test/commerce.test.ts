@@ -83,6 +83,60 @@ const cancelledSameOrderMessage = gmailMessage({
   subject: "Your order has been cancelled",
   textBody: `Order #${ORDER_ID}`,
 });
+// One order's full lifecycle, each stage a separate email arriving in its
+// own sync call — confirmed, shipped, out for delivery (classified as
+// "shipped", not "delivered" — see amazon-email.parser.ts's STATUS_KEYWORDS),
+// then delivered. Only the confirmed email's HTML carries the ASIN link, so
+// the later three fall back to the order-id-only ("weak") match in
+// PostgresPurchaseImportsRepository/MemoryPurchaseImportsRepository.findExisting
+// — proving that fallback, not just the ASIN-based "strong" match, keeps
+// everything on one row.
+const lifecycleConfirmedMessage = gmailMessage({
+  id: "msg-lifecycle-confirmed",
+  internalDate: String(Date.parse("2026-02-01T10:00:00Z")),
+  from: "auto-confirm@amazon.in",
+  subject: 'Your Amazon.in order of "Roadster Men Navy Blue Casual Shirt" has been placed.',
+  textBody: `Order #${ORDER_ID}`,
+  htmlBody: `<html><body><a href="https://www.amazon.in/dp/${ASIN}">link</a></body></html>`,
+});
+const lifecycleShippedMessage = gmailMessage({
+  id: "msg-lifecycle-shipped",
+  internalDate: String(Date.parse("2026-02-02T10:00:00Z")),
+  from: "shipment-tracking@amazon.in",
+  subject: `Your package with "Roadster Men Navy Blue..." has shipped!`,
+  textBody: `Order #${ORDER_ID}`,
+});
+const lifecycleOutForDeliveryMessage = gmailMessage({
+  id: "msg-lifecycle-out-for-delivery",
+  internalDate: String(Date.parse("2026-02-03T10:00:00Z")),
+  from: "shipment-tracking@amazon.in",
+  subject: "Your package is out for delivery today",
+  textBody: `Order #${ORDER_ID}`,
+});
+const lifecycleDeliveredMessage = gmailMessage({
+  id: "msg-lifecycle-delivered",
+  internalDate: String(Date.parse("2026-02-04T10:00:00Z")),
+  from: "shipment-tracking@amazon.in",
+  subject: `Your Amazon.in order of "Roadster Shirt" has been delivered.`,
+  textBody: `Order #${ORDER_ID}`,
+});
+
+// Not an Amazon sender, so this exercises the generic fallback parser
+// (server/src/commerce/parsers/generic-email.parser.ts) rather than
+// AmazonEmailParser — see gmail-parser.service.ts's registration order.
+const deliveredGenericFashionMessage = gmailMessage({
+  id: "msg-generic-delivered-fashion",
+  from: "orders@nykaafashion.com",
+  subject: "Your order has been delivered!",
+  textBody: "Order ID: NYK7788990 has been delivered.\n\nItem: Libas Women Floral Print Anarkali Kurta\nSize: M | Colour: Pink\nOrder Total: Rs. 1299.00",
+  htmlBody: '<html><body><img src="https://images.nykaafashion.com/products/NYK7788990/main.jpg" alt="Libas Women Floral Print Anarkali Kurta"/></body></html>',
+});
+const promotionalGenericMessage = gmailMessage({
+  id: "msg-generic-promo",
+  from: "orders@nykaafashion.com",
+  subject: "Your order confirmed — Sale: extra 20% off your next order!",
+  textBody: "Order ID: NYK1112223. Shop now and save.",
+});
 
 function fixture(overrides: Parameters<typeof loadConfig>[0] = {}) {
   const repositories = createMemoryRepositories();
@@ -222,6 +276,51 @@ test("re-syncing the same messages does not create duplicate purchases", async (
   assert.equal(purchases.body.purchases.length, 1);
 });
 
+test("confirmed, shipped, out-for-delivery, and delivered emails for one order all update the same purchase across separate sync calls", async () => {
+  const {app, gmailApiClient} = fixture();
+  const token = await register(app);
+  await connectGmail(app, token);
+
+  gmailApiClient.messagesById.set(lifecycleConfirmedMessage.id, lifecycleConfirmedMessage);
+  gmailApiClient.messageIdsQueue = [lifecycleConfirmedMessage.id];
+  await request(app).post("/api/v1/commerce/gmail/sync").set("authorization", `Bearer ${token}`).send().expect(200);
+  // Not delivered yet, so nothing is actionable in the review queue.
+  assert.equal((await request(app).get("/api/v1/commerce/purchases").set("authorization", `Bearer ${token}`).expect(200)).body.purchases.length, 0);
+
+  gmailApiClient.messagesById.set(lifecycleShippedMessage.id, lifecycleShippedMessage);
+  gmailApiClient.messageIdsQueue = [lifecycleShippedMessage.id];
+  await request(app).post("/api/v1/commerce/gmail/sync").set("authorization", `Bearer ${token}`).send().expect(200);
+  assert.equal((await request(app).get("/api/v1/commerce/purchases").set("authorization", `Bearer ${token}`).expect(200)).body.purchases.length, 0);
+
+  gmailApiClient.messagesById.set(lifecycleOutForDeliveryMessage.id, lifecycleOutForDeliveryMessage);
+  gmailApiClient.messageIdsQueue = [lifecycleOutForDeliveryMessage.id];
+  await request(app).post("/api/v1/commerce/gmail/sync").set("authorization", `Bearer ${token}`).send().expect(200);
+  assert.equal((await request(app).get("/api/v1/commerce/purchases").set("authorization", `Bearer ${token}`).expect(200)).body.purchases.length, 0);
+
+  gmailApiClient.messagesById.set(lifecycleDeliveredMessage.id, lifecycleDeliveredMessage);
+  gmailApiClient.messageIdsQueue = [lifecycleDeliveredMessage.id];
+  await request(app).post("/api/v1/commerce/gmail/sync").set("authorization", `Bearer ${token}`).send().expect(200);
+
+  const purchases = await request(app).get("/api/v1/commerce/purchases").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(purchases.body.purchases.length, 1, "exactly one purchase candidate must exist across the whole four-stage lifecycle");
+  assert.equal(purchases.body.purchases[0].productName, "Roadster Men Navy Blue Casual Shirt");
+
+  // Re-syncing the entire backlog again (e.g. the client re-requesting an
+  // overlapping date window) must stay idempotent too.
+  gmailApiClient.messageIdsQueue = [lifecycleConfirmedMessage.id, lifecycleShippedMessage.id, lifecycleOutForDeliveryMessage.id, lifecycleDeliveredMessage.id];
+  const resync = await request(app).post("/api/v1/commerce/gmail/sync").set("authorization", `Bearer ${token}`).send().expect(200);
+  assert.equal(resync.body.processed, 0);
+  const afterResync = await request(app).get("/api/v1/commerce/purchases").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(afterResync.body.purchases.length, 1);
+});
+
+// The in-flight-sync mutex itself (GmailSyncService.syncConnection
+// rejecting a second concurrent call for the same connection with 409) is
+// covered deterministically at the unit level in gmail-sync-service.test.ts
+// — reproducing genuine request overlap through the full HTTP stack here
+// would need gating supertest's request dispatch, which is lazy/thenable
+// and not reliably synchronizable without risking a hung test run.
+
 test("a later cancellation email removes a still-pending purchase from view but never touches an already-imported one", async () => {
   const {app, gmailApiClient} = fixture();
   const token = await register(app);
@@ -332,6 +431,38 @@ test("disconnect updates (not deletes) the connection and purchase history remai
 
   const purchases = await request(app).get("/api/v1/commerce/purchases").set("authorization", `Bearer ${token}`).expect(200);
   assert.equal(purchases.body.purchases.length, 1);
+});
+
+test("sync detects a delivered fashion purchase from a non-Amazon allow-listed retailer via the generic fallback parser", async () => {
+  const {app, gmailApiClient} = fixture();
+  const token = await register(app);
+  await connectGmail(app, token);
+  gmailApiClient.messagesById.set(deliveredGenericFashionMessage.id, deliveredGenericFashionMessage);
+  gmailApiClient.messageIdsQueue = [deliveredGenericFashionMessage.id];
+
+  const sync = await request(app).post("/api/v1/commerce/gmail/sync").set("authorization", `Bearer ${token}`).send().expect(200);
+  assert.equal(sync.body.processed, 1);
+
+  const purchases = await request(app).get("/api/v1/commerce/purchases").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(purchases.body.purchases.length, 1);
+  assert.equal(purchases.body.purchases[0].marketplace, "other");
+  assert.equal(purchases.body.purchases[0].productName, "Libas Women Floral Print Anarkali Kurta");
+  assert.equal(purchases.body.purchases[0].sizeLabel, "M");
+  assert.equal(purchases.body.purchases[0].colorLabel, "Pink");
+});
+
+test("sync never creates a purchase from a promotional email, even from an allow-listed generic retailer domain", async () => {
+  const {app, gmailApiClient} = fixture();
+  const token = await register(app);
+  await connectGmail(app, token);
+  gmailApiClient.messagesById.set(promotionalGenericMessage.id, promotionalGenericMessage);
+  gmailApiClient.messageIdsQueue = [promotionalGenericMessage.id];
+
+  const sync = await request(app).post("/api/v1/commerce/gmail/sync").set("authorization", `Bearer ${token}`).send().expect(200);
+  assert.equal(sync.body.processed, 1);
+
+  const purchases = await request(app).get("/api/v1/commerce/purchases").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(purchases.body.purchases.length, 0);
 });
 
 test("a user cannot act on another user's purchase", async () => {

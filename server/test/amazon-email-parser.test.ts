@@ -68,6 +68,12 @@ test("same order's confirm/ship/deliver emails collapse onto one productIdentity
   assert.ok(delivered!.deliveredAt);
 });
 
+test("classifies an 'out for delivery' notice as shipped, not delivered", () => {
+  const parsed = parser.parse(message({subject: "Your package is out for delivery today", textBody: `Order #${ORDER_ID}`}));
+  assert.equal(parsed?.orderStatus, "shipped");
+  assert.equal(parsed?.deliveredAt, null);
+});
+
 test("classifies cancelled and returned orders", () => {
   const cancelled = parser.parse(message({subject: "Your order has been cancelled", textBody: `Order #${ORDER_ID}`}));
   const returned = parser.parse(message({subject: "Your return for your order has been completed. Refund initiated.", textBody: `Order #${ORDER_ID}`}));

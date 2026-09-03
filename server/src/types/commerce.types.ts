@@ -1,4 +1,9 @@
-export type Marketplace = "amazon" | "flipkart" | "myntra" | "ajio" | "meesho";
+// "other" is the generic-fallback parser's marketplace (see
+// commerce/parsers/generic-email.parser.ts): any allow-listed fashion
+// retailer domain that doesn't have its own structured parser. The
+// remaining values are reserved for future marketplace-specific parsers
+// (only "amazon" is implemented today).
+export type Marketplace = "amazon" | "flipkart" | "myntra" | "ajio" | "meesho" | "other";
 export type OrderStatus = "confirmed" | "shipped" | "delivered" | "cancelled" | "returned";
 export type GmailConnectionStatus = "connected" | "disconnected" | "error";
 export type GmailSyncStatus = "idle" | "syncing" | "completed" | "failed";

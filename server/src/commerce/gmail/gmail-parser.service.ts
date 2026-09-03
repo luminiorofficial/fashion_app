@@ -1,3 +1,4 @@
+import {validateParsedOrderEmail} from "../parsed-order-email.schema";
 import type {EmailParser, ParsedOrderEmail} from "../commerce.types";
 import type {NormalizedGmailMessage} from "../../types/provider.types";
 
@@ -16,8 +17,14 @@ export class GmailParserService {
     return domains.length ? `from:(${domains.map((domain) => `@${domain}`).join(" OR ")})` : "";
   }
 
+  // Every parser's output (Amazon's included) is run through the shared
+  // strict Zod schema before it ever reaches PurchaseImportService — see
+  // parsed-order-email.schema.ts. A schema failure is treated exactly like
+  // the parser itself returning null: the email is silently skipped, not
+  // an error.
   parse(message: NormalizedGmailMessage): ParsedOrderEmail | null {
     const parser = this.parsers.find((candidate) => candidate.matches(message.from));
-    return parser ? parser.parse(message) : null;
+    const parsed = parser ? parser.parse(message) : null;
+    return parsed ? validateParsedOrderEmail(parsed) : null;
   }
 }
