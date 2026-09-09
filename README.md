@@ -24,13 +24,19 @@ The schema stores exact measurements only when a user explicitly provides them.
 ## Project layout
 
 ```text
-lib/                         Flutter app and REST backend adapter
+mobile/lib/                  Flutter app and REST backend adapter
+mobile/test/                 Flutter unit/widget tests
+mobile/env/dev.json          Local dev client config (NERA_API_BASE_URL only, no secrets)
+mobile/env/prod.json         Release client config (NERA_API_BASE_URL only, no secrets)
 server/src/                  Express API, auth, storage, analysis, repository port
 server/test/                 API integration tests
 database/migrations/         PostgreSQL schema and least-privilege roles
 database/README.md           Schema application notes
 docs/production-security.md  Authorization, rate/quota, privacy, and operations guide
 ```
+
+`mobile/`, `server/`, and `database/` are independent: the Flutter client never
+embeds backend secrets, and the backend never depends on Flutter build output.
 
 ## Local API
 
@@ -68,9 +74,20 @@ Uploaded images default to `server/data/uploads`, which is gitignored.
 That local store is for development only; production should use private object
 storage with expiring signed URLs for full-body and wardrobe images.
 
+Run the app from `mobile/`:
+
+```powershell
+Set-Location mobile
+flutter pub get
+flutter analyze
+flutter test
+```
+
 The Android emulator uses the default API URL `http://10.0.2.2:8080/api/v1`.
-Override it for iOS, web, a physical device, or a deployed server. `env/dev.json`
-and `env/prod.json` hold that value for reuse instead of retyping the flag:
+Override it for iOS, web, a physical device, or a deployed server. `mobile/env/dev.json`
+and `mobile/env/prod.json` hold that value for reuse instead of retyping the flag.
+Both files hold only non-secret client configuration (`NERA_API_BASE_URL`) — never
+put API keys, database credentials, or OAuth secrets in them:
 
 ```powershell
 flutter run --dart-define-from-file=env/dev.json
@@ -79,7 +96,7 @@ flutter run --dart-define=NERA_API_BASE_URL=http://192.168.1.20:8080/api/v1
 ```
 
 Release builds have no built-in default and fail fast if `NERA_API_BASE_URL`
-isn't set. Point `env/prod.json` at your deployed API (see "Deploy the API to
+isn't set. Point `mobile/env/prod.json` at your deployed API (see "Deploy the API to
 Vercel" below) and build with:
 
 ```powershell
@@ -164,7 +181,7 @@ toward 120000), and the cron schedule (e.g. `0 */6 * * *`) accordingly.
    sends it back automatically as `Authorization: Bearer <value>`).
 3. Deploy. Confirm `https://<your-domain>/api/v1/health` returns
    `database.adapter: "postgresql"`.
-4. Put that same URL + `/api/v1` into `env/prod.json` as `NERA_API_BASE_URL`,
+4. Put that same URL + `/api/v1` into `mobile/env/prod.json` as `NERA_API_BASE_URL`,
    then build the app per the release commands above.
 
 One thing worth knowing before you rely on this in production: with the 55s
@@ -180,9 +197,12 @@ matters to you in production, Vercel Pro (see above) removes it.
 ## Verification
 
 ```powershell
+Set-Location mobile
 flutter analyze
 flutter test
-Set-Location server
+
+Set-Location ..\server
+npm run typecheck
+npm run build
 npm test
-npm run check
 ```

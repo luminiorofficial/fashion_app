@@ -4,25 +4,21 @@ on:
   push:
     branches: [main]
     paths:
-      - "lib/**"
-      - "test/**"
-      - "pubspec.yaml"
-      - "pubspec.lock"
-      - "analysis_options.yaml"
+      - "mobile/**"
       - ".github/workflows/flutter-ci.yml"
   pull_request:
     branches: [main]
     paths:
-      - "lib/**"
-      - "test/**"
-      - "pubspec.yaml"
-      - "pubspec.lock"
-      - "analysis_options.yaml"
+      - "mobile/**"
       - ".github/workflows/flutter-ci.yml"
 
 concurrency:
   group: flutter-ci-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: mobile
 
 jobs:
   analyze-and-test:

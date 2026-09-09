@@ -31,14 +31,11 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
-/coverage/
+/mobile/build/
+/mobile/coverage/
 **/node_modules/
 **/.env
 **/.env.*
-# .env.example is a checked-in template (no real secrets) documenting every
-# variable server/src/config/env.ts reads — keep it un-ignored.
-!server/.env.example
 **/.secret.local
 /server/data/
 /server/dist/
@@ -50,9 +47,9 @@ app.*.symbols
 app.*.map.json
 
 # Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+/mobile/android/app/debug
+/mobile/android/app/profile
+/mobile/android/app/release
 
 # Generated caches and scratch directories (e.g. Node's compile cache,
 # server test upload fixtures created via fs.mkdtemp(".tmp-"))
@@ -64,6 +61,6 @@ node-compile-cache/
 /cloudflared.exe
 
 # Firebase was removed; do not recommit generated client configuration.
-/android/app/google-services.json
-/ios/Runner/GoogleService-Info.plist
-/lib/firebase_options.dart
+/mobile/android/app/google-services.json
+/mobile/ios/Runner/GoogleService-Info.plist
+/mobile/lib/firebase_options.dart
