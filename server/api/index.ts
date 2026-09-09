@@ -7,7 +7,7 @@
 import type {IncomingMessage, ServerResponse} from "node:http";
 import type {Express} from "express";
 import {loadConfig} from "../src/config/env";
-import {buildDependencies} from "../src/bootstrap";
+import {buildDependencies, describeStartupFailure} from "../src/bootstrap";
 import {createApiApp} from "../src/container";
 import {safeOperationalError} from "../src/utils/safe-logging";
 
@@ -32,7 +32,7 @@ export default async function handler(request: IncomingMessage, response: Server
   try {
     app = await appPromise;
   } catch (error) {
-    safeOperationalError("NERA API failed to initialize", error);
+    safeOperationalError("NERA API failed to initialize", error, {reason: describeStartupFailure(error)});
     response.statusCode = 500;
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({error: {code: "SERVER_INITIALIZATION_FAILED", message: "The server could not initialize."}}));

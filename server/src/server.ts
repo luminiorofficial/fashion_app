@@ -1,5 +1,5 @@
 import {loadConfig} from "./config/env";
-import {buildDependencies} from "./bootstrap";
+import {buildDependencies, describeStartupFailure} from "./bootstrap";
 import {createApiApp} from "./container";
 import {isPostgresRepositories} from "./database/repositories";
 import {MaintenanceService} from "./services/maintenance.service";
@@ -39,6 +39,6 @@ async function start(): Promise<void> {
 }
 
 start().catch((error: Error) => {
-  safeOperationalError("NERA API failed to start", error);
+  safeOperationalError("NERA API failed to start", error, {reason: describeStartupFailure(error)});
   process.exitCode = 1;
 });

@@ -113,6 +113,17 @@ export interface AppConfig {
 
 export type ConfigOverrides = Partial<AppConfig>;
 
+// Thrown by loadConfig() when required env vars are missing or malformed.
+// Its message is always built from the static, hardcoded issue text below
+// (field names and rules, e.g. "Production requires DATABASE_URL") — never
+// from an env var's actual value — so it's always safe to log in full.
+export class ConfigValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigValidationError";
+  }
+}
+
 // Validates the fully-assembled config: field-level shape (so a malformed
 // env var fails clearly at startup instead of silently becoming NaN deep
 // inside a request handler) plus the same cross-field production rules
@@ -425,7 +436,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): AppConfig {
   const result = configSchema.safeParse(draft);
   if (!result.success) {
     const issues = result.error.issues.map((issue) => `- ${issue.message}`).join("\n");
-    throw new Error(`Invalid server configuration:\n${issues}`);
+    throw new ConfigValidationError(`Invalid server configuration:\n${issues}`);
   }
   return result.data;
 }

@@ -1,4 +1,5 @@
-import type {AppConfig} from "./config/env";
+import {ConfigValidationError, type AppConfig} from "./config/env";
+import {describeFailure} from "./utils/safe-logging";
 import {createRepositories, isPostgresRepositories} from "./database/repositories";
 import {LocalAssetStore} from "./providers/storage/local.provider";
 import {CloudinaryAssetStore} from "./providers/cloudinary/cloudinary.provider";
@@ -10,6 +11,19 @@ import {GoogleGmailApiClient} from "./commerce/gmail/gmail-api-client";
 import type {AppDependencies} from "./container";
 import type {AssetStore} from "./types/provider.types";
 
+// Thrown by buildDependencies() when a specific external dependency fails to
+// come up, tagged with which one so describeStartupFailure() below can log a
+// safe, actionable reason without ever touching the wrapped error's message
+// — driver/SDK error messages can embed connection details (host, user,
+// etc.) that shouldn't reach logs.
+export class DependencyInitializationError extends Error {
+  constructor(public readonly phase: "postgresql_connection" | "cloudinary_setup", cause: unknown) {
+    super(phase);
+    this.name = "DependencyInitializationError";
+    this.cause = cause;
+  }
+}
+
 // Builds the real, deployable set of dependencies from config: PostgreSQL
 // or the temporary in-memory adapter, Cloudinary or local-disk image
 // storage, the Gemini text/image providers, and the console/Twilio SMS
@@ -20,16 +34,26 @@ import type {AssetStore} from "./types/provider.types";
 export async function buildDependencies(config: AppConfig): Promise<AppDependencies> {
   const repositories = createRepositories(config);
   if (isPostgresRepositories(repositories)) {
-    await repositories.connect();
+    try {
+      await repositories.connect();
+    } catch (error) {
+      throw new DependencyInitializationError("postgresql_connection", error);
+    }
     console.info("Connected to PostgreSQL.");
   } else {
     console.warn("DATABASE_URL is not configured; data will use temporary in-memory storage.");
   }
 
-  const assetStore: AssetStore = config.imageStorageProvider === "cloudinary" ? new CloudinaryAssetStore(config) : new LocalAssetStore(config);
+  let assetStore: AssetStore;
   if (config.imageStorageProvider === "cloudinary") {
+    try {
+      assetStore = new CloudinaryAssetStore(config);
+    } catch (error) {
+      throw new DependencyInitializationError("cloudinary_setup", error);
+    }
     console.info("Using Cloudinary for private image storage.");
   } else {
+    assetStore = new LocalAssetStore(config);
     console.warn("Image storage is not configured for Cloudinary; images will be stored on local disk (development only).");
   }
 
@@ -44,4 +68,21 @@ export async function buildDependencies(config: AppConfig): Promise<AppDependenc
   const gmailApiClient = new GoogleGmailApiClient(config);
 
   return {config, repositories, assetStore, textAnalyzer, tryonProvider, smsProvider, weatherProvider, gmailApiClient};
+}
+
+const DEPENDENCY_PHASE_LABELS: Record<DependencyInitializationError["phase"], string> = {
+  postgresql_connection: "PostgreSQL connection failure",
+  cloudinary_setup: "Cloudinary setup failure",
+};
+
+// Reduces a loadConfig()/buildDependencies() failure to one safe, human-
+// readable line for startup logging (see api/index.ts and server.ts).
+// ConfigValidationError messages are always safe to show in full (see its
+// definition); DependencyInitializationError only ever surfaces the
+// underlying error's name/code via describeFailure, never its message,
+// since driver/SDK error messages can echo connection details.
+export function describeStartupFailure(error: unknown): string {
+  if (error instanceof ConfigValidationError) return error.message;
+  if (error instanceof DependencyInitializationError) return `${DEPENDENCY_PHASE_LABELS[error.phase]} (${describeFailure(error.cause)})`;
+  return `Unexpected startup failure (${describeFailure(error)})`;
 }
