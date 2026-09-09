@@ -1,37 +1,102 @@
-import type {Request, Response, NextFunction} from "express";
+import type {
+  Request,
+  Response,
+  NextFunction,
+  RequestHandler,
+} from "express";
 
-export function createCorsMiddleware(allowedOrigins: string[]) {
-  return function corsMiddleware(
+import {assert} from "../utils/api-error";
+import {sha256} from "../utils/crypto";
+
+import type {
+  UsersRepository,
+  SessionsRepository,
+  SecurityRepository,
+} from "../types/repositories";
+
+export interface AuthMiddlewareDependencies {
+  users: UsersRepository;
+  sessions: SessionsRepository;
+  security?: SecurityRepository;
+  rateLimit?: {
+    limit: number;
+    windowSeconds: number;
+  };
+}
+
+export function createAuthMiddleware({
+  users,
+  sessions,
+  security,
+  rateLimit,
+}: AuthMiddlewareDependencies): RequestHandler {
+  return async function authenticate(
     request: Request,
     response: Response,
     next: NextFunction,
-  ): void {
-    const origin = request.get("origin");
+  ) {
+    const header = request.get("authorization") || "";
 
-    const isLocalhost =
-      !!origin &&
-      /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+    assert(
+      header.startsWith("Bearer "),
+      401,
+      "AUTH_REQUIRED",
+      "Authentication is required.",
+    );
 
-    const isAllowed =
-      !origin ||
-      allowedOrigins.includes(origin) ||
-      isLocalhost;
+    const tokenHash = sha256(header.slice(7));
 
-    if (origin && isAllowed) {
-      response.setHeader("Access-Control-Allow-Origin", origin);
-      response.setHeader("Vary", "Origin");
-    }
+    const session = await sessions.findSession(tokenHash);
 
-    response.set({
-      "Access-Control-Allow-Headers":
-        "Authorization, Content-Type, Idempotency-Key, X-Request-Id",
-      "Access-Control-Allow-Methods":
-        "GET, POST, DELETE, OPTIONS",
-    });
+    assert(
+      session,
+      401,
+      "INVALID_SESSION",
+      "The session is invalid or expired.",
+    );
 
-    if (request.method === "OPTIONS") {
-      response.sendStatus(isAllowed ? 204 : 403);
-      return;
+    const user = await users.findUserById(session.userId);
+
+    assert(
+      user && user.status === "active",
+      401,
+      "INVALID_SESSION",
+      "The account is not active.",
+    );
+
+    request.auth = {
+      user,
+      tokenHash,
+      session,
+    };
+
+    if (security && rateLimit) {
+      const result = await security.consumeRateLimit({
+        bucketKey: `api-user:${sha256(user.id)}`,
+        limit: rateLimit.limit,
+        windowSeconds: rateLimit.windowSeconds,
+      });
+
+      response.setHeader(
+        "RateLimit-Remaining",
+        String(result.remaining),
+      );
+
+      response.setHeader(
+        "RateLimit-Reset",
+        String(
+          Math.ceil(
+            new Date(result.resetAt).getTime() / 1000,
+          ),
+        ),
+      );
+
+      assert(
+        result.allowed,
+        429,
+        "RATE_LIMITED",
+        "Too many API requests. Please wait before trying again.",
+      );
     }
 
     next();
