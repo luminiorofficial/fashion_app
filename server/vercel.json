@@ -1,9 +1,17 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": ".",
   "rewrites": [
-    {"source": "/api/v1", "destination": "/api/index"},
-    {"source": "/api/v1/(.*)", "destination": "/api/index"}
+    {
+      "source": "/api/v1",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/v1/(.*)",
+      "destination": "/api/index"
+    }
   ],
   "functions": {
     "api/index.ts": {
@@ -14,6 +22,9 @@
     }
   },
   "crons": [
-    {"path": "/api/cron/cleanup", "schedule": "0 3 * * *"}
+    {
+      "path": "/api/cron/cleanup",
+      "schedule": "0 3 * * *"
+    }
   ]
 }
