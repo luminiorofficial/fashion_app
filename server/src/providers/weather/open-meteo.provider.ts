@@ -67,7 +67,8 @@ function rainProbabilityForNow(currentTime: string | undefined, hourly: OpenMete
   if (!currentTime || !times.length) return 0;
   const currentHour = currentTime.slice(0, 13);
   const index = times.findIndex((time) => time.slice(0, 13) === currentHour);
-  const value = probabilities[index === -1 ? 0 : index];
+  if (index === -1) return 0;
+  const value = probabilities[index];
   return typeof value === "number" ? Math.round(value) : 0;
 }
 

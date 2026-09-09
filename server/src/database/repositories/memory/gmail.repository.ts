@@ -20,6 +20,10 @@ export class MemoryGmailRepository implements GmailRepository {
     const now = new Date().toISOString();
     const existing = await this.getConnectionByUserId(userId);
     if (existing) {
+      // A reconnect under a *different* Google account must restart the sync
+      // window, not continue as if still mid-sync on the old account (see
+      // the matching comment in the Postgres adapter's upsertConnection).
+      const accountChanged = existing.googleEmail !== input.googleEmail;
       Object.assign(existing, {
         googleEmail: input.googleEmail,
         googleAccountId: input.googleAccountId,
@@ -30,6 +34,7 @@ export class MemoryGmailRepository implements GmailRepository {
         status: "connected",
         disconnectedAt: null,
         updatedAt: now,
+        ...(accountChanged ? {lastSyncedAt: null, initialSyncCompletedAt: null} : {}),
       });
       return existing;
     }

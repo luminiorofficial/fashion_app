@@ -36,6 +36,9 @@ migrate_working_dir/
 **/node_modules/
 **/.env
 **/.env.*
+# .env.example is a checked-in template (no real secrets) documenting every
+# variable server/src/config/env.ts reads — keep it un-ignored.
+!server/.env.example
 **/.secret.local
 /server/data/
 /server/dist/

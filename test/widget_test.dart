@@ -158,6 +158,51 @@ void main() {
     expect(find.text('Update Full-Body Photo'), findsOneWidget);
   });
 
+  testWidgets(
+    'deleting the account requires confirmation and returns to login',
+    (tester) async {
+      await tester.pumpWidget(
+        NeraApp(
+          backend: MemoryNeraBackend(
+            authenticated: true,
+            initialProfile: _analyzedProfile,
+          ),
+          imageService: _FakeImageService(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Profile'));
+      await tester.pumpAndSettle();
+      await tester.dragUntilVisible(
+        find.text('Delete account'),
+        find.byType(ListView).first,
+        const Offset(0, -200),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Delete account'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete your account?'), findsOneWidget);
+
+      // Cancelling must not touch the session: the dialog closes and the
+      // still-scrolled profile screen (with its own session intact) shows.
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete your account?'), findsNothing);
+      expect(find.text('Delete account'), findsOneWidget);
+
+      await tester.tap(find.text('Delete account'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete account').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Login'), findsOneWidget);
+      expect(find.text('Register'), findsOneWidget);
+      expect(find.text('My Style Profile'), findsNothing);
+    },
+  );
+
   testWidgets('camera or gallery item can be reviewed and saved', (
     tester,
   ) async {

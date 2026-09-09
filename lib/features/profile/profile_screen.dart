@@ -44,6 +44,8 @@ class _ProfileScreenState extends State<ProfileScreen>
   GmailConnectionStatus _gmailStatus = GmailConnectionStatus.disconnected;
   bool _gmailStatusLoading = true;
   bool _gmailBusy = false;
+  bool _signingOut = false;
+  bool _deletingAccount = false;
   // Set right before opening the external browser for Google consent, and
   // cleared once we've re-checked status after the app resumes — so a
   // plain app switch (not a connect attempt) never fires an extra request.
@@ -66,7 +68,18 @@ class _ProfileScreenState extends State<ProfileScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _awaitingGmailReturn) {
       _awaitingGmailReturn = false;
-      unawaited(_loadGmailStatus());
+      unawaited(_handleGmailReturn());
+    }
+  }
+
+  Future<void> _handleGmailReturn() async {
+    final wasConnected = _gmailStatus.connected;
+    await _loadGmailStatus();
+    // A fresh connect (not just reopening the app mid-flow) — run the
+    // first sync automatically so purchases show up without the user
+    // having to separately find "Sync now" in the overflow menu.
+    if (mounted && !wasConnected && _gmailStatus.connected) {
+      await _syncGmail();
     }
   }
 
@@ -113,14 +126,21 @@ class _ProfileScreenState extends State<ProfileScreen>
       // The initial 90-day scan can exceed the backend's per-request time
       // budget, so a sync call reports whether work remains; keep calling
       // until it's done or this cap is hit, so the UI stays responsive.
+      var hasMore = false;
       for (var round = 0; round < 5; round++) {
         final summary = await widget.backend.syncGmail();
-        if (!summary.hasMore) break;
+        hasMore = summary.hasMore;
+        if (!hasMore) break;
       }
       final status = await widget.backend.getGmailStatus();
       if (mounted) {
         setState(() => _gmailStatus = status);
-        showNeraSnackBar(context, 'Gmail sync complete.');
+        showNeraSnackBar(
+          context,
+          hasMore
+              ? 'Still scanning your inbox — tap "Sync now" again to keep going.'
+              : 'Gmail sync complete.',
+        );
       }
     } catch (error) {
       if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
@@ -161,6 +181,53 @@ class _ProfileScreenState extends State<ProfileScreen>
       if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
     } finally {
       if (mounted) setState(() => _gmailBusy = false);
+    }
+  }
+
+  Future<void> _signOut() async {
+    setState(() => _signingOut = true);
+    try {
+      await widget.backend.logout();
+    } catch (error) {
+      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+    } finally {
+      if (mounted) setState(() => _signingOut = false);
+    }
+  }
+
+  Future<void> _deleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete your account?'),
+        content: const Text(
+          'This permanently deletes your NERA account, style profile, '
+          'wardrobe, and saved looks. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete account'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _deletingAccount = true);
+    try {
+      await widget.backend.deleteAccount();
+    } catch (error) {
+      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+    } finally {
+      if (mounted) setState(() => _deletingAccount = false);
     }
   }
 
@@ -409,7 +476,16 @@ class _ProfileScreenState extends State<ProfileScreen>
           label: 'Sign out',
           icon: Icons.logout_rounded,
           style: NeraButtonStyleType.secondary,
-          onPressed: widget.backend.logout,
+          loading: _signingOut,
+          onPressed: _signOut,
+        ),
+        const SizedBox(height: NeraSpacing.md),
+        NeraButton(
+          label: 'Delete account',
+          icon: Icons.delete_outline_rounded,
+          style: NeraButtonStyleType.text,
+          loading: _deletingAccount,
+          onPressed: _deleteAccount,
         ),
       ],
     ],

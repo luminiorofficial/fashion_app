@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/errors/friendly_error.dart';
 import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
@@ -96,7 +97,7 @@ class _StylingScreenState extends State<StylingScreen> {
             }
             if (snapshot.hasError) {
               return NeraErrorState(
-                message: snapshot.error.toString(),
+                message: friendlyError(snapshot.error),
                 onRetry: _retryHistory,
               );
             }

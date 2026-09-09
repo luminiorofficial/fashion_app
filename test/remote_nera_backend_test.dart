@@ -4,9 +4,24 @@ import 'package:fashion_app/models/nera_models.dart';
 import 'package:fashion_app/services/nera_api_client.dart';
 import 'package:fashion_app/services/nera_backend.dart';
 import 'package:fashion_app/services/remote_nera_backend.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+http.Response _jsonResponse(Map<String, dynamic> body, int statusCode) =>
+    http.Response(
+      jsonEncode(body),
+      statusCode,
+      headers: {'content-type': 'application/json'},
+    );
+
+const _verifiedUserJson = {
+  'id': 'user-1',
+  'name': 'Test User',
+  'dateOfBirth': '1995-01-01',
+  'phoneNumber': '+919876543210',
+};
 
 class _TimeoutApiClient extends NeraApiClient {
   @override
@@ -390,4 +405,113 @@ void main() {
       ),
     );
   });
+
+  test(
+    'deleteAccount calls DELETE /account and clears the local session',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      http.Request? captured;
+      final mockClient = MockClient((request) async {
+        if (request.url.path.endsWith('/auth/otp/verify')) {
+          return _jsonResponse({
+            'accessToken': 'test-token',
+            'user': _verifiedUserJson,
+          }, 200);
+        }
+        if (request.url.path.endsWith('/profile')) {
+          return _jsonResponse({'profile': null}, 200);
+        }
+        if (request.url.path.endsWith('/wardrobe/items')) {
+          return _jsonResponse({'items': []}, 200);
+        }
+        if (request.url.path.endsWith('/account')) {
+          captured = request;
+          return http.Response('', 204);
+        }
+        throw StateError('Unexpected request: ${request.method} ${request.url.path}');
+      });
+
+      final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+      await backend.verifyOtp(challengeId: 'challenge-1', otp: '123456');
+      expect(backend.isAuthenticated.value, true);
+
+      await backend.deleteAccount();
+
+      expect(captured, isNotNull);
+      expect(captured!.method, 'DELETE');
+      expect(backend.isAuthenticated.value, false);
+      // The account no longer exists, so unlike a plain logout, deleting it
+      // must not leave the deleted user around for a "welcome back" screen.
+      expect(backend.currentUser.value, isNull);
+    },
+  );
+
+  test(
+    'a 401 on an authenticated request forces a clean local logout',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final mockClient = MockClient((request) async {
+        if (request.url.path.endsWith('/auth/otp/verify')) {
+          return _jsonResponse({
+            'accessToken': 'test-token',
+            'user': _verifiedUserJson,
+          }, 200);
+        }
+        if (request.url.path.endsWith('/profile')) {
+          return _jsonResponse({'profile': null}, 200);
+        }
+        if (request.url.path.endsWith('/wardrobe/items')) {
+          return _jsonResponse({'items': []}, 200);
+        }
+        if (request.url.path.endsWith('/outfits/generate')) {
+          return _jsonResponse({
+            'error': {
+              'code': 'INVALID_SESSION',
+              'message': 'The session is invalid or expired.',
+            },
+          }, 401);
+        }
+        throw StateError('Unexpected request: ${request.method} ${request.url.path}');
+      });
+
+      final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+      await backend.verifyOtp(challengeId: 'challenge-1', otp: '123456');
+      expect(backend.isAuthenticated.value, true);
+
+      await expectLater(
+        backend.generateOutfit('Daily', const [], const StyleProfile()),
+        throwsA(isA<NeraException>()),
+      );
+      // The onUnauthorized hook clears the session asynchronously
+      // (fire-and-forget from the API client's perspective); let it settle.
+      await pumpEventQueue();
+
+      expect(backend.isAuthenticated.value, false);
+      // Unlike a deleted account, a revoked/expired session keeps the
+      // last-known user around so the login screen can greet them back.
+      expect(backend.currentUser.value?.id, 'user-1');
+    },
+  );
+
+  test(
+    'a 401 on an unauthenticated request (e.g. a wrong OTP) never forces a logout',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final mockClient = MockClient(
+        (request) async => _jsonResponse({
+          'error': {'code': 'INVALID_OTP', 'message': 'The OTP is incorrect.'},
+        }, 401),
+      );
+
+      final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+      expect(backend.isAuthenticated.value, false);
+
+      await expectLater(
+        backend.verifyOtp(challengeId: 'challenge-1', otp: '000000'),
+        throwsA(isA<NeraException>().having((error) => error.code, 'code', 'INVALID_OTP')),
+      );
+
+      expect(backend.isAuthenticated.value, false);
+    },
+  );
 }

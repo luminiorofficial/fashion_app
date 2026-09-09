@@ -14,7 +14,7 @@
     "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
     "db:cleanup": "tsx --env-file-if-exists=.env scripts/cleanup.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test \"test/**/*.test.ts\""
+    "test": "tsx --test --test-concurrency=1 \"test/**/*.test.ts\""
   },
   "dependencies": {
     "cloudinary": "^2.10.1",

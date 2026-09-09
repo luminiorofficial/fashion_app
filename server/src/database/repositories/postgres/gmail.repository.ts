@@ -86,7 +86,14 @@ export class PostgresGmailRepository implements GmailRepository {
          refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
          scope = EXCLUDED.scope,
          status = 'connected',
-         disconnected_at = NULL
+         disconnected_at = NULL,
+         -- A reconnect under a *different* Google account must restart the
+         -- sync window (full gmailLookbackDays), not continue as if it were
+         -- still mid-sync on the old account — otherwise gmail-sync.service's
+         -- isFirstSync check treats it as an ongoing sync and only looks back
+         -- INCREMENTAL_OVERLAP_DAYS, silently missing older purchase history.
+         last_synced_at = CASE WHEN gmail_connections.google_email = EXCLUDED.google_email THEN gmail_connections.last_synced_at ELSE NULL END,
+         initial_sync_completed_at = CASE WHEN gmail_connections.google_email = EXCLUDED.google_email THEN gmail_connections.initial_sync_completed_at ELSE NULL END
        RETURNING *`,
       [userId, input.googleEmail, input.googleAccountId, input.accessTokenCiphertext, input.accessTokenExpiresAt, input.refreshTokenCiphertext, input.scope],
     );

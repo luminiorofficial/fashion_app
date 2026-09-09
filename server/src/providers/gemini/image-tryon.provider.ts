@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import {ApiError} from "../../utils/api-error";
 import {wait} from "../../utils/delay";
-import {RETRYABLE_STATUSES, UNAVAILABLE_STATUSES, IMAGE_ASPECT_RATIO_ENUMS, IMAGE_SIZE_ENUMS} from "../../config/constants";
+import {RETRYABLE_STATUSES, UNAVAILABLE_STATUSES, IMAGE_ASPECT_RATIO_ENUMS, IMAGE_SIZE_ENUMS, MAX_IMAGE_PIXELS} from "../../config/constants";
 import {logGeminiStart, logGeminiSuccess, logGeminiFailure, type GeminiKeyLabel} from "../../utils/safe-logging";
 import type {AppConfig} from "../../config/env";
 import type {TryOnProvider, ReadableAsset} from "../../types/provider.types";
@@ -105,7 +105,7 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
   // failure here never blocks generation.
   private async shrinkForModel(file: ReadableAsset): Promise<ReadableAsset> {
     try {
-      const image = sharp(file.buffer).rotate();
+      const image = sharp(file.buffer, {limitInputPixels: MAX_IMAGE_PIXELS}).rotate();
       const metadata = await image.metadata();
       const longestSide = Math.max(metadata.width || 0, metadata.height || 0);
       if (longestSide <= this.maxInputDimension) return file;

@@ -50,6 +50,12 @@ class NeraApiClient {
   final Duration requestTimeout;
   String? accessToken;
 
+  /// Invoked whenever a request that carried a bearer token comes back 401
+  /// — the session was revoked/expired server-side. Left unset by default;
+  /// [RemoteNeraBackend] wires it to force a clean logout instead of every
+  /// screen surfacing its own raw "unauthorized" error.
+  void Function()? onUnauthorized;
+
   Future<Map<String, dynamic>> get(String path) => _send('GET', path);
   Future<Map<String, dynamic>> post(
     String path,
@@ -66,6 +72,7 @@ class NeraApiClient {
     Uint8List bytes,
     String fileName,
   ) async {
+    final hadToken = accessToken != null;
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'));
     if (accessToken != null) {
       request.headers['authorization'] = 'Bearer $accessToken';
@@ -87,6 +94,7 @@ class NeraApiClient {
       return _decode(
         streamed.statusCode,
         await streamed.stream.bytesToString(),
+        hadToken: hadToken,
       );
     } on TimeoutException {
       throw const NeraException(
@@ -138,6 +146,7 @@ class NeraApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
   }) async {
+    final hadToken = accessToken != null;
     final headers = <String, String>{
       'content-type': 'application/json',
       if (accessToken != null) 'authorization': 'Bearer $accessToken',
@@ -150,7 +159,7 @@ class NeraApiClient {
         await _client.send(request).timeout(timeout ?? requestTimeout),
       );
       if (response.statusCode == 204) return const {};
-      return _decode(response.statusCode, response.body);
+      return _decode(response.statusCode, response.body, hadToken: hadToken);
     } on TimeoutException {
       throw const NeraException(
         'The server took too long to respond.',
@@ -163,7 +172,11 @@ class NeraApiClient {
     }
   }
 
-  Map<String, dynamic> _decode(int statusCode, String body) {
+  Map<String, dynamic> _decode(
+    int statusCode,
+    String body, {
+    bool hadToken = false,
+  }) {
     Map<String, dynamic> json;
     try {
       json = jsonDecode(body) as Map<String, dynamic>;
@@ -182,6 +195,11 @@ class NeraApiClient {
           'code=${errorCode ?? 'UNKNOWN'} message=$errorMessage',
         );
       }
+      // Only a 401 on a request that actually carried a bearer token means
+      // "the session was revoked/expired" — an unauthenticated endpoint
+      // (e.g. a wrong OTP on /auth/otp/verify) can also return 401 for an
+      // unrelated reason and must not force a logout.
+      if (statusCode == 401 && hadToken) onUnauthorized?.call();
       throw NeraException(
         errorMessage,
         code: errorCode,

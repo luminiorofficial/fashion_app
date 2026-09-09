@@ -47,6 +47,16 @@ class LocationService {
   DateTime? _cachedAt;
   Future<LocationResult>? _inFlight;
 
+  /// Drops any cached result so the next [getCurrentLocation] call re-checks
+  /// permission/service state from scratch, instead of replaying a stale
+  /// failure for up to [cacheDuration]. Callers use this after the user
+  /// might have changed location settings out-of-band (e.g. granting
+  /// permission in system Settings and returning to the app).
+  void invalidateCache() {
+    _cachedResult = null;
+    _cachedAt = null;
+  }
+
   Future<LocationResult> getCurrentLocation() {
     final cachedAt = _cachedAt;
     if (_cachedResult != null &&

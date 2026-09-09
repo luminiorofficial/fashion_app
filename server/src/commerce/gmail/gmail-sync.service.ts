@@ -121,10 +121,19 @@ export class GmailSyncService {
 
   // A single message's parse/record failure never aborts the whole sync —
   // it's marked processed either way so a permanently-unparseable message
-  // doesn't retry forever.
+  // doesn't retry forever. A *fetch* failure (Gmail API timeout/5xx/rate
+  // limit) is different: the message is left unprocessed so the next sync
+  // retries it, instead of a transient hiccup permanently dropping an order
+  // email that was never actually looked at.
   private async processMessage(connection: GmailConnection, accessToken: string, messageId: string): Promise<void> {
+    let message;
     try {
-      const message = await this.gmailClient.getMessage(accessToken, messageId);
+      message = await this.gmailClient.getMessage(accessToken, messageId);
+    } catch (error) {
+      safeOperationalError("Gmail message fetch failed", error, {connectionId: connection.id});
+      return;
+    }
+    try {
       const parsed = this.parser.parse(message);
       if (parsed) await this.purchaseImportService.recordParsedOrder(connection.userId, connection.id, message, parsed);
     } catch (error) {

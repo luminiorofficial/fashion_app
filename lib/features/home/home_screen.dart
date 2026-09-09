@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
+import '../../services/location_service.dart';
 import '../styling/occasion_grid.dart';
 import '../wardrobe/wardrobe_item_image.dart';
 
@@ -18,6 +19,8 @@ class HomeScreen extends StatelessWidget {
     required this.onOpenWardrobe,
     required this.weatherLoading,
     this.weather,
+    this.locationStatus,
+    this.onRetryWeather,
     this.error,
   });
 
@@ -31,6 +34,8 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onOpenWardrobe;
   final WeatherSummary? weather;
   final bool weatherLoading;
+  final LocationAccessStatus? locationStatus;
+  final VoidCallback? onRetryWeather;
 
   @override
   Widget build(BuildContext context) => CustomScrollView(
@@ -51,6 +56,13 @@ class HomeScreen extends StatelessWidget {
                       (profile.profileImageUrl?.isNotEmpty ?? false)
                       ? NetworkImage(profile.profileImageUrl!)
                       : null,
+                  // A broken/expired signed URL must fall back to the
+                  // person icon below instead of the framework's default
+                  // unhandled-image-error report.
+                  onForegroundImageError:
+                      (profile.profileImageUrl?.isNotEmpty ?? false)
+                      ? (_, _) {}
+                      : null,
                   child: const Icon(
                     Icons.person_rounded,
                     color: NeraColors.gold,
@@ -65,7 +77,12 @@ class HomeScreen extends StatelessWidget {
             ),
             Text(_firstName(user?.name), style: NeraTheme.heading(32)),
             const SizedBox(height: NeraSpacing.md),
-            _WeatherDisplay(weather: weather, loading: weatherLoading),
+            _WeatherDisplay(
+              weather: weather,
+              loading: weatherLoading,
+              locationStatus: locationStatus,
+              onRetry: onRetryWeather,
+            ),
             const SizedBox(height: NeraSpacing.xxl),
             if (error != null)
               NeraErrorState(message: error!, onRetry: onRetry)
@@ -184,51 +201,88 @@ class HomeScreen extends StatelessWidget {
 }
 
 class _WeatherDisplay extends StatelessWidget {
-  const _WeatherDisplay({required this.weather, required this.loading});
+  const _WeatherDisplay({
+    required this.weather,
+    required this.loading,
+    this.locationStatus,
+    this.onRetry,
+  });
 
   final WeatherSummary? weather;
   final bool loading;
+  final LocationAccessStatus? locationStatus;
+  final VoidCallback? onRetry;
+
+  String _unavailableMessage() {
+    switch (locationStatus) {
+      case LocationAccessStatus.deniedForever:
+        return 'Enable location in Settings for weather';
+      case LocationAccessStatus.denied:
+        return 'Allow location for local weather';
+      case LocationAccessStatus.servicesDisabled:
+        return 'Turn on location services for weather';
+      case LocationAccessStatus.unavailable:
+      case LocationAccessStatus.available:
+      case null:
+        return 'Local weather unavailable';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final weather = this.weather;
+    final canRetry = weather == null && !loading && onRetry != null;
+    final message = weather == null
+        ? loading
+              ? 'Checking local weather…'
+              : _unavailableMessage()
+        : '${weather.temperatureC.round()}°C  ·  ${weather.condition}  ·  ${weather.rainProbabilityPercent}% rain';
+
+    final chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: NeraColors.surfaceElevated,
+        borderRadius: BorderRadius.circular(NeraRadius.pill),
+        border: Border.all(color: NeraColors.surfaceBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            weather == null
+                ? (canRetry ? Icons.refresh_rounded : Icons.cloud_outlined)
+                : _weatherIcon(weather),
+            size: 18,
+            color: weather == null ? NeraColors.muted : NeraColors.gold,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              message,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+          ),
+        ],
+      ),
+    );
+
     return Semantics(
       label: weather == null
           ? loading
                 ? 'Loading local weather'
-                : 'Local weather unavailable'
+                : message
           : 'Local weather: ${weather.temperatureC.round()} degrees, ${weather.condition}',
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        decoration: BoxDecoration(
-          color: NeraColors.surfaceElevated,
-          borderRadius: BorderRadius.circular(NeraRadius.pill),
-          border: Border.all(color: NeraColors.surfaceBorder),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              weather == null ? Icons.cloud_outlined : _weatherIcon(weather),
-              size: 18,
-              color: weather == null ? NeraColors.muted : NeraColors.gold,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                weather == null
-                    ? loading
-                          ? 'Checking local weather…'
-                          : 'Local weather unavailable'
-                    : '${weather.temperatureC.round()}°C  ·  ${weather.condition}  ·  ${weather.rainProbabilityPercent}% rain',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ),
-          ],
-        ),
-      ),
+      hint: canRetry ? 'Double tap to try again' : null,
+      button: canRetry,
+      child: canRetry
+          ? InkWell(
+              onTap: onRetry,
+              borderRadius: BorderRadius.circular(NeraRadius.pill),
+              child: chip,
+            )
+          : chip,
     );
   }
 

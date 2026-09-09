@@ -30,19 +30,48 @@ class NeraShell extends StatefulWidget {
   State<NeraShell> createState() => _NeraShellState();
 }
 
-class _NeraShellState extends State<NeraShell> {
+class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
   late Stream<List<WardrobeItem>> _wardrobeStream;
   late Stream<StyleProfile> _profileStream;
   int _tab = 0;
   bool _generating = false;
   bool _weatherLoading = true;
   WeatherSummary? _weather;
+  LocationAccessStatus? _locationStatus;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _resetStreams();
     unawaited(_loadWeather());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Location permission/service state can only change while the app is
+    // backgrounded (the user granting it in system Settings, or turning GPS
+    // on, then switching back). Re-check on resume, but only when the last
+    // attempt didn't already succeed — a healthy reading stays cached for
+    // its normal TTL instead of re-fetching on every app switch.
+    if (state == AppLifecycleState.resumed &&
+        _locationStatus != null &&
+        _locationStatus != LocationAccessStatus.available) {
+      widget.locationService.invalidateCache();
+      unawaited(_loadWeather());
+    }
+  }
+
+  Future<void> _retryWeather() async {
+    setState(() => _weatherLoading = true);
+    widget.locationService.invalidateCache();
+    await _loadWeather();
   }
 
   Future<void> _loadWeather() async {
@@ -60,6 +89,7 @@ class _NeraShellState extends State<NeraShell> {
     setState(() {
       _weather = weather;
       _weatherLoading = false;
+      _locationStatus = location.status;
     });
   }
 
@@ -187,6 +217,8 @@ class _NeraShellState extends State<NeraShell> {
             onOpenWardrobe: () => setState(() => _tab = 1),
             weather: _weather,
             weatherLoading: _weatherLoading,
+            locationStatus: _locationStatus,
+            onRetryWeather: _retryWeather,
           ),
           WardrobeScreen(
             backend: widget.backend,

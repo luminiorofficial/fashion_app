@@ -49,7 +49,8 @@ class FakeGmailApiClient implements GmailApiClient {
     return {accessToken: `access-refreshed-${refreshToken}`, refreshToken: null, expiresInSeconds: 3600, scope: null, tokenType: "Bearer"};
   }
   async revokeToken(token: string): Promise<void> { this.revokedTokens.push(token); }
-  async getUserEmail(): Promise<string> { return "shopper@gmail.com"; }
+  email = "shopper@gmail.com";
+  async getUserEmail(): Promise<string> { return this.email; }
   async listMessageIds(): Promise<{ids: string[]; nextPageToken: string | null}> {
     return {ids: [...this.messageIdsQueue], nextPageToken: null};
   }
@@ -231,6 +232,48 @@ test("refreshes a near-expired access token before syncing and persists the new 
   const refreshed = await repositories.gmail.getConnectionById(connection!.id);
   assert.equal(refreshed?.status, "connected");
   assert.ok(new Date(refreshed!.accessTokenExpiresAt as string).getTime() > Date.now());
+});
+
+test("reconnecting under a different Google account resets the sync window instead of continuing as an incremental sync", async () => {
+  const {app, repositories, gmailApiClient} = fixture();
+  const token = await register(app);
+  await connectGmail(app, token);
+
+  const me = await request(app).get("/api/v1/me").set("authorization", `Bearer ${token}`).expect(200);
+  gmailApiClient.messagesById.set(deliveredFashionMessage.id, deliveredFashionMessage);
+  gmailApiClient.messageIdsQueue = [deliveredFashionMessage.id];
+  await request(app).post("/api/v1/commerce/gmail/sync").set("authorization", `Bearer ${token}`).send().expect(200);
+
+  const afterFirstSync = await repositories.gmail.getConnectionByUserId(me.body.user.id as string);
+  assert.ok(afterFirstSync?.lastSyncedAt);
+  assert.ok(afterFirstSync?.initialSyncCompletedAt);
+
+  await request(app).delete("/api/v1/commerce/gmail/connection").set("authorization", `Bearer ${token}`).send().expect(204);
+  gmailApiClient.email = "different-person@gmail.com";
+  await connectGmail(app, token);
+
+  const afterReconnect = await repositories.gmail.getConnectionByUserId(me.body.user.id as string);
+  assert.equal(afterReconnect?.googleEmail, "different-person@gmail.com");
+  assert.equal(afterReconnect?.lastSyncedAt, null);
+  assert.equal(afterReconnect?.initialSyncCompletedAt, null);
+});
+
+test("reconnecting under the same Google account preserves the sync window (stays an incremental sync)", async () => {
+  const {app, repositories, gmailApiClient} = fixture();
+  const token = await register(app);
+  await connectGmail(app, token);
+
+  const me = await request(app).get("/api/v1/me").set("authorization", `Bearer ${token}`).expect(200);
+  gmailApiClient.messagesById.set(deliveredFashionMessage.id, deliveredFashionMessage);
+  gmailApiClient.messageIdsQueue = [deliveredFashionMessage.id];
+  await request(app).post("/api/v1/commerce/gmail/sync").set("authorization", `Bearer ${token}`).send().expect(200);
+
+  await request(app).delete("/api/v1/commerce/gmail/connection").set("authorization", `Bearer ${token}`).send().expect(204);
+  await connectGmail(app, token);
+
+  const afterReconnect = await repositories.gmail.getConnectionByUserId(me.body.user.id as string);
+  assert.ok(afterReconnect?.lastSyncedAt);
+  assert.ok(afterReconnect?.initialSyncCompletedAt);
 });
 
 test("the OAuth callback never returns a JSON error, even on an invalid state", async () => {

@@ -1,5 +1,6 @@
 import type {Request, Response} from "express";
-import {assert} from "../utils/api-error";
+import {assert, ApiError} from "../utils/api-error";
+import {safeOperationalError} from "../utils/safe-logging";
 import {toPublicGmailConnectionStatus} from "../types/commerce.types";
 import type {GmailOAuthService} from "../commerce/gmail/gmail-oauth.service";
 import type {GmailSyncService} from "../commerce/gmail/gmail-sync.service";
@@ -46,7 +47,13 @@ export class CommerceController {
       assert(typeof code === "string" && typeof state === "string", 400, "OAUTH_CALLBACK_INVALID", "This Google sign-in link is invalid.");
       await this.gmailOAuth.handleCallback(code, state);
       response.status(200).type("html").send(callbackPage(true, "Your Gmail account is now connected to Nera."));
-    } catch {
+    } catch (error) {
+      // OAUTH_DENIED is the user declining Google's consent screen, not a
+      // bug — skip it to avoid alert noise; every other failure (invalid/
+      // expired state, token exchange, decrypt) is worth knowing about.
+      if (!(error instanceof ApiError && error.code === "OAUTH_DENIED")) {
+        safeOperationalError("Gmail OAuth callback failed", error);
+      }
       response.status(200).type("html").send(callbackPage(false, "We could not connect your Gmail account. Please return to the app and try again."));
     }
   };

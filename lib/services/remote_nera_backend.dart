@@ -8,7 +8,11 @@ import 'nera_backend.dart';
 class RemoteNeraBackend implements NeraBackend {
   RemoteNeraBackend({NeraApiClient? api, FlutterSecureStorage? secureStorage})
     : _api = api ?? NeraApiClient(),
-      _storage = secureStorage ?? const FlutterSecureStorage();
+      _storage = secureStorage ?? const FlutterSecureStorage() {
+    _api.onUnauthorized = () {
+      unawaited(_clearLocalSession());
+    };
+  }
 
   // The backend tries up to two models (primary + fallback), each with its
   // own ~120s Gemini timeout and no same-model retry by default, so its own
@@ -139,10 +143,29 @@ class RemoteNeraBackend implements NeraBackend {
     } on Object {
       /* clear the local session regardless */
     }
+    await _clearLocalSession();
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    await _api.delete('/account');
+    // The account no longer exists, so forget the last-known user too —
+    // otherwise the login screen would greet a deleted account as
+    // "returning user".
+    await _clearLocalSession(forgetUser: true);
+  }
+
+  // Drops the local session (token + cached user/wardrobe/profile state)
+  // without contacting the server. Shared by logout() (after its own best-
+  // effort server call), deleteAccount() (after the account is already
+  // gone), and the API client's onUnauthorized hook (session already
+  // invalid server-side, so there's nothing left to revoke).
+  Future<void> _clearLocalSession({bool forgetUser = false}) async {
     await _storage.delete(key: _tokenKey);
     _api.accessToken = null;
     _userId.value = null;
     _authenticated.value = false;
+    if (forgetUser) _lastKnownUser = null;
     _currentUser.value = _lastKnownUser;
     _wardrobe.add(const []);
     _profile.add(const StyleProfile());

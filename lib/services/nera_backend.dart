@@ -20,6 +20,10 @@ abstract interface class NeraBackend {
   });
   Future<void> verifyOtp({required String challengeId, required String otp});
   Future<void> logout();
+
+  /// Permanently deletes the account server-side, then clears the local
+  /// session. There is no undo — callers must confirm with the user first.
+  Future<void> deleteAccount();
   Future<WardrobeDraft> analyzeWardrobeImage(Uint8List bytes, String fileName);
   Future<void> saveWardrobeDraft(WardrobeDraft draft);
 

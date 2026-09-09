@@ -258,6 +258,9 @@ const configSchema = z
     if (config.env === "production" && !config.publicBaseUrl.startsWith("https://")) {
       ctx.addIssue({code: z.ZodIssueCode.custom, path: ["publicBaseUrl"], message: "Production PUBLIC_BASE_URL must use HTTPS."});
     }
+    if (config.env === "production" && !config.trustProxy) {
+      ctx.addIssue({code: z.ZodIssueCode.custom, path: ["trustProxy"], message: "Production requires TRUST_PROXY=true so the real client IP (rate limiting) and HTTPS detection (HSTS) work correctly behind Vercel's proxy."});
+    }
     if (config.cloudinarySignedUrlTtlSeconds < 60 || config.cloudinarySignedUrlTtlSeconds > 3600) {
       ctx.addIssue({code: z.ZodIssueCode.custom, path: ["cloudinarySignedUrlTtlSeconds"], message: "CLOUDINARY_SIGNED_URL_TTL_SECONDS must be between 60 and 3600."});
     }

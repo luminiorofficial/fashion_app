@@ -102,6 +102,21 @@ class MemoryNeraBackend implements NeraBackend {
   }
 
   @override
+  Future<void> deleteAccount() async {
+    _authenticated.value = false;
+    _userId.value = null;
+    _currentUser.value = null;
+    _profileValue.value = null;
+    _styleProfile = const StyleProfile();
+    _items.clear();
+    _outfits.clear();
+    _purchases.clear();
+    _gmailConnected = false;
+    _wardrobeController.add(const []);
+    _profileController.add(_styleProfile);
+  }
+
+  @override
   Future<WardrobeDraft> analyzeWardrobeImage(
     Uint8List bytes,
     String fileName,

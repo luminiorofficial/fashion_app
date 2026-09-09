@@ -20,6 +20,7 @@ const productionSecurity = {
   twilioAuthToken: "test-twilio-token",
   twilioMessagingServiceSid: `MG${"2".repeat(32)}`,
   publicBaseUrl: "https://api.example.com",
+  trustProxy: true,
 };
 
 test("uses local image storage by default outside production", () => {
@@ -76,4 +77,11 @@ test("rejects every console OTP override in production", () => {
 
 test("requires production cron authentication, explicit CORS origins, and database SSL", () => {
   assert.throws(() => loadConfig({env: "production", ...cloudinary, databaseUrl, smsProvider: "twilio"}), /CRON_SECRET[\s\S]*ALLOWED_ORIGIN[\s\S]*DATABASE_SSL/);
+});
+
+test("requires TRUST_PROXY=true in production so client IP and HTTPS detection work behind Vercel's proxy", () => {
+  assert.throws(
+    () => loadConfig({env: "production", ...cloudinary, ...productionSecurity, databaseUrl, trustProxy: false}),
+    /TRUST_PROXY=true/,
+  );
 });

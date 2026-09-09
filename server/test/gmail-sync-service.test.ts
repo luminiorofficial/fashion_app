@@ -24,7 +24,10 @@ function connection(overrides: Partial<GmailConnection> = {}): GmailConnection {
   };
 }
 
-function buildService(gmailClient: GmailApiClient) {
+function buildService(
+  gmailClient: GmailApiClient,
+  overrides: {purchaseImportsRepo?: Record<string, unknown>; parser?: Record<string, unknown>; purchaseImportService?: Record<string, unknown>} = {},
+) {
   const gmailRepo = {
     getConnectionByUserId: async () => null,
     getConnectionById: async () => null,
@@ -42,10 +45,11 @@ function buildService(gmailClient: GmailApiClient) {
     markIgnored: async () => null,
     isMessageProcessed: async () => false,
     markMessageProcessed: async () => {},
+    ...overrides.purchaseImportsRepo,
   };
   const gmailOAuth = {getValidAccessToken: async () => "access-token"};
-  const parser = {getCombinedSenderQuery: () => "", parse: () => null};
-  const purchaseImportService = {recordParsedOrder: async () => {}};
+  const parser = {getCombinedSenderQuery: () => "", parse: () => null, ...overrides.parser};
+  const purchaseImportService = {recordParsedOrder: async () => {}, ...overrides.purchaseImportService};
 
   return new GmailSyncService(
     gmailRepo as never,
@@ -151,4 +155,70 @@ test("two different connections can sync concurrently without tripping each othe
   const [firstResult, secondResult] = await Promise.all([first, second]);
   assert.equal(firstResult.processed, 0);
   assert.equal(secondResult.processed, 0);
+});
+
+test("a transient Gmail message-fetch failure leaves the message unprocessed so a later sync retries it", async () => {
+  const markedProcessed: string[] = [];
+  const gmailClient: GmailApiClient = {
+    buildAuthUrl: () => "",
+    exchangeCode: async () => {
+      throw new Error("not used");
+    },
+    refreshAccessToken: async () => {
+      throw new Error("not used");
+    },
+    revokeToken: async () => {},
+    getUserEmail: async () => "shopper@gmail.com",
+    listMessageIds: async () => ({ids: ["msg-transient-failure"], nextPageToken: null}),
+    getMessage: async () => {
+      throw new Error("Gmail API timeout");
+    },
+  };
+  const service = buildService(gmailClient, {
+    purchaseImportsRepo: {
+      isMessageProcessed: async () => false,
+      markMessageProcessed: async (_connectionId: string, messageId: string) => {
+        markedProcessed.push(messageId);
+      },
+    },
+  });
+
+  const result = await service.syncConnection(connection());
+  assert.equal(result.processed, 1, "the run still accounts for the message toward its per-run cap");
+  assert.deepEqual(markedProcessed, [], "a fetch failure must not be marked processed, so the next sync retries it");
+});
+
+test("a message that fails to parse/record is still marked processed so it isn't retried forever", async () => {
+  const markedProcessed: string[] = [];
+  const gmailClient: GmailApiClient = {
+    buildAuthUrl: () => "",
+    exchangeCode: async () => {
+      throw new Error("not used");
+    },
+    refreshAccessToken: async () => {
+      throw new Error("not used");
+    },
+    revokeToken: async () => {},
+    getUserEmail: async () => "shopper@gmail.com",
+    listMessageIds: async () => ({ids: ["msg-bad-parse"], nextPageToken: null}),
+    getMessage: async () => ({id: "msg-bad-parse", internalDate: String(Date.now()), from: "auto-confirm@amazon.in", subject: "", textBody: "", htmlBody: ""}),
+  };
+  const service = buildService(gmailClient, {
+    parser: {
+      getCombinedSenderQuery: () => "",
+      parse: () => {
+        throw new Error("malformed message");
+      },
+    },
+    purchaseImportsRepo: {
+      isMessageProcessed: async () => false,
+      markMessageProcessed: async (_connectionId: string, messageId: string) => {
+        markedProcessed.push(messageId);
+      },
+    },
+  });
+
+  const result = await service.syncConnection(connection());
+  assert.equal(result.processed, 1);
+  assert.deepEqual(markedProcessed, ["msg-bad-parse"], "a parse-level failure is still marked processed so it doesn't retry forever");
 });
