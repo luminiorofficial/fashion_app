@@ -38,9 +38,9 @@ CREATE INDEX media_assets_orphan_scan_idx ON media_assets (created_at) WHERE del
 CREATE INDEX analysis_jobs_cleanup_idx ON analysis_jobs (created_at);
 CREATE INDEX tryon_unsaved_cleanup_idx ON tryon_requests (created_at) WHERE is_saved = false;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON rate_limit_buckets, ai_usage_events TO nera_app;
-GRANT DELETE ON otp_challenges, auth_sessions, media_assets, analysis_jobs, user_style_profiles,
-  user_measurements, wardrobe_items, outfits, outfit_feedback, tryon_requests, audit_events TO nera_app;
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON rate_limit_buckets, ai_usage_events TO nera_app;
+-- GRANT DELETE ON otp_challenges, auth_sessions, media_assets, analysis_jobs, user_style_profiles,
+  -- user_measurements, wardrobe_items, outfits, outfit_feedback, tryon_requests, audit_events TO nera_app;
 
 INSERT INTO schema_migrations (version) VALUES ('005_production_hardening');
 
