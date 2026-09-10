@@ -108,7 +108,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Dress Me Today'), findsOneWidget);
+    expect(find.text('What are you dressing for?'), findsOneWidget);
     expect(find.text('Create Profile'), findsNothing);
   });
 
@@ -143,7 +143,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('NERA'), findsNWidgets(2));
-    expect(find.text('Dress Me Today'), findsOneWidget);
+    expect(find.text('What are you dressing for?'), findsOneWidget);
     expect(find.text('Wedding'), findsOneWidget);
 
     await tester.tap(find.text('Wardrobe'));
@@ -320,7 +320,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // The profile is now analyzed, so the app has moved on to home.
-      expect(find.text('Dress Me Today'), findsOneWidget);
+      expect(find.text('What are you dressing for?'), findsOneWidget);
       expect(find.text('Create Profile'), findsNothing);
 
       await tester.tap(find.text('Profile'));

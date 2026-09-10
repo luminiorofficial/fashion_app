@@ -4,7 +4,6 @@ import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
 import '../../services/location_service.dart';
-import '../styling/occasion_grid.dart';
 import '../wardrobe/wardrobe_item_image.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -42,15 +41,20 @@ class HomeScreen extends StatelessWidget {
     physics: const BouncingScrollPhysics(),
     slivers: [
       SliverPadding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+        padding: const EdgeInsets.fromLTRB(
+          NeraSpacing.xl,
+          NeraSpacing.lg,
+          NeraSpacing.xl,
+          120,
+        ),
         sliver: SliverList.list(
           children: [
             Row(
               children: [
-                const NeraWordmark(size: 34),
+                const NeraWordmark(size: 30),
                 const Spacer(),
                 CircleAvatar(
-                  radius: 22,
+                  radius: 21,
                   backgroundColor: NeraColors.surfaceElevated,
                   foregroundImage:
                       (profile.profileImageUrl?.isNotEmpty ?? false)
@@ -64,140 +68,188 @@ class HomeScreen extends StatelessWidget {
                       ? (_, _) {}
                       : null,
                   child: const Icon(
-                    Icons.person_rounded,
+                    Icons.person_outline_rounded,
                     color: NeraColors.textSecondary,
+                    size: 21,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: NeraSpacing.xxl),
             Text(
-              'Good to see you,',
-              style: Theme.of(context).textTheme.bodyLarge,
+              '${_dayPartGreeting(DateTime.now())}, ${_firstName(user?.name)}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: NeraTheme.heading(27, letterSpacing: -0.4),
             ),
-            Text(_firstName(user?.name), style: NeraTheme.heading(32)),
-            const SizedBox(height: NeraSpacing.md),
+            const SizedBox(height: NeraSpacing.sm),
             _WeatherDisplay(
               weather: weather,
               loading: weatherLoading,
               locationStatus: locationStatus,
               onRetry: onRetryWeather,
             ),
-            const SizedBox(height: NeraSpacing.xxl),
+            const SizedBox(height: NeraSpacing.xxxl),
             if (error != null)
               NeraErrorState(message: error!, onRetry: onRetry)
             else if (loading)
               const _HomeSkeleton()
             else ...[
-              NeraCard(
-                highlighted: true,
-                padding: const EdgeInsets.all(NeraSpacing.xl),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: NeraColors.surface,
-                            borderRadius: BorderRadius.circular(NeraRadius.sm),
-                            border: Border.all(color: NeraColors.surfaceBorder),
-                          ),
-                          child: const Icon(
-                            Icons.auto_awesome_rounded,
-                            color: NeraColors.ink,
-                          ),
-                        ),
-                        const SizedBox(width: NeraSpacing.md),
-                        Expanded(
-                          child: Text(
-                            'Dress Me Today',
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Choose where you are going. NERA will style a complete look from your wardrobe.',
-                    ),
-                    const SizedBox(height: NeraSpacing.lg),
-                    OccasionGrid(onSelected: onOccasion),
-                    if (wardrobe.length < 2) ...[
-                      const SizedBox(height: NeraSpacing.md),
-                      Text(
-                        'Add ${2 - wardrobe.length} more ${wardrobe.length == 1 ? 'item' : 'items'} for complete outfit suggestions.',
-                        style: const TextStyle(color: NeraColors.textSecondary),
-                      ),
-                    ],
-                  ],
-                ),
+              Text(
+                'What are you dressing for?',
+                style: NeraTheme.heading(24, letterSpacing: -0.3),
               ),
-              const SizedBox(height: NeraSpacing.xxl),
+              const SizedBox(height: NeraSpacing.sm),
+              Text(
+                'Choose an occasion and NERA will create a complete look from your wardrobe.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: NeraSpacing.lg),
+              _OccasionStrip(onSelected: onOccasion),
+              if (wardrobe.length < 2) ...[
+                const SizedBox(height: NeraSpacing.md),
+                Text(
+                  'Add ${2 - wardrobe.length} more ${wardrobe.length == 1 ? 'item' : 'items'} for complete outfit suggestions.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: NeraColors.muted,
+                  ),
+                ),
+              ],
+              const SizedBox(height: NeraSpacing.xxxl),
               NeraSectionHeader(
-                'Your wardrobe',
-                subtitle: wardrobe.isEmpty
-                    ? 'Start building your digital closet'
-                    : '${wardrobe.length} pieces ready to style',
+                'Your Wardrobe',
+                subtitle:
+                    '${wardrobe.length} ${wardrobe.length == 1 ? 'piece' : 'pieces'} ready to style',
                 action: TextButton(
                   onPressed: onOpenWardrobe,
                   child: const Text('View all'),
                 ),
               ),
-              const SizedBox(height: NeraSpacing.md),
+              const SizedBox(height: NeraSpacing.lg),
               if (wardrobe.isEmpty)
-                NeraCard(
-                  onTap: onOpenWardrobe,
-                  child: NeraEmptyState(
-                    icon: Icons.add_photo_alternate_rounded,
-                    title: 'Your closet is empty!',
-                    message:
-                        'Add clear photos of your clothes to unlock personal styling.',
-                    action: FilledButton.icon(
-                      onPressed: onOpenWardrobe,
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('Upload Wardrobe'),
-                    ),
-                  ),
-                )
+                _EmptyWardrobe(onAdd: onOpenWardrobe)
               else
-                SizedBox(
-                  height: 154,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: wardrobe.take(8).length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 12),
-                    itemBuilder: (context, index) {
-                      final item = wardrobe[index];
-                      return SizedBox(
-                        width: 112,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            WardrobeItemImage(item: item, size: 112),
-                            const SizedBox(height: 6),
-                            Text(
-                              item.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelLarge,
-                            ),
-                            Text(
-                              item.category,
-                              style: Theme.of(context).textTheme.labelSmall,
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
+                _WardrobePreview(wardrobe: wardrobe),
             ],
           ],
         ),
       ),
     ],
+  );
+}
+
+class _OccasionStrip extends StatelessWidget {
+  const _OccasionStrip({required this.onSelected});
+
+  final ValueChanged<OccasionType> onSelected;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 48,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: OccasionType.values.length,
+      separatorBuilder: (_, _) => const SizedBox(width: NeraSpacing.sm),
+      itemBuilder: (context, index) {
+        final occasion = OccasionType.values[index];
+        return OutlinedButton.icon(
+          onPressed: () => onSelected(occasion),
+          icon: Icon(occasion.icon, size: 18),
+          label: Text(occasion.label),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: NeraColors.textPrimary,
+            backgroundColor: NeraColors.surface,
+            side: const BorderSide(color: NeraColors.surfaceBorder),
+            minimumSize: const Size(0, 48),
+            padding: const EdgeInsets.symmetric(horizontal: NeraSpacing.lg),
+            textStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(NeraRadius.pill),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class _EmptyWardrobe extends StatelessWidget {
+  const _EmptyWardrobe({required this.onAdd});
+
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: NeraSpacing.lg),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Build your wardrobe',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: NeraSpacing.sm),
+        Text(
+          'Add a few pieces so NERA can start creating personalized looks.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: NeraSpacing.lg),
+        FilledButton(
+          onPressed: onAdd,
+          child: const Text('Add Clothes'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _WardrobePreview extends StatelessWidget {
+  const _WardrobePreview({required this.wardrobe});
+
+  final List<WardrobeItem> wardrobe;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 174,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: wardrobe.take(8).length,
+      separatorBuilder: (_, _) => const SizedBox(width: NeraSpacing.md),
+      itemBuilder: (context, index) {
+        final item = wardrobe[index];
+        return SizedBox(
+          width: 124,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              WardrobeItemImage(item: item, size: 124),
+              const SizedBox(height: NeraSpacing.sm),
+              Text(
+                item.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: NeraColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: NeraSpacing.xs),
+              Text(
+                item.category,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: NeraColors.muted,
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
   );
 }
 
@@ -239,30 +291,26 @@ class _WeatherDisplay extends StatelessWidget {
               : _unavailableMessage()
         : '${weather.temperatureC.round()}°C  ·  ${weather.condition}  ·  ${weather.rainProbabilityPercent}% rain';
 
-    final chip = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: NeraColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(NeraRadius.pill),
-        border: Border.all(color: NeraColors.surfaceBorder),
-      ),
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(vertical: NeraSpacing.xs),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             weather == null
                 ? (canRetry ? Icons.refresh_rounded : Icons.cloud_outlined)
                 : _weatherIcon(weather),
-            size: 18,
-            color: weather == null ? NeraColors.muted : NeraColors.ink,
+            size: 16,
+            color: NeraColors.muted,
           ),
-          const SizedBox(width: 8),
-          Flexible(
+          const SizedBox(width: NeraSpacing.sm),
+          Expanded(
             child: Text(
               message,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelMedium,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: NeraColors.textSecondary,
+              ),
             ),
           ),
         ],
@@ -278,12 +326,15 @@ class _WeatherDisplay extends StatelessWidget {
       hint: canRetry ? 'Double tap to try again' : null,
       button: canRetry,
       child: canRetry
-          ? InkWell(
-              onTap: onRetry,
-              borderRadius: BorderRadius.circular(NeraRadius.pill),
-              child: chip,
+          ? ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: InkWell(
+                onTap: onRetry,
+                borderRadius: BorderRadius.circular(NeraRadius.sm),
+                child: content,
+              ),
             )
-          : chip,
+          : content,
     );
   }
 
@@ -304,15 +355,52 @@ String _firstName(String? name) {
   return clean.isEmpty ? 'beautiful' : clean.split(RegExp(r'\s+')).first;
 }
 
+String _dayPartGreeting(DateTime now) {
+  if (now.hour < 12) return 'Good morning';
+  if (now.hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
 class _HomeSkeleton extends StatelessWidget {
   const _HomeSkeleton();
 
   @override
-  Widget build(BuildContext context) => const Column(
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      NeraSkeleton(width: double.infinity, height: 390, radius: NeraRadius.md),
-      SizedBox(height: NeraSpacing.xxl),
-      NeraSkeleton(width: double.infinity, height: 150, radius: NeraRadius.md),
+      const NeraSkeleton(width: 250, height: 26),
+      const SizedBox(height: NeraSpacing.md),
+      const NeraSkeleton(width: double.infinity, height: 14),
+      const SizedBox(height: NeraSpacing.xl),
+      SizedBox(
+        height: 48,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: 4,
+          separatorBuilder: (_, _) => const SizedBox(width: NeraSpacing.sm),
+          itemBuilder: (_, _) => const NeraSkeleton(
+            width: 104,
+            height: 48,
+            radius: NeraRadius.pill,
+          ),
+        ),
+      ),
+      const SizedBox(height: NeraSpacing.xxxl),
+      const NeraSkeleton(width: 170, height: 22),
+      const SizedBox(height: NeraSpacing.lg),
+      SizedBox(
+        height: 124,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: 3,
+          separatorBuilder: (_, _) => const SizedBox(width: NeraSpacing.md),
+          itemBuilder: (_, _) => const NeraSkeleton(
+            width: 124,
+            height: 124,
+            radius: NeraRadius.sm,
+          ),
+        ),
+      ),
     ],
   );
 }
