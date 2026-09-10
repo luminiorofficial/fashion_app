@@ -255,35 +255,49 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
             bottom: false,
             child: IndexedStack(index: _tab, children: pages),
           ),
-          bottomNavigationBar: SafeArea(
-            minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: NeraColors.surface,
-                borderRadius: BorderRadius.circular(NeraRadius.lg),
-                border: Border.all(color: NeraColors.surfaceBorder),
-                boxShadow: [
-                  BoxShadow(
-                    color: NeraColors.ink.withValues(alpha: .06),
-                    blurRadius: 16,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+          bottomNavigationBar: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: NeraColors.surface,
+              border: Border(
+                top: BorderSide(color: NeraColors.divider),
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(NeraRadius.lg),
+            ),
+            child: SafeArea(
+              top: false,
+              child: NavigationBarTheme(
+                data: NavigationBarThemeData(
+                  height: 64,
+                  backgroundColor: NeraColors.surface,
+                  elevation: 0,
+                  surfaceTintColor: Colors.transparent,
+                  indicatorColor: Colors.transparent,
+                  iconTheme: WidgetStateProperty.resolveWith((states) {
+                    final selected = states.contains(WidgetState.selected);
+                    return IconThemeData(
+                      color: selected ? NeraColors.ink : NeraColors.muted,
+                      size: 23,
+                    );
+                  }),
+                  labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                    final selected = states.contains(WidgetState.selected);
+                    return Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: selected ? NeraColors.ink : NeraColors.muted,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                      fontSize: 11,
+                      letterSpacing: 0,
+                    );
+                  }),
+                ),
                 child: NavigationBar(
                   selectedIndex: _tab,
                   onDestinationSelected: (value) =>
                       setState(() => _tab = value),
-                  backgroundColor: Colors.transparent,
-                  indicatorColor: NeraColors.surfaceElevated,
                   labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
                   destinations: const [
                     NavigationDestination(
                       icon: Icon(Icons.home_outlined),
                       selectedIcon: Icon(Icons.home_rounded),
-                      label: 'Home',
+                      label: 'Today',
                     ),
                     NavigationDestination(
                       icon: Icon(Icons.checkroom_outlined),
@@ -293,7 +307,7 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
                     NavigationDestination(
                       icon: Icon(Icons.auto_awesome_outlined),
                       selectedIcon: Icon(Icons.auto_awesome_rounded),
-                      label: 'Style',
+                      label: 'NERA',
                     ),
                     NavigationDestination(
                       icon: Icon(Icons.person_outline_rounded),

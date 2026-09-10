@@ -142,7 +142,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('NERA'), findsOneWidget);
+    expect(find.text('NERA'), findsNWidgets(2));
     expect(find.text('Dress Me Today'), findsOneWidget);
     expect(find.text('Wedding'), findsOneWidget);
 
@@ -360,7 +360,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Style'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('NERA'),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, -180));
     await tester.pumpAndSettle();
