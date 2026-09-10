@@ -90,7 +90,7 @@ CREATE TABLE gmail_processed_messages (
 CREATE TRIGGER gmail_connections_set_updated_at BEFORE UPDATE ON gmail_connections FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER purchase_imports_set_updated_at BEFORE UPDATE ON purchase_imports FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON gmail_connections, purchase_imports, gmail_processed_messages TO nera_app;
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON gmail_connections, purchase_imports, gmail_processed_messages TO nera_app;
 
 INSERT INTO schema_migrations (version) VALUES ('006_gmail_commerce_integration');
 

@@ -393,7 +393,7 @@ function readEnvConfig(overrides: ConfigOverrides): Omit<AppConfig, "imageStorag
     aiDailyProfileAnalysisLimit: readNumber(process.env.AI_DAILY_PROFILE_ANALYSIS_LIMIT, 3),
     aiDailyWardrobeAnalysisLimit: readNumber(process.env.AI_DAILY_WARDROBE_ANALYSIS_LIMIT, 30),
     aiDailyOutfitGenerationLimit: readNumber(process.env.AI_DAILY_OUTFIT_GENERATION_LIMIT, 30),
-    aiDailyTryonLimit: readNumber(process.env.AI_DAILY_TRYON_LIMIT, 5),
+    aiDailyTryonLimit: readNumber(process.env.AI_DAILY_TRYON_LIMIT, 100),
     aiMonthlyProfileAnalysisLimit: readNumber(process.env.AI_MONTHLY_PROFILE_ANALYSIS_LIMIT, 20),
     aiMonthlyWardrobeAnalysisLimit: readNumber(process.env.AI_MONTHLY_WARDROBE_ANALYSIS_LIMIT, 300),
     aiMonthlyOutfitGenerationLimit: readNumber(process.env.AI_MONTHLY_OUTFIT_GENERATION_LIMIT, 300),

@@ -183,11 +183,63 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
       return {ok: false, error: new ApiError(504, "TRYON_TIMEOUT", "The try-on service timed out. Please retry.")};
     }
 
-    if (!response.ok) {
-      const parsed = await this.parseError(response);
-      this.logDevelopment(`Gemini HTTP error: model=${model} status=${response.status} code=${parsed.code}`);
-      return {ok: false, error: new ApiError(parsed.status, parsed.code, parsed.message, parsed.details)};
-    }
+   if (!response.ok) {
+  const errorBody = await response.text();
+
+  console.error("[Gemini IMAGE provider error]", {
+    status: response.status,
+    model,
+    body: errorBody,
+  });
+
+  let providerMessage = "";
+  try {
+    const parsedBody = JSON.parse(errorBody) as {
+      error?: {
+        message?: string;
+        status?: string;
+      };
+    };
+
+    providerMessage = parsedBody.error?.message || "";
+  } catch {
+    // keep providerMessage empty if Google returns non-JSON
+  }
+
+  const isBillingOrQuotaIssue =
+    response.status === 429 &&
+    (
+      providerMessage.toLowerCase().includes("prepayment credits are depleted") ||
+      providerMessage.toLowerCase().includes("quota") ||
+      providerMessage.toLowerCase().includes("resource exhausted")
+    );
+
+  if (isBillingOrQuotaIssue) {
+    return {
+      ok: false,
+      error: new ApiError(
+        402,
+        "TRYON_BILLING_REQUIRED",
+        providerMessage || "Gemini image-generation quota or billing is unavailable.",
+      ),
+    };
+  }
+
+  const parsed = this.parseErrorFromStatus(response.status);
+
+  this.logDevelopment(
+    `Gemini HTTP error: model=${model} status=${response.status} code=${parsed.code}`,
+  );
+
+  return {
+    ok: false,
+    error: new ApiError(
+      parsed.status,
+      parsed.code,
+      providerMessage || parsed.message,
+    ),
+  };
+}
     this.logDevelopment(`Gemini HTTP status: model=${model} status=${response.status}`);
 
     const payload = await response.json() as {candidates?: Array<{content?: {parts?: Array<{inlineData?: {data?: string; mimeType?: string}}>} }>};
@@ -218,14 +270,22 @@ export class GeminiVirtualTryOnProvider implements TryOnProvider {
     return error;
   }
 
-  private async parseError(response: Response): Promise<{status: number; code: string; message: string; details?: unknown}> {
-    const status = response.status || 502;
-    return {
-      status: status === 429 ? 503 : status,
-      code: status === 429 ? "TRYON_PROVIDER_BUSY" : "TRYON_FAILED",
-      message: status === 429 ? "The try-on service is temporarily busy. Please try again later." : "The try-on service could not process the images.",
-    };
-  }
+  private parseErrorFromStatus(statusCode: number): {
+  status: number;
+  code: string;
+  message: string;
+} {
+  const status = statusCode || 502;
+
+  return {
+    status: status === 429 ? 503 : status,
+    code: status === 429 ? "TRYON_PROVIDER_BUSY" : "TRYON_FAILED",
+    message:
+      status === 429
+        ? "The try-on service is temporarily busy. Please try again later."
+        : "The try-on service could not process the images.",
+  };
+}
 }
 
 // A missing image-generation provider must be a real error. Echoing the

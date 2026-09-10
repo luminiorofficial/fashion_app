@@ -267,10 +267,31 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       return {ok: false, error: new ApiError(504, "ANALYSIS_TIMEOUT", "The analysis service timed out. Please retry.")};
     }
 
-    if (!response.ok) {
-      const parsed = await this.parseError(response);
-      return {ok: false, error: new ApiError(parsed.status, parsed.code, parsed.message, parsed.details)};
-    }
+if (!response.ok) {
+  const errorBody = await response.text();
+
+  console.error("[Gemini provider error]", {
+    status: response.status,
+    endpoint,
+    body: errorBody,
+  });
+
+  const billingDepleted =
+    response.status === 429 &&
+    errorBody.toLowerCase().includes("prepayment credits are depleted");
+
+  return {
+    ok: false,
+    error: new ApiError(
+      billingDepleted ? 402 : response.status || 502,
+      billingDepleted ? "AI_BILLING_REQUIRED" : "GEMINI_PROVIDER_ERROR",
+      billingDepleted
+        ? "AI credits are depleted. Please restore Gemini API billing."
+        : `Gemini request failed with status ${response.status}`,
+      {providerBody: errorBody},
+    ),
+  };
+}
 
     const payload = await response.json() as {candidates?: Array<{content?: {parts?: Array<{text?: string}>}}>};
     const output = payload.candidates?.[0]?.content?.parts?.[0]?.text;

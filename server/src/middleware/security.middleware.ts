@@ -76,6 +76,7 @@ export function createAiProtectionMiddleware(security: SecurityRepository, confi
         .catch((error) => safeOperationalError("AI usage recording failed", error, {requestId: request.requestId, operation}));
     };
     response.once("finish", record);
+response.once("close", record);
     next();
   };
   return [perWindow, quota];

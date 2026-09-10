@@ -19,6 +19,7 @@ class RemoteNeraBackend implements NeraBackend {
   // worst case is roughly 240s. This client timeout is kept a little above
   // that so a slow-but-succeeding generation isn't cancelled out from under
   // the backend before it has a chance to finish.
+  static const outfitRequestTimeout = Duration(seconds: 90);
   static const tryOnRequestTimeout = Duration(seconds: 250);
   static const _tokenKey = 'nera_access_token';
   final NeraApiClient _api;
@@ -279,13 +280,17 @@ class RemoteNeraBackend implements NeraBackend {
     StyleProfile profile, {
     LocationCoordinates? location,
   }) async {
-    final response = await _api.post('/outfits/generate', {
-      'eventType': eventType,
-      if (location != null) ...{
-        'lat': location.latitude,
-        'lng': location.longitude,
-      },
-    });
+   final response = await _api.post(
+  '/outfits/generate',
+  {
+    'eventType': eventType,
+    if (location != null) ...{
+      'lat': location.latitude,
+      'lng': location.longitude,
+    },
+  },
+  timeout: outfitRequestTimeout,
+);
     return OutfitPlan.fromJson(response['outfit'] as Map<String, dynamic>);
   }
 
