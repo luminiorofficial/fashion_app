@@ -264,7 +264,7 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
                 border: Border.all(color: NeraColors.surfaceBorder),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: .06),
+                    color: NeraColors.ink.withValues(alpha: .06),
                     blurRadius: 16,
                     offset: const Offset(0, 4),
                   ),
@@ -325,7 +325,10 @@ class _GeneratingOverlay extends StatelessWidget {
       color: NeraColors.ink,
       borderRadius: BorderRadius.circular(NeraRadius.pill),
       boxShadow: [
-        BoxShadow(color: Colors.black.withValues(alpha: .18), blurRadius: 16),
+        BoxShadow(
+          color: NeraColors.ink.withValues(alpha: .18),
+          blurRadius: 16,
+        ),
       ],
     ),
     child: const Row(

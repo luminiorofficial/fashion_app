@@ -615,7 +615,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       if (_processing)
         Positioned.fill(
           child: ColoredBox(
-            color: Colors.black.withValues(alpha: .35),
+            color: NeraColors.ink.withValues(alpha: .35),
             child: Center(
               child: NeraCard(
                 child: Column(

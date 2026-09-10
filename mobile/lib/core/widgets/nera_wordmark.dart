@@ -26,7 +26,7 @@ class NeraWordmark extends StatelessWidget {
       if (showTagline) ...[
         const SizedBox(height: 6),
         Text(
-          'PERSONAL STYLIST AI',
+          'PERSONAL STYLIST',
           style: TextStyle(
             color: NeraColors.muted,
             fontSize: size * 0.32,

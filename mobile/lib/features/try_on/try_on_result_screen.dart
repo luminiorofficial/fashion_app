@@ -235,11 +235,11 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
   Widget build(BuildContext context) => Scaffold(
     extendBodyBehindAppBar: true,
     appBar: AppBar(
-      backgroundColor: Colors.black.withValues(alpha: .25),
-      foregroundColor: Colors.white,
-      iconTheme: const IconThemeData(color: Colors.white),
+      backgroundColor: NeraColors.ink.withValues(alpha: .25),
+      foregroundColor: NeraColors.onInk,
+      iconTheme: const IconThemeData(color: NeraColors.onInk),
       titleTextStyle: const TextStyle(
-        color: Colors.white,
+        color: NeraColors.onInk,
         fontSize: 19,
         fontWeight: FontWeight.w600,
       ),
@@ -272,9 +272,9 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: .45),
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: .92),
+                  NeraColors.ink.withValues(alpha: .45),
+                  NeraColors.ink.withValues(alpha: 0),
+                  NeraColors.ink.withValues(alpha: .92),
                 ],
                 stops: const [0, .42, 1],
               ),
@@ -371,7 +371,7 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
         if (_regenerating)
           Positioned.fill(
             child: ColoredBox(
-              color: Colors.black54,
+              color: NeraColors.ink.withValues(alpha: .54),
               child: Center(
                 child: NeraCard(
                   child: Column(

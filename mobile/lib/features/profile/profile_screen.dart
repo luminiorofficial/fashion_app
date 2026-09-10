@@ -397,7 +397,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               if (_analyzing) ...[
                 const SizedBox(height: NeraSpacing.sm),
                 const Text(
-                  'Uploading photo and running AI analysis…',
+                  'Personalizing your style profile…',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: NeraColors.muted),
                 ),

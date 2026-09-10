@@ -103,16 +103,11 @@ class _ProfileCreationScreenState extends State<ProfileCreationScreen> {
                 if (_processing) ...[
                   const SizedBox(height: NeraSpacing.sm),
                   const Text(
-                    'Uploading photo and running AI analysis…',
+                    'Personalizing your style profile…',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: NeraColors.muted),
                   ),
                 ],
-                const SizedBox(height: NeraSpacing.md),
-                const Text(
-                  'Analysis is powered by Gemini AI',
-                  style: TextStyle(color: NeraColors.muted),
-                ),
               ],
             ),
           ),

@@ -4,10 +4,9 @@ import 'package:flutter/material.dart';
 /// system. Shared by every screen so the app reads as one consistent
 /// product rather than a set of independently styled pages.
 ///
-/// `ink` is the single accent color — near-black, used anywhere the old
-/// champagne-gold accent used to appear (primary buttons, selected states,
-/// active icons). Color is otherwise reserved for states that communicate
-/// real information (error/success), not decoration.
+/// `ink` is the single accent color — near-black for primary buttons,
+/// selected states, and active icons. Color is otherwise reserved for states
+/// that communicate real information (error/success), not decoration.
 abstract final class NeraColors {
   static const background = Color(0xFFFAF9F6);
   static const surface = Color(0xFFFFFFFF);
