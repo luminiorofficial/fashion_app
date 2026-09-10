@@ -69,12 +69,13 @@ void main() {
     expect(find.text('Login'), findsOneWidget);
     expect(find.text('Register'), findsOneWidget);
     expect(find.text('Full name'), findsNothing);
-    expect(find.text('Phone number'), findsNothing);
+    expect(find.text('Mobile number'), findsNothing);
 
     await tester.tap(find.text('Register'));
     await tester.pumpAndSettle();
     expect(find.text('Full name'), findsOneWidget);
     expect(find.text('Date of birth'), findsOneWidget);
+    expect(find.text('Mobile number'), findsOneWidget);
   });
 
   testWidgets(
@@ -282,11 +283,11 @@ void main() {
       await tester.enterText(find.byType(TextFormField).at(0), 'Ada Lovelace');
       await tester.enterText(find.byType(TextFormField).at(1), '1815-12-10');
       await tester.enterText(find.byType(TextFormField).at(2), '9876543210');
-      await tester.tap(find.text('Send OTP'));
+      await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Verify your phone'), findsOneWidget);
-      await tester.tap(find.text('Verify & continue'));
+      expect(find.text('Enter verification code'), findsOneWidget);
+      await tester.tap(find.text('Verify'));
       await tester.pumpAndSettle();
 
       // A brand-new user has no style profile yet, so profile creation
