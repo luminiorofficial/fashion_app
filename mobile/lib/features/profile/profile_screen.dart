@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/errors/friendly_error.dart';
 import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
@@ -46,9 +45,8 @@ class _ProfileScreenState extends State<ProfileScreen>
   bool _gmailBusy = false;
   bool _signingOut = false;
   bool _deletingAccount = false;
-  // Set right before opening the external browser for Google consent, and
-  // cleared once we've re-checked status after the app resumes — so a
-  // plain app switch (not a connect attempt) never fires an extra request.
+  // Set before opening Google consent and cleared after status is checked on
+  // return. A normal app switch therefore does not trigger another request.
   bool _awaitingGmailReturn = false;
 
   @override
@@ -75,9 +73,6 @@ class _ProfileScreenState extends State<ProfileScreen>
   Future<void> _handleGmailReturn() async {
     final wasConnected = _gmailStatus.connected;
     await _loadGmailStatus();
-    // A fresh connect (not just reopening the app mid-flow) — run the
-    // first sync automatically so purchases show up without the user
-    // having to separately find "Sync now" in the overflow menu.
     if (mounted && !wasConnected && _gmailStatus.connected) {
       await _syncGmail();
     }
@@ -88,8 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       final status = await widget.backend.getGmailStatus();
       if (mounted) setState(() => _gmailStatus = status);
     } catch (_) {
-      // Gmail integration may simply not be configured on this server;
-      // treat it the same as "not connected" rather than showing an error.
+      // An unavailable Gmail integration is presented as disconnected.
     } finally {
       if (mounted) setState(() => _gmailStatusLoading = false);
     }
@@ -108,13 +102,16 @@ class _ProfileScreenState extends State<ProfileScreen>
       }
       _awaitingGmailReturn = true;
       if (mounted) {
-        showNeraSnackBar(
-          context,
-          'Sign in with Google, then return to Nera.',
-        );
+        showNeraSnackBar(context, 'Sign in with Google, then return to Nera.');
       }
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) {
+        showNeraSnackBar(
+          context,
+          _actionError(error, "We couldn't connect Gmail. Please try again."),
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _gmailBusy = false);
     }
@@ -123,9 +120,8 @@ class _ProfileScreenState extends State<ProfileScreen>
   Future<void> _syncGmail() async {
     setState(() => _gmailBusy = true);
     try {
-      // The initial 90-day scan can exceed the backend's per-request time
-      // budget, so a sync call reports whether work remains; keep calling
-      // until it's done or this cap is hit, so the UI stays responsive.
+      // A sync reports whether more work remains. Keep the existing capped
+      // sequence so the initial scan progresses without blocking the UI.
       var hasMore = false;
       for (var round = 0; round < 5; round++) {
         final summary = await widget.backend.syncGmail();
@@ -138,12 +134,18 @@ class _ProfileScreenState extends State<ProfileScreen>
         showNeraSnackBar(
           context,
           hasMore
-              ? 'Still scanning your inbox — tap "Sync now" again to keep going.'
+              ? 'Your inbox scan is still in progress. Sync again to continue.'
               : 'Gmail sync complete.',
         );
       }
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) {
+        showNeraSnackBar(
+          context,
+          _actionError(error, "We couldn't sync Gmail. Please try again."),
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _gmailBusy = false);
     }
@@ -178,7 +180,16 @@ class _ProfileScreenState extends State<ProfileScreen>
         setState(() => _gmailStatus = GmailConnectionStatus.disconnected);
       }
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) {
+        showNeraSnackBar(
+          context,
+          _actionError(
+            error,
+            "We couldn't disconnect Gmail. Please try again.",
+          ),
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _gmailBusy = false);
     }
@@ -189,7 +200,13 @@ class _ProfileScreenState extends State<ProfileScreen>
     try {
       await widget.backend.logout();
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) {
+        showNeraSnackBar(
+          context,
+          _actionError(error, "We couldn't sign you out. Please try again."),
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _signingOut = false);
     }
@@ -225,7 +242,16 @@ class _ProfileScreenState extends State<ProfileScreen>
     try {
       await widget.backend.deleteAccount();
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) {
+        showNeraSnackBar(
+          context,
+          _actionError(
+            error,
+            "We couldn't delete your account. Please try again.",
+          ),
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _deletingAccount = false);
     }
@@ -242,13 +268,19 @@ class _ProfileScreenState extends State<ProfileScreen>
         },
       );
       if (profile != null && mounted) {
-        showNeraSnackBar(
-          context,
-          'Full-body photo updated. Your style profile is refreshed.',
-        );
+        showNeraSnackBar(context, 'Your Style Profile has been refreshed.');
       }
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) {
+        showNeraSnackBar(
+          context,
+          _actionError(
+            error,
+            "We couldn't refresh your Style Profile. Please try again.",
+          ),
+          error: true,
+        );
+      }
     }
   }
 
@@ -263,80 +295,65 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildGmailCard(BuildContext context) {
+  String _actionError(Object error, String fallback) {
+    if (error is NeraImageException) return error.message;
+    final text = error.toString().toLowerCase();
+    if (text.contains('network') ||
+        text.contains('socket') ||
+        text.contains('could not be reached')) {
+      return 'No network connection. Please reconnect and try again.';
+    }
+    return fallback;
+  }
+
+  Widget _buildGmailConnection(BuildContext context) {
     if (_gmailStatusLoading) {
-      return const NeraSkeleton(
-        width: double.infinity,
-        height: 88,
-        radius: NeraRadius.md,
+      return const _AccountRow(
+        label: 'Gmail',
+        trailing: SizedBox(
+          width: 72,
+          child: NeraSkeleton(height: 14, radius: NeraRadius.sm),
+        ),
       );
     }
-    return NeraCard(
-      child: _gmailStatus.connected
-          ? Row(
-              children: [
-                const Icon(
-                  Icons.mark_email_read_rounded,
-                  color: NeraColors.ink,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _gmailStatus.email ?? 'Gmail connected',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        _gmailStatus.syncStatus == 'syncing'
-                            ? 'Scanning your inbox…'
-                            : _gmailStatus.lastSyncedAt != null
-                            ? 'Last synced ${_formatSyncTime(_gmailStatus.lastSyncedAt!)}'
-                            : 'Not synced yet',
-                        style: const TextStyle(color: NeraColors.muted),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_gmailBusy)
-                  const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert_rounded),
-                    onSelected: (value) => value == 'sync'
-                        ? _syncGmail()
-                        : _disconnectGmail(),
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(value: 'sync', child: Text('Sync now')),
-                      PopupMenuItem(
-                        value: 'disconnect',
-                        child: Text('Disconnect'),
-                      ),
-                    ],
-                  ),
-              ],
+    if (!_gmailStatus.connected) {
+      return _AccountRow(
+        label: 'Gmail',
+        supportingText: 'Import delivered fashion purchases',
+        trailing: TextButton(
+          onPressed: _gmailBusy ? null : _connectGmail,
+          child: _gmailBusy
+              ? const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Connect'),
+        ),
+      );
+    }
+
+    final syncDetail = _gmailStatus.syncStatus == 'syncing'
+        ? 'Syncing purchases…'
+        : _gmailStatus.lastSyncedAt != null
+        ? 'Connected · Synced ${_formatSyncTime(_gmailStatus.lastSyncedAt!)}'
+        : 'Connected';
+    final email = _cleanText(_gmailStatus.email);
+    return _AccountRow(
+      label: 'Gmail',
+      supportingText: email == null ? syncDetail : '$email\n$syncDetail',
+      trailing: _gmailBusy
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : Row(
-              children: [
-                const Icon(Icons.mail_outline_rounded, color: NeraColors.muted),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'Connect Gmail to detect delivered fashion purchases '
-                    'automatically.',
-                  ),
-                ),
-                NeraButton(
-                  label: 'Connect',
-                  expand: false,
-                  loading: _gmailBusy,
-                  style: NeraButtonStyleType.secondary,
-                  onPressed: _connectGmail,
-                ),
+          : PopupMenuButton<String>(
+              tooltip: 'Gmail options',
+              icon: const Icon(Icons.more_horiz_rounded),
+              onSelected: (value) =>
+                  value == 'sync' ? _syncGmail() : _disconnectGmail(),
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'sync', child: Text('Sync now')),
+                PopupMenuItem(value: 'disconnect', child: Text('Disconnect')),
               ],
             ),
     );
@@ -351,145 +368,250 @@ class _ProfileScreenState extends State<ProfileScreen>
     return '${hours ~/ 24}d ago';
   }
 
+  String? _cleanText(String? value) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty) return null;
+    final normalized = text.toLowerCase();
+    if (normalized == 'unknown' ||
+        normalized == 'n/a' ||
+        normalized == 'null' ||
+        normalized == 'not analyzed') {
+      return null;
+    }
+    return text;
+  }
+
+  List<String> _cleanList(List<String> values) => values
+      .map(_cleanText)
+      .whereType<String>()
+      .toSet()
+      .toList(growable: false);
+
   @override
-  Widget build(BuildContext context) => ListView(
-    physics: const BouncingScrollPhysics(),
-    padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
-    children: [
-      Text('Profile', style: NeraTheme.heading(32)),
-      const SizedBox(height: NeraSpacing.xl),
-      if (widget.error != null)
-        NeraErrorState(message: widget.error!, onRetry: widget.onRetry)
-      else if (widget.loading)
-        const NeraSkeleton(
-          width: double.infinity,
-          height: 520,
-          radius: NeraRadius.md,
-        )
-      else ...[
-        NeraCard(
-          highlighted: true,
-          child: Column(
-            children: [
-              SizedBox(
-                width: 104,
-                height: 104,
-                child: NeraNetworkImage(
-                  url: widget.profile.profileImageUrl ?? '',
-                  radius: NeraRadius.pill,
-                  placeholderIcon: Icons.person_rounded,
-                ),
+  Widget build(BuildContext context) {
+    final bodyType = _cleanText(widget.profile.bodyType);
+    final skinTone = _cleanText(widget.profile.skinTone);
+    final skinUndertone = _cleanText(widget.profile.skinUndertone);
+    final hairColor = _cleanText(widget.profile.hairColor);
+    final facialStructure = _cleanText(widget.profile.facialStructure);
+    final details = <_StyleDetail>[
+      if (bodyType != null) _StyleDetail('Body profile', bodyType),
+      if (skinTone != null) _StyleDetail('Skin tone', skinTone),
+      if (skinUndertone != null) _StyleDetail('Undertone', skinUndertone),
+      if (hairColor != null) _StyleDetail('Hair color', hairColor),
+      if (facialStructure != null) _StyleDetail('Face shape', facialStructure),
+    ];
+    final styleAttributes = _cleanList(widget.profile.styleAttributes);
+    final preferredStyles = _cleanList(widget.profile.preferredStyles);
+    final stylingNotes = _cleanText(widget.profile.stylingNotes);
+    final hasStyleInformation =
+        styleAttributes.isNotEmpty ||
+        preferredStyles.isNotEmpty ||
+        stylingNotes != null;
+    final needsMoreStyleData = details.length < 2 && !hasStyleInformation;
+    final name = _cleanText(widget.user?.name) ?? 'Your NERA profile';
+    final phone = _cleanText(widget.user?.phoneNumber);
+
+    return ListView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 120),
+      children: [
+        _ProfileHeader(
+          name: name,
+          imageUrl: _cleanText(widget.profile.profileImageUrl) ?? '',
+        ),
+        const SizedBox(height: NeraSpacing.xxxl),
+        if (widget.error != null)
+          NeraErrorState(
+            title: 'Your Style DNA is unavailable',
+            message: "We couldn't load your styling profile. Please try again.",
+            retryLabel: 'Reload profile',
+            onRetry: widget.onRetry,
+          )
+        else if (widget.loading)
+          const _ProfileLoadingState()
+        else ...[
+          if (details.isNotEmpty) ...[
+            const _EditorialSectionHeader(
+              title: 'Style profile',
+              subtitle: 'The details NERA uses to personalize your looks',
+            ),
+            const SizedBox(height: NeraSpacing.md),
+            NeraCard(
+              padding: const EdgeInsets.symmetric(
+                horizontal: NeraSpacing.lg,
+                vertical: NeraSpacing.xs,
               ),
-              const SizedBox(height: NeraSpacing.md),
-              Text(
-                widget.user?.name ?? 'Your NERA profile',
-                style: Theme.of(context).textTheme.headlineSmall,
+              child: Column(
+                children: [
+                  for (var index = 0; index < details.length; index++) ...[
+                    if (index > 0) const Divider(),
+                    _ProfileValue(
+                      label: details[index].label,
+                      value: details[index].value,
+                    ),
+                  ],
+                ],
               ),
-              if (widget.user != null) Text(widget.user!.phoneNumber),
-              const SizedBox(height: NeraSpacing.lg),
-              NeraButton(
-                label: 'Update Full-Body Photo',
-                icon: Icons.face_retouching_natural_rounded,
-                loading: _analyzing,
-                style: NeraButtonStyleType.secondary,
-                onPressed: _analyze,
-              ),
-              if (_analyzing) ...[
-                const SizedBox(height: NeraSpacing.sm),
-                const Text(
-                  'Personalizing your style profile…',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: NeraColors.muted),
-                ),
-              ],
-            ],
+            ),
+          ],
+          if (hasStyleInformation) ...[
+            SizedBox(height: details.isEmpty ? 0 : NeraSpacing.xxxl),
+            const _EditorialSectionHeader(
+              title: 'Your style',
+              subtitle: 'Characteristics that shape your recommendations',
+            ),
+            const SizedBox(height: NeraSpacing.lg),
+            if (preferredStyles.isNotEmpty)
+              _StyleTags(label: 'Preferred styles', values: preferredStyles),
+            if (preferredStyles.isNotEmpty && styleAttributes.isNotEmpty)
+              const SizedBox(height: NeraSpacing.xl),
+            if (styleAttributes.isNotEmpty)
+              _StyleTags(label: 'Style attributes', values: styleAttributes),
+            if ((preferredStyles.isNotEmpty || styleAttributes.isNotEmpty) &&
+                stylingNotes != null)
+              const SizedBox(height: NeraSpacing.xl),
+            if (stylingNotes != null) _StyleNotes(notes: stylingNotes),
+          ],
+          SizedBox(
+            height: details.isEmpty && !hasStyleInformation
+                ? 0
+                : NeraSpacing.xxxl,
           ),
-        ),
-        const SizedBox(height: NeraSpacing.xxl),
-        const NeraSectionHeader(
-          'My Style Profile',
-          subtitle: 'Insights used to personalize every look',
-        ),
-        const SizedBox(height: NeraSpacing.md),
-        NeraCard(
-          child: Column(
-            children: [
-              _ProfileValue(
-                label: 'Body Type',
-                value: widget.profile.bodyType ?? 'Not analyzed',
-              ),
-              const Divider(height: 28),
-              _ProfileValue(
-                label: 'Skin Tone',
-                value: widget.profile.skinTone ?? 'Not analyzed',
-              ),
-              if (widget.profile.skinUndertone != null) ...[
-                const Divider(height: 28),
-                _ProfileValue(
-                  label: 'Undertone',
-                  value: widget.profile.skinUndertone!,
-                ),
-              ],
-              if (widget.profile.hairColor != null) ...[
-                const Divider(height: 28),
-                _ProfileValue(
-                  label: 'Hair Color',
-                  value: widget.profile.hairColor!,
-                ),
-              ],
-              if (widget.profile.facialStructure != null) ...[
-                const Divider(height: 28),
-                _ProfileValue(
-                  label: 'Face Shape',
-                  value: widget.profile.facialStructure!,
-                ),
-              ],
-            ],
-          ),
-        ),
-        if (widget.profile.styleAttributes.isNotEmpty) ...[
+          const Divider(),
           const SizedBox(height: NeraSpacing.xxl),
-          const NeraSectionHeader('Style attributes'),
-          const SizedBox(height: NeraSpacing.md),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final style in widget.profile.styleAttributes)
-                Chip(label: Text(style)),
-            ],
+          Text(
+            needsMoreStyleData
+                ? 'Update your Style Profile to improve NERA\'s recommendations.'
+                : 'Keep your Style DNA current as your look evolves.',
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+          const SizedBox(height: NeraSpacing.lg),
+          NeraButton(
+            label: 'Update Style Profile',
+            icon: Icons.camera_alt_outlined,
+            loading: _analyzing,
+            onPressed: _analyze,
+          ),
+          if (_analyzing) ...[
+            const SizedBox(height: NeraSpacing.sm),
+            const Text(
+              'Refreshing your personal styling profile…',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: NeraColors.muted),
+            ),
+          ],
+          const SizedBox(height: NeraSpacing.xxxl),
+          const _EditorialSectionHeader(title: 'Account'),
+          const SizedBox(height: NeraSpacing.sm),
+          DecoratedBox(
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: NeraColors.divider),
+                bottom: BorderSide(color: NeraColors.divider),
+              ),
+            ),
+            child: Column(
+              children: [
+                _buildGmailConnection(context),
+                if (phone != null)
+                  _AccountRow(label: 'Mobile', supportingText: phone),
+                _AccountRow(
+                  label: 'Saved looks',
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: _openSavedLooks,
+                ),
+                _AccountRow(
+                  label: 'Sign out',
+                  loading: _signingOut,
+                  onTap: _signingOut ? null : _signOut,
+                ),
+                _AccountRow(
+                  label: 'Delete account',
+                  labelColor: NeraColors.error,
+                  loading: _deletingAccount,
+                  showDivider: false,
+                  onTap: _deletingAccount ? null : _deleteAccount,
+                ),
+              ],
+            ),
           ),
         ],
-        const SizedBox(height: NeraSpacing.xxl),
-        const NeraSectionHeader(
-          'Connected Accounts',
-          subtitle: 'Detect fashion purchases from your inbox',
+      ],
+    );
+  }
+}
+
+class _StyleDetail {
+  const _StyleDetail(this.label, this.value);
+
+  final String label;
+  final String value;
+}
+
+class _ProfileHeader extends StatelessWidget {
+  const _ProfileHeader({required this.name, required this.imageUrl});
+
+  final String name;
+  final String imageUrl;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      Semantics(
+        image: true,
+        label: '$name profile photo',
+        child: SizedBox.square(
+          dimension: 96,
+          child: NeraNetworkImage(
+            url: imageUrl,
+            radius: NeraRadius.pill,
+            placeholderIcon: Icons.person_rounded,
+          ),
         ),
-        const SizedBox(height: NeraSpacing.md),
-        _buildGmailCard(context),
-        const SizedBox(height: NeraSpacing.xxl),
-        NeraButton(
-          label: 'Saved Looks',
-          icon: Icons.bookmark_rounded,
-          style: NeraButtonStyleType.secondary,
-          onPressed: _openSavedLooks,
+      ),
+      const SizedBox(width: NeraSpacing.xl),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'MY STYLE DNA',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: NeraColors.textSecondary,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.6,
+              ),
+            ),
+            const SizedBox(height: NeraSpacing.sm),
+            Text(name, style: NeraTheme.display(30)),
+            const SizedBox(height: NeraSpacing.xs),
+            Text(
+              'Your personal styling profile',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
         ),
-        const SizedBox(height: NeraSpacing.md),
-        NeraButton(
-          label: 'Sign out',
-          icon: Icons.logout_rounded,
-          style: NeraButtonStyleType.secondary,
-          loading: _signingOut,
-          onPressed: _signOut,
-        ),
-        const SizedBox(height: NeraSpacing.md),
-        NeraButton(
-          label: 'Delete account',
-          icon: Icons.delete_outline_rounded,
-          style: NeraButtonStyleType.text,
-          loading: _deletingAccount,
-          onPressed: _deleteAccount,
-        ),
+      ),
+    ],
+  );
+}
+
+class _EditorialSectionHeader extends StatelessWidget {
+  const _EditorialSectionHeader({required this.title, this.subtitle});
+
+  final String title;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(title, style: NeraTheme.heading(20)),
+      if (subtitle != null) ...[
+        const SizedBox(height: NeraSpacing.xs),
+        Text(subtitle!, style: Theme.of(context).textTheme.bodyMedium),
       ],
     ],
   );
@@ -497,24 +619,191 @@ class _ProfileScreenState extends State<ProfileScreen>
 
 class _ProfileValue extends StatelessWidget {
   const _ProfileValue({required this.label, required this.value});
+
   final String label;
   final String value;
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: NeraSpacing.lg),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Text(label, style: const TextStyle(color: NeraColors.muted)),
+        ),
+        const SizedBox(width: NeraSpacing.lg),
+        Flexible(
+          flex: 2,
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(height: 1.35),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _StyleTags extends StatelessWidget {
+  const _StyleTags({required this.label, required this.values});
+
+  final String label;
+  final List<String> values;
+
+  @override
+  Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Expanded(
-        child: Text(label, style: const TextStyle(color: NeraColors.muted)),
+      Text(
+        label.toUpperCase(),
+        style: Theme.of(
+          context,
+        ).textTheme.labelSmall?.copyWith(letterSpacing: 1.2),
       ),
-      const SizedBox(width: 16),
-      Flexible(
-        child: Text(
-          value,
-          textAlign: TextAlign.right,
-          style: Theme.of(context).textTheme.titleMedium,
+      const SizedBox(height: NeraSpacing.md),
+      Wrap(
+        spacing: NeraSpacing.sm,
+        runSpacing: NeraSpacing.sm,
+        children: [for (final value in values) _StyleTag(value: value)],
+      ),
+    ],
+  );
+}
+
+class _StyleTag extends StatelessWidget {
+  const _StyleTag({required this.value});
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+    decoration: BoxDecoration(
+      color: NeraColors.surface,
+      border: Border.all(color: NeraColors.surfaceBorder),
+      borderRadius: BorderRadius.circular(NeraRadius.pill),
+    ),
+    child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
+  );
+}
+
+class _StyleNotes extends StatelessWidget {
+  const _StyleNotes({required this.notes});
+
+  final String notes;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.only(left: NeraSpacing.lg),
+    decoration: const BoxDecoration(
+      border: Border(left: BorderSide(color: NeraColors.ink, width: 2)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'STYLING NOTES',
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(letterSpacing: 1.2),
         ),
+        const SizedBox(height: NeraSpacing.sm),
+        Text(notes, style: Theme.of(context).textTheme.bodyLarge),
+      ],
+    ),
+  );
+}
+
+class _AccountRow extends StatelessWidget {
+  const _AccountRow({
+    required this.label,
+    this.supportingText,
+    this.trailing,
+    this.onTap,
+    this.labelColor,
+    this.loading = false,
+    this.showDivider = true,
+  });
+
+  final String label;
+  final String? supportingText;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final Color? labelColor;
+  final bool loading;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 64),
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      decoration: BoxDecoration(
+        border: showDivider
+            ? const Border(bottom: BorderSide(color: NeraColors.divider))
+            : null,
       ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(color: labelColor),
+                ),
+                if (supportingText != null) ...[
+                  const SizedBox(height: NeraSpacing.xs),
+                  Text(
+                    supportingText!,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (loading)
+            const Padding(
+              padding: EdgeInsets.only(left: NeraSpacing.lg),
+              child: SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else if (trailing != null)
+            Padding(
+              padding: const EdgeInsets.only(left: NeraSpacing.md),
+              child: trailing!,
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _ProfileLoadingState extends StatelessWidget {
+  const _ProfileLoadingState();
+
+  @override
+  Widget build(BuildContext context) => const Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      NeraSkeleton(width: 140, height: 24, radius: NeraRadius.sm),
+      SizedBox(height: NeraSpacing.md),
+      NeraSkeleton(width: double.infinity, height: 210, radius: NeraRadius.md),
+      SizedBox(height: NeraSpacing.xxxl),
+      NeraSkeleton(width: 112, height: 22, radius: NeraRadius.sm),
+      SizedBox(height: NeraSpacing.lg),
+      NeraSkeleton(width: double.infinity, height: 54, radius: NeraRadius.sm),
     ],
   );
 }

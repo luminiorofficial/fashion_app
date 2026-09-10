@@ -153,10 +153,15 @@ void main() {
 
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
-    expect(find.text('My Style Profile'), findsOneWidget);
+    expect(find.text('MY STYLE DNA'), findsOneWidget);
     expect(find.text('Hourglass'), findsOneWidget);
     expect(find.text('Warm golden undertones'), findsOneWidget);
-    expect(find.text('Update Full-Body Photo'), findsOneWidget);
+    expect(find.text('Update Style Profile'), findsOneWidget);
+
+    await tester.tap(find.text('Update Style Profile'));
+    await tester.pumpAndSettle();
+    expect(find.text('Take a photo'), findsOneWidget);
+    expect(find.text('Choose from gallery'), findsOneWidget);
   });
 
   testWidgets(
@@ -200,7 +205,7 @@ void main() {
 
       expect(find.text('Login'), findsOneWidget);
       expect(find.text('Register'), findsOneWidget);
-      expect(find.text('My Style Profile'), findsNothing);
+      expect(find.text('MY STYLE DNA'), findsNothing);
     },
   );
 
