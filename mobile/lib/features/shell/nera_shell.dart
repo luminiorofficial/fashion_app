@@ -259,14 +259,14 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
             minimum: const EdgeInsets.fromLTRB(12, 0, 12, 10),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: NeraColors.surface.withValues(alpha: .96),
+                color: NeraColors.surface,
                 borderRadius: BorderRadius.circular(NeraRadius.lg),
                 border: Border.all(color: NeraColors.surfaceBorder),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
-                    color: Colors.black45,
-                    blurRadius: 24,
-                    offset: Offset(0, 8),
+                    color: Colors.black.withValues(alpha: .06),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
@@ -277,7 +277,7 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
                   onDestinationSelected: (value) =>
                       setState(() => _tab = value),
                   backgroundColor: Colors.transparent,
-                  indicatorColor: NeraColors.gold.withValues(alpha: .16),
+                  indicatorColor: NeraColors.surfaceElevated,
                   labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
                   destinations: const [
                     NavigationDestination(
@@ -322,20 +322,27 @@ class _GeneratingOverlay extends StatelessWidget {
     margin: const EdgeInsets.only(bottom: 84),
     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
     decoration: BoxDecoration(
-      color: NeraColors.surfaceElevated,
+      color: NeraColors.ink,
       borderRadius: BorderRadius.circular(NeraRadius.pill),
-      border: Border.all(color: NeraColors.gold.withValues(alpha: .45)),
-      boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 20)],
+      boxShadow: [
+        BoxShadow(color: Colors.black.withValues(alpha: .18), blurRadius: 16),
+      ],
     ),
     child: const Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox.square(
           dimension: 18,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: NeraColors.onInk,
+          ),
         ),
         SizedBox(width: 12),
-        Text('Styling your look…'),
+        Text(
+          'Styling your look…',
+          style: TextStyle(color: NeraColors.onInk),
+        ),
       ],
     ),
   );

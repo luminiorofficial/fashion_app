@@ -75,7 +75,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(
                   Icons.camera_alt_rounded,
-                  color: NeraColors.gold,
+                  color: NeraColors.ink,
                 ),
                 title: const Text('Take a photo'),
                 onTap: () => Navigator.pop(context, 'camera'),
@@ -84,14 +84,14 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(
                   Icons.photo_library_rounded,
-                  color: NeraColors.gold,
+                  color: NeraColors.ink,
                 ),
                 title: const Text('Choose from gallery'),
                 onTap: () => Navigator.pop(context, 'gallery'),
               ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.link_rounded, color: NeraColors.gold),
+                leading: const Icon(Icons.link_rounded, color: NeraColors.ink),
                 title: const Text('Add a product link'),
                 onTap: () => Navigator.pop(context, 'link'),
               ),
@@ -506,6 +506,11 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
                       label: Text(category),
+                      labelStyle: TextStyle(
+                        color: _filter == category
+                            ? NeraColors.onInk
+                            : NeraColors.textPrimary,
+                      ),
                       selected: _filter == category,
                       onSelected: (_) => setState(() => _filter = category),
                     ),
@@ -610,7 +615,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       if (_processing)
         Positioned.fill(
           child: ColoredBox(
-            color: Colors.black54,
+            color: Colors.black.withValues(alpha: .35),
             child: Center(
               child: NeraCard(
                 child: Column(
@@ -672,7 +677,7 @@ class _PurchaseCandidateCard extends StatelessWidget {
                   Text(
                     purchase.marketplace.toUpperCase(),
                     style: const TextStyle(
-                      color: NeraColors.gold,
+                      color: NeraColors.textSecondary,
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                       letterSpacing: .6,
@@ -748,13 +753,13 @@ class _NewBadge extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
     decoration: BoxDecoration(
-      gradient: NeraColors.goldGradient,
+      color: NeraColors.ink,
       borderRadius: BorderRadius.circular(999),
     ),
     child: const Text(
       'NEW',
       style: TextStyle(
-        color: NeraColors.background,
+        color: NeraColors.onInk,
         fontSize: 10,
         fontWeight: FontWeight.w700,
         letterSpacing: .6,
@@ -805,7 +810,7 @@ class _WardrobeItemDetailSheet extends StatelessWidget {
               child: Text(
                 'DETECTED FROM ${_marketplaceLabel(item.sourceMarketplace!).toUpperCase()}',
                 style: const TextStyle(
-                  color: NeraColors.gold,
+                  color: NeraColors.textSecondary,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   letterSpacing: .6,

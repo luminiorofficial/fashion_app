@@ -61,13 +61,16 @@ class _ProfileCreationScreenState extends State<ProfileCreationScreen> {
                   width: 112,
                   height: 112,
                   decoration: const BoxDecoration(
-                    gradient: NeraColors.goldGradient,
+                    color: NeraColors.surfaceElevated,
                     shape: BoxShape.circle,
+                    border: Border.fromBorderSide(
+                      BorderSide(color: NeraColors.surfaceBorder),
+                    ),
                   ),
                   child: const Icon(
                     Icons.person_search_rounded,
                     size: 48,
-                    color: Color(0xFF241A0B),
+                    color: NeraColors.ink,
                   ),
                 ),
                 const SizedBox(height: NeraSpacing.xxl),

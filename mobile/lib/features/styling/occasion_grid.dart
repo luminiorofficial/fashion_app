@@ -28,15 +28,18 @@ class OccasionGrid extends StatelessWidget {
     itemBuilder: (context, index) {
       final occasion = OccasionType.values[index];
       final isSelected = occasion == selected;
+      final iconColor = !enabled
+          ? NeraColors.muted
+          : isSelected
+          ? NeraColors.onInk
+          : NeraColors.textPrimary;
       return AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         decoration: BoxDecoration(
-          color: isSelected
-              ? occasion.accentColor.withValues(alpha: .14)
-              : NeraColors.surfaceElevated,
+          color: isSelected ? NeraColors.ink : NeraColors.surface,
           borderRadius: BorderRadius.circular(NeraRadius.md),
           border: Border.all(
-            color: isSelected ? occasion.accentColor : NeraColors.surfaceBorder,
+            color: isSelected ? NeraColors.ink : NeraColors.surfaceBorder,
           ),
         ),
         child: Material(
@@ -49,20 +52,18 @@ class OccasionGrid extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    occasion.icon,
-                    color: enabled ? occasion.accentColor : NeraColors.muted,
-                    size: 25,
-                  ),
+                  Icon(occasion.icon, color: iconColor, size: 25),
                   const SizedBox(height: 8),
                   Text(
                     occasion.label,
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: enabled
-                          ? NeraColors.textPrimary
-                          : NeraColors.muted,
+                      color: !enabled
+                          ? NeraColors.muted
+                          : isSelected
+                          ? NeraColors.onInk
+                          : NeraColors.textPrimary,
                       fontSize: 12,
                     ),
                   ),

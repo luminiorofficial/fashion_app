@@ -42,7 +42,7 @@ class NeraEmptyState extends StatelessWidget {
     required this.title,
     this.message,
     this.action,
-    this.iconColor = NeraColors.gold,
+    this.iconColor = NeraColors.ink,
   });
 
   final IconData icon;
@@ -150,7 +150,7 @@ class NeraSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Shimmer.fromColors(
     baseColor: NeraColors.surfaceElevated,
-    highlightColor: NeraColors.surfaceBorder,
+    highlightColor: NeraColors.surface,
     child: Container(
       width: width,
       height: height,
@@ -228,10 +228,13 @@ void showNeraSnackBar(
     ..hideCurrentSnackBar()
     ..showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: error
-            ? NeraColors.errorSurface
-            : NeraColors.surfaceElevated,
+        content: Text(
+          message,
+          style: TextStyle(
+            color: error ? NeraColors.error : NeraColors.onInk,
+          ),
+        ),
+        backgroundColor: error ? NeraColors.errorSurface : NeraColors.ink,
       ),
     );
 }

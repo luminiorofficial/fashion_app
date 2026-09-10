@@ -236,6 +236,13 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
     extendBodyBehindAppBar: true,
     appBar: AppBar(
       backgroundColor: Colors.black.withValues(alpha: .25),
+      foregroundColor: Colors.white,
+      iconTheme: const IconThemeData(color: Colors.white),
+      titleTextStyle: const TextStyle(
+        color: Colors.white,
+        fontSize: 19,
+        fontWeight: FontWeight.w600,
+      ),
       title: const Text('Virtual Try-On'),
       actions: [
         IconButton(

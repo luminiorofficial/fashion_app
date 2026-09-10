@@ -233,13 +233,13 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
             ),
           const SizedBox(height: NeraSpacing.xxl),
           NeraCard(
-            gradient: true,
+            highlighted: true,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Row(
                   children: [
-                    Icon(Icons.auto_awesome_rounded, color: NeraColors.gold),
+                    Icon(Icons.auto_awesome_rounded, color: NeraColors.ink),
                     SizedBox(width: 10),
                     Text(
                       'Why it works',
@@ -267,7 +267,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
                 children: [
                   const Icon(
                     Icons.info_outline_rounded,
-                    color: NeraColors.gold,
+                    color: NeraColors.textSecondary,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -322,12 +322,13 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Text(reaction.emoji),
-                  label: Text(reaction.label),
-                  selectedColor: reaction.color.withValues(alpha: .2),
-                  side: BorderSide(
-                    color: _feedback?.reaction == reaction
-                        ? reaction.color
-                        : NeraColors.surfaceBorder,
+                  label: Text(
+                    reaction.label,
+                    style: TextStyle(
+                      color: _feedback?.reaction == reaction
+                          ? NeraColors.onInk
+                          : NeraColors.textPrimary,
+                    ),
                   ),
                 ),
             ],
@@ -368,24 +369,23 @@ class _MatchScore extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
     decoration: BoxDecoration(
-      color: NeraColors.gold.withValues(alpha: .12),
+      color: NeraColors.ink,
       borderRadius: BorderRadius.circular(NeraRadius.pill),
-      border: Border.all(color: NeraColors.gold.withValues(alpha: .5)),
     ),
     child: Column(
       children: [
         Text(
           '$score%',
           style: const TextStyle(
-            color: NeraColors.gold,
+            color: NeraColors.onInk,
             fontWeight: FontWeight.w800,
             fontSize: 18,
           ),
         ),
-        const Text(
+        Text(
           'MATCH',
           style: TextStyle(
-            color: NeraColors.muted,
+            color: NeraColors.onInk.withValues(alpha: .7),
             fontSize: 9,
             letterSpacing: 1.2,
           ),

@@ -59,7 +59,7 @@ class _StylingScreenState extends State<StylingScreen> {
         )
       else ...[
         NeraCard(
-          gradient: true,
+          highlighted: true,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -73,7 +73,7 @@ class _StylingScreenState extends State<StylingScreen> {
                 const SizedBox(height: NeraSpacing.md),
                 const Text(
                   'Add at least 2 wardrobe items to generate a complete look.',
-                  style: TextStyle(color: NeraColors.gold),
+                  style: TextStyle(color: NeraColors.textSecondary),
                 ),
               ],
             ],
@@ -122,13 +122,13 @@ class _StylingScreenState extends State<StylingScreen> {
                           width: 52,
                           height: 52,
                           decoration: BoxDecoration(
-                            color: NeraColors.gold.withValues(alpha: .12),
+                            color: NeraColors.surfaceElevated,
                             borderRadius: BorderRadius.circular(NeraRadius.sm),
                           ),
                           child: Icon(
                             OccasionType.fromLabel(outfit.eventType)?.icon ??
                                 Icons.auto_awesome_rounded,
-                            color: NeraColors.gold,
+                            color: NeraColors.ink,
                           ),
                         ),
                         const SizedBox(width: NeraSpacing.md),
@@ -151,7 +151,7 @@ class _StylingScreenState extends State<StylingScreen> {
                           Text(
                             '${outfit.matchScore}%',
                             style: const TextStyle(
-                              color: NeraColors.gold,
+                              color: NeraColors.textPrimary,
                               fontWeight: FontWeight.w700,
                             ),
                           ),

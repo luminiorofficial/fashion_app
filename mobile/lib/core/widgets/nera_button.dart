@@ -27,8 +27,8 @@ class NeraButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final spinnerColor = style == NeraButtonStyleType.primary
-        ? const Color(0xFF241A0B)
-        : NeraColors.gold;
+        ? NeraColors.onInk
+        : NeraColors.ink;
     final child = loading
         ? SizedBox.square(
             dimension: 18,

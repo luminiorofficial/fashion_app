@@ -30,7 +30,7 @@ abstract final class FullBodyPhotoFlow {
               ListTile(
                 leading: const Icon(
                   Icons.camera_alt_rounded,
-                  color: NeraColors.gold,
+                  color: NeraColors.ink,
                 ),
                 title: const Text('Take a photo'),
                 onTap: () => Navigator.pop(context, ImageSource.camera),
@@ -38,7 +38,7 @@ abstract final class FullBodyPhotoFlow {
               ListTile(
                 leading: const Icon(
                   Icons.photo_library_rounded,
-                  color: NeraColors.gold,
+                  color: NeraColors.ink,
                 ),
                 title: const Text('Choose from gallery'),
                 onTap: () => Navigator.pop(context, ImageSource.gallery),

@@ -65,7 +65,7 @@ class HomeScreen extends StatelessWidget {
                       : null,
                   child: const Icon(
                     Icons.person_rounded,
-                    color: NeraColors.gold,
+                    color: NeraColors.textSecondary,
                   ),
                 ),
               ],
@@ -90,7 +90,7 @@ class HomeScreen extends StatelessWidget {
               const _HomeSkeleton()
             else ...[
               NeraCard(
-                gradient: true,
+                highlighted: true,
                 padding: const EdgeInsets.all(NeraSpacing.xl),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -100,12 +100,13 @@ class HomeScreen extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: NeraColors.gold.withValues(alpha: .12),
+                            color: NeraColors.surface,
                             borderRadius: BorderRadius.circular(NeraRadius.sm),
+                            border: Border.all(color: NeraColors.surfaceBorder),
                           ),
                           child: const Icon(
                             Icons.auto_awesome_rounded,
-                            color: NeraColors.gold,
+                            color: NeraColors.ink,
                           ),
                         ),
                         const SizedBox(width: NeraSpacing.md),
@@ -127,7 +128,7 @@ class HomeScreen extends StatelessWidget {
                       const SizedBox(height: NeraSpacing.md),
                       Text(
                         'Add ${2 - wardrobe.length} more ${wardrobe.length == 1 ? 'item' : 'items'} for complete outfit suggestions.',
-                        style: const TextStyle(color: NeraColors.gold),
+                        style: const TextStyle(color: NeraColors.textSecondary),
                       ),
                     ],
                   ],
@@ -253,7 +254,7 @@ class _WeatherDisplay extends StatelessWidget {
                 ? (canRetry ? Icons.refresh_rounded : Icons.cloud_outlined)
                 : _weatherIcon(weather),
             size: 18,
-            color: weather == null ? NeraColors.muted : NeraColors.gold,
+            color: weather == null ? NeraColors.muted : NeraColors.ink,
           ),
           const SizedBox(width: 8),
           Flexible(

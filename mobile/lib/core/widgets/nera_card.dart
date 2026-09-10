@@ -11,21 +11,22 @@ class NeraCard extends StatelessWidget {
     required this.child,
     this.onTap,
     this.padding,
-    this.gradient = false,
+    this.highlighted = false,
     this.borderColor,
   });
 
   final Widget child;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry? padding;
-  final bool gradient;
+  /// A subtle off-white fill used to lift one hero card above the plain
+  /// white cards around it, without resorting to a gradient or shadow.
+  final bool highlighted;
   final Color? borderColor;
 
   @override
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(
-      color: gradient ? null : NeraColors.surface,
-      gradient: gradient ? NeraColors.cardGradient : null,
+      color: highlighted ? NeraColors.surfaceElevated : NeraColors.surface,
       borderRadius: BorderRadius.circular(NeraRadius.md),
       border: Border.all(color: borderColor ?? NeraColors.surfaceBorder),
     ),

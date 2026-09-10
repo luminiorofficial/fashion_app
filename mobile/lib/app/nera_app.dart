@@ -28,7 +28,7 @@ class NeraApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'NERA — Personal Stylist AI',
-    theme: NeraTheme.dark,
+    theme: NeraTheme.light,
     home: NeraBootstrap(
       backend: backend,
       imageService: imageService,

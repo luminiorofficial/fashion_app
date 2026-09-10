@@ -275,7 +275,10 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: _gmailStatus.connected
           ? Row(
               children: [
-                const Icon(Icons.mark_email_read_rounded, color: NeraColors.gold),
+                const Icon(
+                  Icons.mark_email_read_rounded,
+                  color: NeraColors.ink,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -365,7 +368,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         )
       else ...[
         NeraCard(
-          gradient: true,
+          highlighted: true,
           child: Column(
             children: [
               SizedBox(

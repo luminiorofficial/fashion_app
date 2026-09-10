@@ -149,7 +149,7 @@ class _WardrobeBatchReviewScreenState
                                     const Icon(
                                       Icons.info_outline_rounded,
                                       size: 16,
-                                      color: NeraColors.gold,
+                                      color: NeraColors.textSecondary,
                                     ),
                                     const SizedBox(width: 6),
                                     Expanded(
