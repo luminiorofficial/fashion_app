@@ -7,6 +7,7 @@ import '../../core/theme/theme.dart';
 import '../../models/nera_models.dart';
 import '../../services/image_service.dart';
 import '../../services/nera_backend.dart';
+import '../camera/camera_capture_screen.dart';
 
 /// Shared picker and profile analysis flow used by onboarding, Profile, and
 /// Virtual Try-On recovery.
@@ -21,7 +22,9 @@ abstract final class FullBodyPhotoFlow {
       final source = await _chooseSource(context);
       if (source == null || !context.mounted) return null;
 
-      final image = await imageService.pick(source);
+      final image = source == ImageSource.camera
+          ? await _capture(context, imageService)
+          : await imageService.pick(source);
       if (image == null || !context.mounted) return null;
 
       final usePhoto = await _confirmPhoto(context, image.bytes);
@@ -41,6 +44,15 @@ abstract final class FullBodyPhotoFlow {
       }
     }
     return null;
+  }
+
+  static Future<PickedImageData?> _capture(
+    BuildContext context,
+    NeraImageService imageService,
+  ) async {
+    final captured = await CameraCaptureScreen.open(context);
+    if (captured == null) return null;
+    return imageService.prepareProfileCapture(captured);
   }
 
   static Future<ImageSource?> _chooseSource(BuildContext context) =>

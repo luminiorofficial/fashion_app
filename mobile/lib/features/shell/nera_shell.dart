@@ -35,6 +35,8 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
   late Stream<StyleProfile> _profileStream;
   int _tab = 0;
   bool _generating = false;
+  double _generationProgress = 0;
+  Timer? _generationProgressTimer;
   bool _weatherLoading = true;
   WeatherSummary? _weather;
   LocationAccessStatus? _locationStatus;
@@ -49,6 +51,7 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _generationProgressTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -100,6 +103,55 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
 
   void _retry() => setState(_resetStreams);
 
+  void _startGenerationProgress() {
+    _generationProgressTimer?.cancel();
+    setState(() {
+      _generating = true;
+      _generationProgress = .01;
+    });
+    // The endpoint does not emit progress events. This presentation-only
+    // estimate moves quickly first, eases toward 94%, and cannot reach 100%
+    // until the outfit request has actually succeeded.
+    _generationProgressTimer = Timer.periodic(
+      const Duration(milliseconds: 350),
+      (_) {
+        if (!mounted || !_generating) return;
+        setState(() {
+          final current = _generationProgress;
+          final increment = current < .55
+              ? .035
+              : current < .82
+              ? .018
+              : current < .92
+              ? .006
+              : .001;
+          _generationProgress = (current + increment).clamp(0, .94);
+        });
+      },
+    );
+  }
+
+  Future<void> _completeGenerationProgress() async {
+    _generationProgressTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _generationProgress = 1);
+    await Future<void>.delayed(const Duration(milliseconds: 320));
+    if (!mounted) return;
+    setState(() {
+      _generating = false;
+      _generationProgress = 0;
+    });
+  }
+
+  void _stopGenerationProgress() {
+    _generationProgressTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _generating = false;
+      _generationProgress = 0;
+    });
+  }
+
   Future<void> _generate(
     OccasionType occasion,
     List<WardrobeItem> wardrobe,
@@ -124,7 +176,7 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
       setState(() => _tab = 3);
       return;
     }
-    setState(() => _generating = true);
+    _startGenerationProgress();
     try {
       final location = await widget.locationService.getCurrentLocation();
       final outfit = await widget.backend.generateOutfit(
@@ -134,7 +186,8 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
         location: location.coordinates,
       );
       if (!mounted) return;
-      setState(() => _generating = false);
+      await _completeGenerationProgress();
+      if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (context) => OutfitResultScreen(
@@ -146,6 +199,7 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
         ),
       );
     } catch (error) {
+      _stopGenerationProgress();
       if (mounted) {
         await showDialog<void>(
           context: context,
@@ -160,7 +214,6 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
               FilledButton(
                 onPressed: () {
                   Navigator.pop(dialogContext);
-                  setState(() => _generating = false);
                   Future<void>.microtask(
                     () => _generate(occasion, wardrobe, profile),
                   );
@@ -171,8 +224,6 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
           ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _generating = false);
     }
   }
 
@@ -258,9 +309,7 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
           bottomNavigationBar: DecoratedBox(
             decoration: const BoxDecoration(
               color: NeraColors.surface,
-              border: Border(
-                top: BorderSide(color: NeraColors.divider),
-              ),
+              border: Border(top: BorderSide(color: NeraColors.divider)),
             ),
             child: SafeArea(
               top: false,
@@ -319,7 +368,9 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
               ),
             ),
           ),
-          floatingActionButton: _generating ? const _GeneratingOverlay() : null,
+          floatingActionButton: _generating
+              ? _GeneratingOverlay(progress: _generationProgress)
+              : null,
           floatingActionButtonLocation:
               FloatingActionButtonLocation.centerFloat,
         );
@@ -329,36 +380,59 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
 }
 
 class _GeneratingOverlay extends StatelessWidget {
-  const _GeneratingOverlay();
+  const _GeneratingOverlay({required this.progress});
+
+  final double progress;
 
   @override
   Widget build(BuildContext context) => Container(
     margin: const EdgeInsets.only(bottom: 84),
-    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+    width: 264,
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
     decoration: BoxDecoration(
       color: NeraColors.ink,
       borderRadius: BorderRadius.circular(NeraRadius.pill),
       boxShadow: [
-        BoxShadow(
-          color: NeraColors.ink.withValues(alpha: .18),
-          blurRadius: 16,
-        ),
+        BoxShadow(color: NeraColors.ink.withValues(alpha: .18), blurRadius: 16),
       ],
     ),
-    child: const Row(
+    child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox.square(
-          dimension: 18,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: NeraColors.onInk,
-          ),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Styling your look',
+                style: TextStyle(
+                  color: NeraColors.onInk,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Text(
+              '${(progress * 100).round()}%',
+              style: const TextStyle(
+                color: NeraColors.onInk,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
-        SizedBox(width: 12),
-        Text(
-          'Styling your look…',
-          style: TextStyle(color: NeraColors.onInk),
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(NeraRadius.pill),
+          child: TweenAnimationBuilder<double>(
+            duration: const Duration(milliseconds: 320),
+            curve: Curves.easeOutCubic,
+            tween: Tween<double>(end: progress),
+            builder: (context, value, _) => LinearProgressIndicator(
+              minHeight: 5,
+              value: value,
+              backgroundColor: NeraColors.onInk.withValues(alpha: .2),
+              valueColor: const AlwaysStoppedAnimation(NeraColors.onInk),
+            ),
+          ),
         ),
       ],
     ),

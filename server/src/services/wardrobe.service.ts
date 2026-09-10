@@ -11,7 +11,7 @@ import type {AssetStore, TextAnalysisProvider, UploadedFile} from "../types/prov
 import type {WardrobeItem, PublicWardrobeItem, PublicWardrobeDraft, GarmentVisibility, CreateWardrobeItemInput, WardrobeSourceMarketplace} from "../types/wardrobe.types";
 import {safeOperationalError} from "../utils/safe-logging";
 
-export type WardrobeServiceConfig = Pick<AppConfig, "geminiTextApiKey" | "geminiModel">;
+export type WardrobeServiceConfig = Pick<AppConfig, "geminiTextApiKey" | "geminiModel" | "imageStorageProvider">;
 
 export interface WardrobeItemDraftPayload {
   assetId: unknown;
@@ -50,7 +50,7 @@ const cleanStringArray = (value: unknown, max = 6): string[] =>
 const sanitizeGarmentVisibility = (value: unknown): GarmentVisibility =>
   garmentVisibilityLevels.includes(value as GarmentVisibility) ? (value as GarmentVisibility) : "full";
 
-export async function toPublicWardrobeItem(assetStore: AssetStore, item: WardrobeItem): Promise<PublicWardrobeItem> {
+export async function toPublicWardrobeItem(assetStore: AssetStore, item: WardrobeItem, activeStorageProvider: string): Promise<PublicWardrobeItem> {
   return {
     id: item.id,
     name: item.name,
@@ -58,6 +58,14 @@ export async function toPublicWardrobeItem(assetStore: AssetStore, item: Wardrob
     sourceType: item.sourceType,
     imageUrl: await assetStore.signedUrl(item.imageStorageKey),
     imageStorageProvider: item.imageStorageProvider || null,
+    // A URL alone is not enough for try-on: the active server-side store
+    // must be able to retrieve the original bytes behind this asset. This
+    // distinguishes current assets from legacy records owned by a previous
+    // provider without exposing storage keys to the client.
+    virtualTryOnAssetAvailable: item.sourceType === "upload" &&
+      !!item.mediaAssetId &&
+      !!item.imageStorageKey &&
+      item.imageStorageProvider === activeStorageProvider,
     productUrl: item.productUrl,
     tags: item.tags,
     primaryColor: item.primaryColor || null,
@@ -92,7 +100,7 @@ export class WardrobeService {
 
   async listWardrobe(userId: string): Promise<PublicWardrobeItem[]> {
     const items = await this.wardrobe.listWardrobe(userId);
-    return Promise.all(items.map((item) => toPublicWardrobeItem(this.assetStore, item)));
+    return Promise.all(items.map((item) => toPublicWardrobeItem(this.assetStore, item, this.config.imageStorageProvider)));
   }
 
   async analyzeDraft(userId: string, uploadedFile: Express.Multer.File | undefined): Promise<PublicWardrobeDraft> {
@@ -161,7 +169,7 @@ export class WardrobeService {
     // full analysis JSON is redundant the moment it's normalized into
     // wardrobe_items columns.
     await this.assets.pruneAnalysisJobResult(resolved.analysisJobId).catch(() => {});
-    return toPublicWardrobeItem(this.assetStore, item);
+    return toPublicWardrobeItem(this.assetStore, item, this.config.imageStorageProvider);
   }
 
   async createWardrobeItemsBatch(userId: string, rawItems: WardrobeItemDraftPayload[]): Promise<PublicWardrobeItem[]> {
@@ -173,7 +181,7 @@ export class WardrobeService {
     // reviewed batch is saved, or none of it is.
     const items = await this.wardrobe.createWardrobeItemsBatch(userId, resolvedItems.map((entry) => entry.payload));
     await Promise.all(resolvedItems.map((entry) => this.assets.pruneAnalysisJobResult(entry.analysisJobId).catch(() => {})));
-    return Promise.all(items.map((item) => toPublicWardrobeItem(this.assetStore, item)));
+    return Promise.all(items.map((item) => toPublicWardrobeItem(this.assetStore, item, this.config.imageStorageProvider)));
   }
 
   async createWardrobeLink(userId: string, raw: WardrobeLinkPayload): Promise<PublicWardrobeItem> {
@@ -189,7 +197,7 @@ export class WardrobeService {
       garmentVisibility: "full",
       virtualTryOnEligible: false,
     });
-    return toPublicWardrobeItem(this.assetStore, item);
+    return toPublicWardrobeItem(this.assetStore, item, this.config.imageStorageProvider);
   }
 
   // Called when the user opens a wardrobe item's detail view — clears the
@@ -199,7 +207,7 @@ export class WardrobeService {
     const item = await this.wardrobe.getWardrobeItem(itemId);
     assert(item && item.userId === userId && !item.deletedAt, 404, "WARDROBE_ITEM_NOT_FOUND", "The wardrobe item was not found.");
     const updated = item.isNew ? await this.wardrobe.markWardrobeItemViewed(item.id) : item;
-    return toPublicWardrobeItem(this.assetStore, updated ?? item);
+    return toPublicWardrobeItem(this.assetStore, updated ?? item, this.config.imageStorageProvider);
   }
 
   async deleteWardrobeItem(userId: string, itemId: string): Promise<void> {

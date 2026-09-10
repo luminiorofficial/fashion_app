@@ -17,6 +17,7 @@ class WardrobeItem {
     this.productUrl,
     this.sourceType = 'upload',
     this.imageStorageProvider,
+    this.virtualTryOnAssetAvailable,
     this.tags = const [],
     this.containsPerson = false,
     this.garmentVisibility = 'full',
@@ -33,6 +34,7 @@ class WardrobeItem {
   final String? productUrl;
   final String sourceType;
   final String? imageStorageProvider;
+  final bool? virtualTryOnAssetAvailable;
   final List<String> tags;
 
   /// True when the photo shows a person/model wearing the item rather than a
@@ -61,13 +63,13 @@ class WardrobeItem {
 
   bool get hasPhoto => imageUrl.isNotEmpty || imagePath.isNotEmpty;
 
-  /// Production try-on can only fetch assets that the database identifies as
-  /// Cloudinary objects, and only for photos the AI judged safe to use
-  /// directly (see [virtualTryOnEligible]). A syntactically valid URL is not
-  /// proof that a legacy local/R2 object still exists in the active store.
+  /// Try-on can only fetch assets confirmed to belong to the server's active
+  /// storage provider, and only for photos the AI judged safe to use directly
+  /// (see [virtualTryOnEligible]). A syntactically valid display URL is not
+  /// proof that a legacy asset still exists in the active store.
   bool get canUseVirtualTryOn {
     if (sourceType != 'upload' ||
-        imageStorageProvider != 'cloudinary' ||
+        !(virtualTryOnAssetAvailable ?? imageStorageProvider == 'cloudinary') ||
         !virtualTryOnEligible) {
       return false;
     }
@@ -79,15 +81,14 @@ class WardrobeItem {
 
   /// Friendly explanation for why this item can't be used for Virtual
   /// Try-On, or null if it can. Distinguishes a model-worn photo (fixable by
-  /// adding a product-only photo) from a missing/unavailable image
-  /// (fixable by re-uploading).
+  /// adding a product-only photo) from a genuinely unavailable item/provider.
   String? get tryOnBlockedReason {
     if (canUseVirtualTryOn) return null;
     if (containsPerson) {
       return 'This item can be used for styling. Add a product-only photo '
           'to use it for Virtual Try-On.';
     }
-    return 'Re-upload photo for $name to use Virtual Try-On.';
+    return 'Not available yet, will start soon.';
   }
 
   factory WardrobeItem.fromJson(Map<String, dynamic> json) => WardrobeItem(
@@ -99,6 +100,7 @@ class WardrobeItem {
     productUrl: json['productUrl'] as String?,
     sourceType: json['sourceType'] as String? ?? 'upload',
     imageStorageProvider: json['imageStorageProvider'] as String?,
+    virtualTryOnAssetAvailable: json['virtualTryOnAssetAvailable'] as bool?,
     tags: List<String>.from(json['tags'] as List? ?? const []),
     containsPerson: json['containsPerson'] as bool? ?? false,
     garmentVisibility: json['garmentVisibility'] as String? ?? 'full',
@@ -117,6 +119,7 @@ class WardrobeItem {
     productUrl: productUrl,
     sourceType: sourceType,
     imageStorageProvider: imageStorageProvider,
+    virtualTryOnAssetAvailable: virtualTryOnAssetAvailable,
     tags: tags,
     containsPerson: containsPerson,
     garmentVisibility: garmentVisibility,

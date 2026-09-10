@@ -110,9 +110,9 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: NeraSpacing.md),
                 Text(
                   'Add ${2 - wardrobe.length} more ${wardrobe.length == 1 ? 'item' : 'items'} for complete outfit suggestions.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: NeraColors.muted,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: NeraColors.muted),
                 ),
               ],
               const SizedBox(height: NeraSpacing.xxxl),
@@ -162,9 +162,9 @@ class _OccasionStrip extends StatelessWidget {
             side: const BorderSide(color: NeraColors.surfaceBorder),
             minimumSize: const Size(0, 48),
             padding: const EdgeInsets.symmetric(horizontal: NeraSpacing.lg),
-            textStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            textStyle: Theme.of(
+              context,
+            ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(NeraRadius.pill),
             ),
@@ -196,10 +196,7 @@ class _EmptyWardrobe extends StatelessWidget {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: NeraSpacing.lg),
-        FilledButton(
-          onPressed: onAdd,
-          child: const Text('Add Clothes'),
-        ),
+        FilledButton(onPressed: onAdd, child: const Text('Add Clothes')),
       ],
     ),
   );
@@ -285,35 +282,98 @@ class _WeatherDisplay extends StatelessWidget {
   Widget build(BuildContext context) {
     final weather = this.weather;
     final canRetry = weather == null && !loading && onRetry != null;
-    final message = weather == null
-        ? loading
-              ? 'Checking local weather…'
-              : _unavailableMessage()
-        : '${weather.temperatureC.round()}°C  ·  ${weather.condition}  ·  ${weather.rainProbabilityPercent}% rain';
+    final message = loading ? 'Checking local weather…' : _unavailableMessage();
 
-    final content = Padding(
-      padding: const EdgeInsets.symmetric(vertical: NeraSpacing.xs),
-      child: Row(
-        children: [
-          Icon(
-            weather == null
-                ? (canRetry ? Icons.refresh_rounded : Icons.cloud_outlined)
-                : _weatherIcon(weather),
-            size: 16,
-            color: NeraColors.muted,
-          ),
-          const SizedBox(width: NeraSpacing.sm),
-          Expanded(
-            child: Text(
-              message,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: NeraColors.textSecondary,
+    final content = DecoratedBox(
+      decoration: BoxDecoration(
+        color: NeraColors.surface,
+        border: Border.all(color: NeraColors.surfaceBorder),
+        borderRadius: BorderRadius.circular(NeraRadius.md),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: weather == null
+            ? Row(
+                children: [
+                  SizedBox.square(
+                    dimension: 36,
+                    child: Center(
+                      child: loading
+                          ? const SizedBox.square(
+                              dimension: 17,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              canRetry
+                                  ? Icons.refresh_rounded
+                                  : Icons.cloud_outlined,
+                              size: 20,
+                              color: NeraColors.muted,
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: NeraColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: NeraColors.surfaceElevated,
+                      borderRadius: BorderRadius.circular(NeraRadius.sm),
+                    ),
+                    child: Icon(
+                      _weatherIcon(weather),
+                      size: 21,
+                      color: NeraColors.ink,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '${weather.temperatureC.round()}°C',
+                    style: NeraTheme.heading(24, letterSpacing: -.4),
+                  ),
+                  const SizedBox(width: 12),
+                  const SizedBox(height: 32, child: VerticalDivider(width: 1)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          weather.condition,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: NeraColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${weather.rainProbabilityPercent}% rain',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: NeraColors.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ),
-        ],
       ),
     );
 

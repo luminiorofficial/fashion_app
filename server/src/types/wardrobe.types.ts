@@ -79,6 +79,7 @@ export interface PublicWardrobeItem {
   sourceType: WardrobeSourceType;
   imageUrl: string;
   imageStorageProvider: string | null;
+  virtualTryOnAssetAvailable: boolean;
   productUrl: string | null;
   tags: string[];
   primaryColor: string | null;

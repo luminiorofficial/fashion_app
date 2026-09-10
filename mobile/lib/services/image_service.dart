@@ -76,6 +76,16 @@ class NeraImageService {
     return results;
   }
 
+  /// Compresses a photo captured by NERA's managed camera using the same
+  /// profile-photo pipeline as images selected through the platform picker.
+  Future<PickedImageData> prepareProfileCapture(XFile captured) =>
+      _toPickedImage(captured, 0, _profileCompression);
+
+  /// Compresses a photo captured by NERA's managed camera using the existing
+  /// wardrobe upload limits. Upload/storage behavior remains unchanged.
+  Future<PickedImageData> prepareWardrobeCapture(XFile captured) =>
+      _toPickedImage(captured, 0, _wardrobeCompression);
+
   Future<List<XFile>> _pickSingle(ImageSource source) async {
     final picked = await _picker.pickImage(
       source: source,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:camera/camera.dart' show XFile;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -11,6 +12,7 @@ import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
 import '../../services/image_service.dart';
 import '../../services/nera_backend.dart';
+import '../camera/camera_capture_screen.dart';
 import 'wardrobe_batch_review_screen.dart';
 import 'wardrobe_item_image.dart';
 
@@ -103,10 +105,13 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     if (!mounted || action == null) return;
     if (action == 'link') {
       await _addLink();
+    } else if (action == 'camera') {
+      final captured = await CameraCaptureScreen.open(context);
+      if (captured != null && mounted) {
+        await _upload(ImageSource.camera, captured: captured);
+      }
     } else {
-      await _upload(
-        action == 'camera' ? ImageSource.camera : ImageSource.gallery,
-      );
+      await _upload(ImageSource.gallery);
     }
   }
 
@@ -116,22 +121,22 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   // All" button — no per-item confirmation dialog. Saving happens in one
   // batch call so the wardrobe list is refreshed only once, not after every
   // individual item.
-  Future<void> _upload(ImageSource source) async {
+  Future<void> _upload(ImageSource source, {XFile? captured}) async {
     setState(() {
       _processing = true;
       _progress = 'Selecting images…';
     });
     try {
-      final images = await widget.imageService.pickMany(source);
+      final images = captured == null
+          ? await widget.imageService.pickMany(source)
+          : [await widget.imageService.prepareWardrobeCapture(captured)];
       final total = images.length;
       final results = List<WardrobeDraft?>.filled(total, null);
       var completed = 0;
       if (mounted && total > 0) {
         setState(() => _progress = 'Analyzing 0/$total…');
       }
-      await _runWithConcurrency(total, _maxAnalysisConcurrency, (
-        index,
-      ) async {
+      await _runWithConcurrency(total, _maxAnalysisConcurrency, (index) async {
         try {
           final image = images[index];
           results[index] = await widget.backend.analyzeWardrobeImage(
@@ -156,14 +161,9 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         _progress = null;
       });
 
-      final reviewed = await WardrobeBatchReviewScreen.review(
-        context,
-        drafts,
-      );
+      final reviewed = await WardrobeBatchReviewScreen.review(context, drafts);
       final keptIds = reviewed.map((draft) => draft.id).toSet();
-      final discarded = drafts.where(
-        (draft) => !keptIds.contains(draft.id),
-      );
+      final discarded = drafts.where((draft) => !keptIds.contains(draft.id));
       await Future.wait(discarded.map(widget.backend.discardWardrobeDraft));
 
       if (reviewed.isNotEmpty && mounted) {
@@ -439,12 +439,10 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       );
     }
     if (_purchases.isEmpty) {
-      return NeraCard(
+      return const NeraCard(
         child: NeraEmptyState(
           icon: Icons.local_shipping_outlined,
-          title: 'No purchases detected yet',
-          message: 'Connect Gmail from your Profile to detect delivered '
-              'fashion purchases automatically.',
+          title: 'No purchased items yet.',
         ),
       );
     }
@@ -497,118 +495,118 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
           if (_section == 'purchases') ...[
             _buildPurchasesSection(context),
           ] else ...[
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final category in ['All', ...wardrobeCategories])
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(category),
-                      labelStyle: TextStyle(
-                        color: _filter == category
-                            ? NeraColors.onInk
-                            : NeraColors.textPrimary,
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final category in ['All', ...wardrobeCategories])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(category),
+                        labelStyle: TextStyle(
+                          color: _filter == category
+                              ? NeraColors.onInk
+                              : NeraColors.textPrimary,
+                        ),
+                        selected: _filter == category,
+                        onSelected: (_) => setState(() => _filter = category),
                       ),
-                      selected: _filter == category,
-                      onSelected: (_) => setState(() => _filter = category),
                     ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: NeraSpacing.lg),
-          if (widget.error != null)
-            NeraErrorState(message: widget.error!, onRetry: widget.onRetry)
-          else if (widget.loading)
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              children: [
-                for (var i = 0; i < 4; i++)
-                  const NeraSkeleton(height: 200, radius: NeraRadius.md),
-              ],
-            )
-          else if (_visible.isEmpty)
-            NeraCard(
-              child: NeraEmptyState(
-                icon: Icons.checkroom_rounded,
-                title: _filter == 'All'
-                    ? 'Your closet is empty!'
-                    : 'No $_filter pieces yet',
-                message: 'Add photos or product links to start styling.',
-                action: FilledButton.icon(
-                  onPressed: _chooseSource,
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Upload Wardrobe'),
-                ),
+                ],
               ),
-            )
-          else
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _visible.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            ),
+            const SizedBox(height: NeraSpacing.lg),
+            if (widget.error != null)
+              NeraErrorState(message: widget.error!, onRetry: widget.onRetry)
+            else if (widget.loading)
+              GridView.count(
                 crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
-                childAspectRatio: .68,
-              ),
-              itemBuilder: (context, index) {
-                final item = _visible[index];
-                return NeraCard(
-                  padding: const EdgeInsets.all(9),
-                  onTap: () => _openItemDetail(item),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            WardrobeItemImage(item: item),
-                            if (item.isNew)
-                              const Positioned(
+                children: [
+                  for (var i = 0; i < 4; i++)
+                    const NeraSkeleton(height: 200, radius: NeraRadius.md),
+                ],
+              )
+            else if (_visible.isEmpty)
+              NeraCard(
+                child: NeraEmptyState(
+                  icon: Icons.checkroom_rounded,
+                  title: _filter == 'All'
+                      ? 'Your closet is empty!'
+                      : 'No $_filter pieces yet',
+                  message: 'Add photos or product links to start styling.',
+                  action: FilledButton.icon(
+                    onPressed: _chooseSource,
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Upload Wardrobe'),
+                  ),
+                ),
+              )
+            else
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _visible.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: .68,
+                ),
+                itemBuilder: (context, index) {
+                  final item = _visible[index];
+                  return NeraCard(
+                    padding: const EdgeInsets.all(9),
+                    onTap: () => _openItemDetail(item),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              WardrobeItemImage(item: item),
+                              if (item.isNew)
+                                const Positioned(
+                                  top: 4,
+                                  left: 4,
+                                  child: _NewBadge(),
+                                ),
+                              Positioned(
                                 top: 4,
-                                left: 4,
-                                child: _NewBadge(),
-                              ),
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: IconButton.filledTonal(
-                                tooltip: 'Remove ${item.name}',
-                                onPressed: () => _delete(item),
-                                icon: const Icon(
-                                  Icons.delete_outline_rounded,
-                                  size: 18,
+                                right: 4,
+                                child: IconButton.filledTonal(
+                                  tooltip: 'Remove ${item.name}',
+                                  onPressed: () => _delete(item),
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 18,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 9),
-                      Text(
-                        item.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        item.category,
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
+                        const SizedBox(height: 9),
+                        Text(
+                          item.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        Text(
+                          item.category,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
           ],
         ],
       ),
@@ -650,8 +648,7 @@ class _PurchaseCandidateCard extends StatelessWidget {
   final VoidCallback onAdd;
   final VoidCallback onIgnore;
 
-  String _formatDate(DateTime date) =>
-      '${date.day}/${date.month}/${date.year}';
+  String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 
   @override
   Widget build(BuildContext context) => NeraCard(

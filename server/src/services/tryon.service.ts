@@ -9,7 +9,7 @@ import type {WardrobeRepository, ProfilesRepository, AssetsRepository, TryOnRepo
 import type {AssetStore, TryOnProvider, ReadableAsset} from "../types/provider.types";
 import type {TryOnRequest, PublicTryOn} from "../types/tryon.types";
 
-export type TryOnServiceConfig = Pick<AppConfig, "env" | "geminiImageModel">;
+export type TryOnServiceConfig = Pick<AppConfig, "env" | "geminiImageModel" | "imageStorageProvider">;
 
 function logDevelopment(config: TryOnServiceConfig, message: string): void {
   if (config.env === "development") console.info(`[NERA try-on] ${message}`);
@@ -69,8 +69,12 @@ export class TryOnService {
     for (const item of garmentItems) {
       const garment = item!;
       logDevelopment(this.config, `try-on wardrobe asset: id=${garment.id} provider=${garment.imageStorageProvider || "missing"}`);
-      assert(garment.mediaAssetId && garment.imageStorageKey, 400, "WARDROBE_ITEM_HAS_NO_IMAGE", `Re-upload photo for ${garment.name} (${garment.id}) to use Virtual Try-On.`);
-      assert(garment.imageStorageProvider === "cloudinary", 400, "WARDROBE_ASSET_UNAVAILABLE", `Re-upload photo for ${garment.name} (${garment.id}); its image is not available in Cloudinary.`);
+      assert(garment.mediaAssetId && garment.imageStorageKey, 400, "WARDROBE_ITEM_HAS_NO_IMAGE", "Not available yet, will start soon.");
+      // readBytes belongs to the configured AssetStore, so assets from that
+      // provider are valid in every environment. A record from a previous
+      // provider is a genuine legacy mismatch and must not be sent to the
+      // current store under the wrong key format.
+      assert(garment.imageStorageProvider === this.config.imageStorageProvider, 400, "WARDROBE_ASSET_UNAVAILABLE", "Not available yet, will start soon.");
       // Defense in depth: the client is expected to filter these out
       // already (see WardrobeItem.canUseVirtualTryOn), but the server
       // independently refuses to composite a photo that shows a person
@@ -87,7 +91,7 @@ export class TryOnService {
     const profile = await this.profiles.getProfile(userId);
     assert(profile?.profileImageAssetId && profile.profileImageStorageKey, 400, "PROFILE_PHOTO_REQUIRED", "Analyze your style profile with a full-body photo before using virtual try-on.");
     logDevelopment(this.config, `try-on profile asset: id=${profile.profileImageAssetId} provider=${profile.profileImageStorageProvider || "missing"}`);
-    assert(profile.profileImageStorageProvider === "cloudinary", 400, "PROFILE_ASSET_UNAVAILABLE", "Re-upload your full-body profile photo; it is not available in Cloudinary.");
+    assert(profile.profileImageStorageProvider === this.config.imageStorageProvider, 400, "PROFILE_ASSET_UNAVAILABLE", "Update your full-body profile photo before using Virtual Try-On.");
 
     // Fetch the profile photo and every garment photo from Cloudinary
     // concurrently rather than one at a time, since they're independent
@@ -98,7 +102,7 @@ export class TryOnService {
         assetStore: this.assetStore,
         storageKey: profile.profileImageStorageKey as string,
         description: `profile id=${profile.profileImageAssetId}`,
-        error: new ApiError(422, "PROFILE_ASSET_FETCH_FAILED", "Re-upload your full-body profile photo; the stored Cloudinary image could not be retrieved."),
+        error: new ApiError(422, "PROFILE_ASSET_FETCH_FAILED", "Update your full-body profile photo; the stored image could not be retrieved."),
       }),
       Promise.all(
         garmentItems.map((item) => {
@@ -108,7 +112,7 @@ export class TryOnService {
             assetStore: this.assetStore,
             storageKey: garment.imageStorageKey as string,
             description: `wardrobe id=${garment.id} name=${JSON.stringify(garment.name)}`,
-            error: new ApiError(422, "WARDROBE_ASSET_FETCH_FAILED", `Re-upload photo for ${garment.name} (${garment.id}); the stored Cloudinary image could not be retrieved.`),
+            error: new ApiError(422, "WARDROBE_ASSET_FETCH_FAILED", "Not available yet, will start soon."),
           });
         }),
       ),

@@ -54,11 +54,10 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
     final missing = _itemsMissingImages;
     if (missing.length == 1) return missing.first.tryOnBlockedReason!;
     final names = missing.map((item) => item.name).join(', ');
-    return missing.any((item) => item.containsPerson)
+    return missing.every((item) => item.containsPerson)
         ? '$names will be excluded from Virtual Try-On. Items showing a '
               'person need a product-only photo to be included.'
-        : '$names will be excluded from Virtual Try-On. Re-upload their '
-              'photos.';
+        : 'Not available yet, will start soon.';
   }
 
   Future<void> _react(OutfitReaction reaction) async {
@@ -98,8 +97,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
     }
     final tryOnItems = _tryOnItems;
     if (tryOnItems.isEmpty) {
-      final item = _itemsMissingImages.first;
-      setState(() => _tryOnError = item.tryOnBlockedReason);
+      setState(() => _tryOnError = 'Not available yet, will start soon.');
       return;
     }
     setState(() {
@@ -126,7 +124,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _tryOnError = friendlyError(error);
+          _tryOnError = _tryOnUnavailableMessage(error);
           _profileAssetUnavailable =
               error is NeraException &&
               error.code == 'PROFILE_ASSET_UNAVAILABLE';
@@ -135,6 +133,23 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
     } finally {
       if (mounted) setState(() => _tryingOn = false);
     }
+  }
+
+  String _tryOnUnavailableMessage(Object error) {
+    if (error is NeraException) {
+      const unavailableCodes = {
+        'TRYON_SERVICE_UNAVAILABLE',
+        'TRYON_BILLING_REQUIRED',
+        'INVALID_TRYON_RESULT',
+        'WARDROBE_ITEM_HAS_NO_IMAGE',
+        'WARDROBE_ASSET_UNAVAILABLE',
+        'WARDROBE_ASSET_FETCH_FAILED',
+      };
+      if (unavailableCodes.contains(error.code)) {
+        return 'Not available yet, will start soon.';
+      }
+    }
+    return friendlyError(error);
   }
 
   Future<void> _updateFullBodyPhoto() async {
@@ -270,9 +285,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
                     color: NeraColors.textSecondary,
                   ),
                   const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(_tryOnExclusionMessage()),
-                  ),
+                  Expanded(child: Text(_tryOnExclusionMessage())),
                 ],
               ),
             ),
