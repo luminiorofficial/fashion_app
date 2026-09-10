@@ -51,7 +51,7 @@ test("labels the call LEGACY_FALLBACK when the split text key is missing and the
   global.fetch = async () => ({
     ok: true,
     async json() {
-      return {candidates: [{content: {parts: [{text: JSON.stringify({wardrobe_item_ids: ["item-1"], rationale: "ok", suggested_purchase_item: null})}]}}]};
+      return {candidates: [{content: {parts: [{text: JSON.stringify({wardrobe_item_ids: ["item-1"], rationale: "ok", suggested_items: []})}]}}]};
     },
   }) as Response;
 

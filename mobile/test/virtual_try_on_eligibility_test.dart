@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fashion_app/features/outfits/outfit_result_screen.dart';
@@ -14,7 +15,9 @@ import 'package:image_picker/image_picker.dart';
 class _FakeImageService extends NeraImageService {
   @override
   Future<PickedImageData?> pick(ImageSource source) async => PickedImageData(
-    bytes: Uint8List.fromList(const [1, 2, 3]),
+    bytes: base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    ),
     fileName: 'profile.jpg',
   );
 }
@@ -64,6 +67,9 @@ const _outfit = OutfitPlan(
   eventType: 'Casual',
   wardrobeItemIds: ['photo-top', 'link-bottom'],
   rationale: 'The recommendation remains visible.',
+  suggestedItems: [
+    SuggestedItem(name: 'External shoes', type: 'Shoes', role: 'essential'),
+  ],
 );
 
 const _photoTop = WardrobeItem(
@@ -126,16 +132,60 @@ void main() {
         ),
       ),
     );
-
-    await tester.drag(find.byType(ListView).first, const Offset(0, -700));
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('NERA SUGGESTS'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('External shoes'), findsWidgets);
+    expect(find.text('Completes the look'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('WHY THIS WORKS'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('The recommendation remains visible.'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Try On Me'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 120));
+    await tester.pump();
     await tester.tap(find.text('Try On Me'));
     await tester.pump();
 
     expect(backend.requests, [
       ['photo-top'],
     ]);
-    expect(find.text('The recommendation remains visible.'), findsOneWidget);
+  });
+
+  testWidgets('empty suggestions omit the NERA Suggests section', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OutfitResultScreen(
+          backend: _RecordingBackend(),
+          imageService: _FakeImageService(),
+          outfit: const OutfitPlan(
+            id: 'complete-look',
+            eventType: 'Casual',
+            wardrobeItemIds: ['photo-top'],
+            rationale: 'Complete from the wardrobe.',
+          ),
+          wardrobe: const [_photoTop],
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.text('FROM YOUR WARDROBE'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('NERA SUGGESTS'), findsNothing);
+    expect(find.text('FROM YOUR WARDROBE'), findsOneWidget);
   });
 
   testWidgets('an all-no-image outfit prompts for the named item', (
@@ -159,8 +209,11 @@ void main() {
       ),
     );
 
-    await tester.drag(find.byType(ListView).first, const Offset(0, -700));
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Try On Me'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.text('Try On Me'));
     await tester.pump();
 
@@ -191,18 +244,29 @@ void main() {
         ),
       );
 
-      await tester.drag(find.byType(ListView).first, const Offset(0, -700));
-      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Try On Me'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Try On Me'));
       await tester.pump();
 
       expect(find.text('Upload Full-Body Photo'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Upload Full-Body Photo'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Upload Full-Body Photo'));
       await tester.pumpAndSettle();
       expect(find.text('Take a photo'), findsOneWidget);
       expect(find.text('Choose from gallery'), findsOneWidget);
 
       await tester.tap(find.text('Choose from gallery'));
+      await tester.pumpAndSettle();
+      expect(find.text('Your photo'), findsOneWidget);
+      await tester.tap(find.text('Use this photo'));
       await tester.pump();
       expect(backend.profileUploads, 1);
       expect(find.text('Uploading & analyzing…'), findsOneWidget);
@@ -212,8 +276,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Upload Full-Body Photo'), findsNothing);
-      expect(find.text('Try On Me'), findsOneWidget);
-      expect(find.text('The outfit stays open.'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Try On Me'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
 
       await tester.tap(find.text('Try On Me'));
       await tester.pump();

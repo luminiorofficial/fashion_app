@@ -49,6 +49,13 @@ void main() {
               'eventType': 'Wedding',
               'wardrobeItemIds': ['item-1', 'item-2'],
               'rationale': 'A polished wedding-guest look from your wardrobe.',
+              'suggestedItems': [
+                {
+                  'name': 'Sculptural earrings',
+                  'type': 'Accessory',
+                  'role': 'accessory',
+                },
+              ],
               'createdAt': '2026-01-01T00:00:00.000Z',
             },
           }),
@@ -76,9 +83,45 @@ void main() {
         outfit.rationale,
         'A polished wedding-guest look from your wardrobe.',
       );
+      expect(outfit.suggestedItems, hasLength(1));
+      expect(outfit.suggestedItems.single.name, 'Sculptural earrings');
+      expect(outfit.suggestedItems.single.role, 'accessory');
       expect(outfit.createdAt, DateTime.parse('2026-01-01T00:00:00.000Z'));
     },
   );
+
+  test('OutfitPlan parses legacy singular suggestions as a safe array', () {
+    final outfit = OutfitPlan.fromJson({
+      'id': 'legacy-outfit',
+      'eventType': 'Casual',
+      'wardrobeItemIds': ['item-1'],
+      'rationale': 'A cached response.',
+      'suggestedPurchaseItem': {'name': 'White trainers', 'type': 'Shoes'},
+    });
+
+    expect(outfit.suggestedItems, hasLength(1));
+    expect(outfit.suggestedItems.single.name, 'White trainers');
+    expect(outfit.suggestedItems.single.role, isNull);
+  });
+
+  test('OutfitPlan defaults missing and null suggestion payloads to empty', () {
+    final missing = OutfitPlan.fromJson({
+      'id': 'missing',
+      'eventType': 'Casual',
+      'wardrobeItemIds': const <String>[],
+      'rationale': '',
+    });
+    final nullArray = OutfitPlan.fromJson({
+      'id': 'null',
+      'eventType': 'Casual',
+      'wardrobeItemIds': const <String>[],
+      'rationale': '',
+      'suggestedItems': null,
+    });
+
+    expect(missing.suggestedItems, isEmpty);
+    expect(nullArray.suggestedItems, isEmpty);
+  });
 
   test(
     'generateOutfit surfaces the server error message as a NeraException',
@@ -149,41 +192,44 @@ void main() {
     });
   });
 
-  test('getWeather calls the weather endpoint and parses its response', () async {
-    http.Request? captured;
-    final mockClient = MockClient((request) async {
-      captured = request;
-      return http.Response(
-        jsonEncode({
-          'weather': {
-            'temperatureC': 24.4,
-            'feelsLikeC': 25.1,
-            'humidityPercent': 58,
-            'rainProbabilityPercent': 20,
-            'condition': 'Partly cloudy',
-            'windKph': 9.2,
-          },
-        }),
-        200,
-        headers: {'content-type': 'application/json'},
+  test(
+    'getWeather calls the weather endpoint and parses its response',
+    () async {
+      http.Request? captured;
+      final mockClient = MockClient((request) async {
+        captured = request;
+        return http.Response(
+          jsonEncode({
+            'weather': {
+              'temperatureC': 24.4,
+              'feelsLikeC': 25.1,
+              'humidityPercent': 58,
+              'rainProbabilityPercent': 20,
+              'condition': 'Partly cloudy',
+              'windKph': 9.2,
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
+
+      final weather = await backend.getWeather(
+        const LocationCoordinates(latitude: 12.9716, longitude: 77.5946),
       );
-    });
-    final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
 
-    final weather = await backend.getWeather(
-      const LocationCoordinates(latitude: 12.9716, longitude: 77.5946),
-    );
-
-    expect(captured!.method, 'GET');
-    expect(captured!.url.path, '/api/v1/weather');
-    expect(captured!.url.queryParameters, {
-      'lat': '12.9716',
-      'lng': '77.5946',
-    });
-    expect(weather.temperatureC, 24.4);
-    expect(weather.condition, 'Partly cloudy');
-    expect(weather.rainProbabilityPercent, 20);
-  });
+      expect(captured!.method, 'GET');
+      expect(captured!.url.path, '/api/v1/weather');
+      expect(captured!.url.queryParameters, {
+        'lat': '12.9716',
+        'lng': '77.5946',
+      });
+      expect(weather.temperatureC, 24.4);
+      expect(weather.condition, 'Partly cloudy');
+      expect(weather.rainProbabilityPercent, 20);
+    },
+  );
 
   test('generateTryOn rejects a development fallback image', () async {
     final mockClient = MockClient(
@@ -288,9 +334,11 @@ void main() {
       final captured = <http.Request>[];
       final mockClient = MockClient((request) async {
         captured.add(request);
-        return http.Response('{}', 201, headers: {
-          'content-type': 'application/json',
-        });
+        return http.Response(
+          '{}',
+          201,
+          headers: {'content-type': 'application/json'},
+        );
       });
       final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
 
@@ -428,7 +476,9 @@ void main() {
           captured = request;
           return http.Response('', 204);
         }
-        throw StateError('Unexpected request: ${request.method} ${request.url.path}');
+        throw StateError(
+          'Unexpected request: ${request.method} ${request.url.path}',
+        );
       });
 
       final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
@@ -471,7 +521,9 @@ void main() {
             },
           }, 401);
         }
-        throw StateError('Unexpected request: ${request.method} ${request.url.path}');
+        throw StateError(
+          'Unexpected request: ${request.method} ${request.url.path}',
+        );
       });
 
       final backend = RemoteNeraBackend(api: NeraApiClient(client: mockClient));
@@ -508,7 +560,13 @@ void main() {
 
       await expectLater(
         backend.verifyOtp(challengeId: 'challenge-1', otp: '000000'),
-        throwsA(isA<NeraException>().having((error) => error.code, 'code', 'INVALID_OTP')),
+        throwsA(
+          isA<NeraException>().having(
+            (error) => error.code,
+            'code',
+            'INVALID_OTP',
+          ),
+        ),
       );
 
       expect(backend.isAuthenticated.value, false);

@@ -29,27 +29,26 @@ enum OccasionType {
   }
 }
 
-class SuggestedPurchase {
-  const SuggestedPurchase({
-    required this.name,
-    required this.type,
-    this.buyUrl,
-  });
+class SuggestedItem {
+  const SuggestedItem({required this.name, required this.type, this.role});
   final String name;
   final String type;
-  final String? buyUrl;
+  final String? role;
 
-  factory SuggestedPurchase.fromMap(Map<String, dynamic> data) =>
-      SuggestedPurchase(
-        name: data['name'] as String? ?? 'Complementary piece',
-        type: data['type'] as String? ?? 'Accessory',
-        buyUrl: data['buyUrl'] as String?,
-      );
+  factory SuggestedItem.fromMap(Map<String, dynamic> data) => SuggestedItem(
+    name: data['name'] as String? ?? 'Complementary piece',
+    type: data['type'] as String? ?? 'Accessory',
+    role: switch (data['role']) {
+      'essential' => 'essential',
+      'accessory' => 'accessory',
+      _ => null,
+    },
+  );
 
   Map<String, dynamic> toMap() => {
     'name': name,
     'type': type,
-    if (buyUrl != null) 'buyUrl': buyUrl,
+    if (role != null) 'role': role,
   };
 }
 
@@ -59,7 +58,7 @@ class OutfitPlan {
     required this.eventType,
     required this.wardrobeItemIds,
     required this.rationale,
-    this.suggestedPurchaseItem,
+    this.suggestedItems = const [],
     this.matchScore,
     this.feedback,
     this.createdAt,
@@ -68,7 +67,7 @@ class OutfitPlan {
   final String eventType;
   final List<String> wardrobeItemIds;
   final String rationale;
-  final SuggestedPurchase? suggestedPurchaseItem;
+  final List<SuggestedItem> suggestedItems;
   final int? matchScore;
   final OutfitFeedback? feedback;
   final DateTime? createdAt;
@@ -78,7 +77,7 @@ class OutfitPlan {
     eventType: eventType,
     wardrobeItemIds: wardrobeItemIds,
     rationale: rationale,
-    suggestedPurchaseItem: suggestedPurchaseItem,
+    suggestedItems: suggestedItems,
     matchScore: matchScore,
     feedback: feedback ?? this.feedback,
     createdAt: createdAt,
@@ -91,15 +90,29 @@ class OutfitPlan {
       json['wardrobeItemIds'] as List? ?? const [],
     ),
     rationale: json['rationale'] as String? ?? '',
-    suggestedPurchaseItem: json['suggestedPurchaseItem'] != null
-        ? SuggestedPurchase.fromMap(
-            json['suggestedPurchaseItem'] as Map<String, dynamic>,
-          )
-        : null,
+    suggestedItems: _parseSuggestedItems(json),
     matchScore: json['matchScore'] as int?,
     feedback: json['feedback'] != null
         ? OutfitFeedback.fromJson(json['feedback'] as Map<String, dynamic>)
         : null,
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
   );
+}
+
+List<SuggestedItem> _parseSuggestedItems(Map<String, dynamic> json) {
+  // Prefer the current array contract whenever the key is present. The
+  // singular branch remains only so old cached/history payloads keep loading.
+  final current = json['suggestedItems'];
+  final values = current is List
+      ? current
+      : !json.containsKey('suggestedItems') &&
+            json['suggestedPurchaseItem'] is Map
+      ? [json['suggestedPurchaseItem']]
+      : const <Object?>[];
+
+  return values
+      .whereType<Map>()
+      .map((value) => SuggestedItem.fromMap(Map<String, dynamic>.from(value)))
+      .take(3)
+      .toList(growable: false);
 }

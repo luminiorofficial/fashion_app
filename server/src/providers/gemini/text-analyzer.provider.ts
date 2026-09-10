@@ -165,7 +165,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       weatherContext ? `Current weather at the wearer's location: ${weatherContext}. Factor this into fabric weight, layering, and rain/wind-appropriate footwear when it matters for comfort.` : "",
       `Wardrobe items (JSON array): ${JSON.stringify(catalog)}`,
       "Return wardrobe_item_ids as the chosen items' ids (each must exactly match an id from the wardrobe list) and a short rationale (2-3 sentences) explaining the choice for this event and profile.",
-      "If one complementary piece is genuinely missing from the wardrobe and would elevate this outfit for the event (for example a bag, shoes, a belt, or jewelry), set suggested_purchase_item to a short generic item name and its category type. Do not invent a specific brand, product, or store. Only suggest a purchase when a piece is genuinely missing; otherwise set suggested_purchase_item to null.",
+      "Return suggested_items as an array of at most 3 genuinely useful pieces that are not in the wardrobe. Use role 'essential' when the outfit is incomplete without the item (for example, shoes are missing), and role 'accessory' only for an optional finishing touch such as a bag, bracelet, earrings, watch, belt, or necklace. Do not add accessories just to fill the array. Do not invent a brand, product, store, URL, or price. Return an empty array when the wardrobe already completes the look.",
     ].filter(Boolean).join("\n");
 
     return this.call(prompt, null, {
@@ -173,14 +173,22 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       properties: {
         wardrobe_item_ids: {type: "array", items: {type: "string"}, minItems: 1, maxItems: 6},
         rationale: {type: "string"},
-        suggested_purchase_item: {
-          type: ["object", "null"],
-          properties: {name: {type: "string"}, type: {type: "string"}},
-          required: ["name", "type"],
-          additionalProperties: false,
+        suggested_items: {
+          type: "array",
+          maxItems: 3,
+          items: {
+            type: "object",
+            properties: {
+              name: {type: "string"},
+              type: {type: "string"},
+              role: {type: "string", enum: ["essential", "accessory"]},
+            },
+            required: ["name", "type", "role"],
+            additionalProperties: false,
+          },
         },
       },
-      required: ["wardrobe_item_ids", "rationale", "suggested_purchase_item"],
+      required: ["wardrobe_item_ids", "rationale", "suggested_items"],
       additionalProperties: false,
     }, "outfit_generation");
   }
@@ -198,7 +206,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
     return {
       wardrobe_item_ids: ids.length ? ids : wardrobe.slice(0, 2).map((item) => item.id),
       rationale: `A simple ${eventType.toLowerCase()} look put together from your wardrobe. Configure GEMINI_API_KEY to enable AI-personalized styling.`,
-      suggested_purchase_item: missingShoes ? {name: "Complementary shoes", type: "Shoes"} : null,
+      suggested_items: missingShoes ? [{name: "Complementary shoes", type: "Shoes", role: "essential"}] : [],
     };
   }
 

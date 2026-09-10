@@ -330,7 +330,7 @@ test("generates an outfit from the authenticated user's wardrobe and profile, an
   const {app, repository, uploadDir} = await fixture({analyzer: {
     suggestOutfit: async (args) => {
       receivedCalls.push(args);
-      return {wardrobe_item_ids: [args.wardrobe[0].id, args.wardrobe[1].id], rationale: "A polished work-appropriate look."};
+      return {wardrobe_item_ids: [args.wardrobe[0].id, args.wardrobe[1].id], rationale: "A polished work-appropriate look.", suggested_items: []};
     },
   }});
   const token = await register(app);
@@ -350,9 +350,9 @@ test("generates an outfit from the authenticated user's wardrobe and profile, an
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
-test("returns and persists the AI's suggested Shop the Look purchase item", async () => {
+test("returns and persists the AI's suggested items", async () => {
   const {app, uploadDir} = await fixture({analyzer: {
-    suggestOutfit: async (args) => ({wardrobe_item_ids: [args.wardrobe[0].id, args.wardrobe[1].id], rationale: "A polished work-appropriate look.", suggested_purchase_item: {name: "Structured tote bag", type: "Accessory"}}),
+    suggestOutfit: async (args) => ({wardrobe_item_ids: [args.wardrobe[0].id, args.wardrobe[1].id], rationale: "A polished work-appropriate look.", suggested_items: [{name: "Structured tote bag", type: "Accessory", role: "accessory"}]}),
   }});
   const token = await register(app);
   await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
@@ -360,11 +360,11 @@ test("returns and persists the AI's suggested Shop the Look purchase item", asyn
 
   const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Meeting"}).expect(201);
 
-  assert.deepEqual(response.body.outfit.suggestedPurchaseItem, {name: "Structured tote bag", type: "Accessory"});
+  assert.deepEqual(response.body.outfit.suggestedItems, [{name: "Structured tote bag", type: "Accessory", role: "accessory"}]);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
-test("returns null for Shop the Look when the AI does not suggest a purchase", async () => {
+test("returns an empty suggested-items array when the wardrobe completes the look", async () => {
   const {app, uploadDir} = await fixture();
   const token = await register(app);
   await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
@@ -372,13 +372,18 @@ test("returns null for Shop the Look when the AI does not suggest a purchase", a
 
   const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(201);
 
-  assert.equal(response.body.outfit.suggestedPurchaseItem, null);
+  assert.deepEqual(response.body.outfit.suggestedItems, []);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 
-test("never surfaces a hallucinated purchase link, keeping only a sanitized name and type", async () => {
+test("caps suggestions at three and never surfaces hallucinated shopping fields", async () => {
   const {app, uploadDir} = await fixture({analyzer: {
-    suggestOutfit: async (args) => ({wardrobe_item_ids: [args.wardrobe[0].id, args.wardrobe[1].id], rationale: "A relaxed look.", suggested_purchase_item: {name: "  Statement earrings  ", type: "Accessory", buyUrl: "https://not-a-real-shop.example/item"}}),
+    suggestOutfit: async (args) => ({wardrobe_item_ids: [args.wardrobe[0].id, args.wardrobe[1].id], rationale: "A relaxed look.", suggested_items: [
+      {name: "  Statement earrings  ", type: "Accessory", role: "accessory", buyUrl: "https://not-a-real-shop.example/item"},
+      {name: "Shoes", type: "Shoes", role: "essential", price: 100},
+      {name: "Belt", type: "Accessory", role: "accessory"},
+      {name: "Watch", type: "Accessory", role: "accessory"},
+    ]}),
   }});
   const token = await register(app);
   await addWardrobeItem(app, token, {name: "Silk Blouse", category: "Top"});
@@ -386,7 +391,11 @@ test("never surfaces a hallucinated purchase link, keeping only a sanitized name
 
   const response = await request(app).post("/api/v1/outfits/generate").set("authorization", `Bearer ${token}`).send({eventType: "Casual"}).expect(201);
 
-  assert.deepEqual(response.body.outfit.suggestedPurchaseItem, {name: "Statement earrings", type: "Accessory"});
+  assert.deepEqual(response.body.outfit.suggestedItems, [
+    {name: "Statement earrings", type: "Accessory", role: "accessory"},
+    {name: "Shoes", type: "Shoes", role: "essential"},
+    {name: "Belt", type: "Accessory", role: "accessory"},
+  ]);
   await fs.rm(uploadDir, {recursive: true, force: true});
 });
 

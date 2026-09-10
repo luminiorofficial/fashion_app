@@ -57,7 +57,7 @@ test("outfit generation continues without weather when its provider fails", asyn
         eventType: input.eventType as string,
         rationale: input.rationale as string,
         wardrobeItemIds: input.wardrobeItemIds as string[],
-        suggestedPurchaseItem: null,
+        suggestedItems: input.suggestedItems as [],
         createdAt: "2026-09-01T00:00:00.000Z",
       }),
     } as never,
@@ -74,7 +74,7 @@ test("outfit generation continues without weather when its provider fails", asyn
         return {
           wardrobe_item_ids: ["top-1", "bottom-1"],
           rationale: "A weather-independent outfit",
-          suggested_purchase_item: null,
+          suggested_items: [],
         };
       },
     } as never,

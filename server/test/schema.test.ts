@@ -20,6 +20,7 @@ const productionHardening = fs.readFileSync(path.join(migrationsDirectory, "005_
 const gmailCommerceIntegration = fs.readFileSync(path.join(migrationsDirectory, "006_gmail_commerce_integration.sql"), "utf8");
 const genericMarketplaceFallback = fs.readFileSync(path.join(migrationsDirectory, "007_generic_marketplace_fallback.sql"), "utf8");
 const wardrobePurchaseSource = fs.readFileSync(path.join(migrationsDirectory, "008_wardrobe_purchase_source.sql"), "utf8");
+const suggestedItemsArray = fs.readFileSync(path.join(migrationsDirectory, "009_suggested_items_array.sql"), "utf8");
 
 test("initial migration contains the complete phase-one data model", () => {
   const tables = [...initialSchema.matchAll(/CREATE TABLE\s+([a-z_]+)/g)].map((match) => match[1]);
@@ -89,6 +90,13 @@ test("wardrobe purchase source migration adds source_marketplace/is_new with a b
   assert.match(wardrobePurchaseSource, /ADD COLUMN is_new boolean NOT NULL DEFAULT false/);
   assert.match(wardrobePurchaseSource, /CHECK \(NOT is_new OR source_marketplace IS NOT NULL\)/);
   assert.match(wardrobePurchaseSource, /^BEGIN;[\s\S]*COMMIT;\s*$/);
+});
+
+test("suggested items migration keeps JSONB history while allowing array writes", () => {
+  assert.match(suggestedItemsArray, /DROP CONSTRAINT IF EXISTS outfits_suggested_purchase_check/);
+  assert.match(suggestedItemsArray, /jsonb_typeof\(suggested_purchase\) IN \('object', 'array'\)/);
+  assert.doesNotMatch(suggestedItemsArray, /UPDATE outfits/);
+  assert.match(suggestedItemsArray, /^BEGIN;[\s\S]*COMMIT;\s*$/);
 });
 
 test("in-memory development adapter satisfies the checked repository contract", () => {

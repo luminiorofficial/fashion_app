@@ -14,8 +14,8 @@ class CameraCaptureScreen extends StatefulWidget {
   const CameraCaptureScreen({super.key});
 
   static Future<XFile?> open(BuildContext context) =>
-      Navigator.of(context).push(
-        MaterialPageRoute<XFile?>(builder: (_) => const CameraCaptureScreen()),
+      Navigator.of(context).push<XFile>(
+        MaterialPageRoute<XFile>(builder: (_) => const CameraCaptureScreen()),
       );
 
   @override

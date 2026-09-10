@@ -62,7 +62,7 @@ function fixture(overrides: Parameters<typeof loadConfig>[0] = {}, assetStore = 
       analyzeWardrobe: async () => ({item_name: "Top", category: "Top", tags: [], color: "Blue", material: "Cotton", pattern: "Solid", season: [], occasion: [], style: [], contains_person: false, garment_visibility: "full", virtual_tryon_eligible: true}),
       validateFullLengthPhoto: async () => ({is_full_length: true, reasons: []}),
       analyzeProfile: async () => ({body_shape: "Rectangle", skin_tone: "Medium", skin_undertone: null, hair_color: null, facial_structure: null, style_attributes: [], styling_notes: ""}),
-      suggestOutfit: async ({wardrobe}) => ({wardrobe_item_ids: wardrobe.slice(0, 2).map((item) => item.id), rationale: "Test outfit", suggested_purchase_item: null}),
+      suggestOutfit: async ({wardrobe}) => ({wardrobe_item_ids: wardrobe.slice(0, 2).map((item) => item.id), rationale: "Test outfit", suggested_items: []}),
     },
     tryonProvider: {generate: async () => ({buffer: jpeg, mimeType: "image/jpeg"})},
     weatherProvider: {

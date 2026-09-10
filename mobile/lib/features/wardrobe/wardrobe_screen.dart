@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:camera/camera.dart' show XFile;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 

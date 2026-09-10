@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fashion_app/main.dart';
@@ -15,20 +16,19 @@ class _FakeImageService extends NeraImageService {
   final int wardrobeImages;
 
   @override
-  Future<PickedImageData?> pick(ImageSource source) async => PickedImageData(
-    bytes: Uint8List.fromList(<int>[1, 2, 3]),
-    fileName: 'test.jpg',
-  );
+  Future<PickedImageData?> pick(ImageSource source) async =>
+      PickedImageData(bytes: _testImageBytes(), fileName: 'test.jpg');
 
   @override
   Future<List<PickedImageData>> pickMany(ImageSource source) async => [
     for (var index = 0; index < wardrobeImages; index += 1)
-      PickedImageData(
-        bytes: Uint8List.fromList(<int>[1, 2, 3]),
-        fileName: 'test-$index.jpg',
-      ),
+      PickedImageData(bytes: _testImageBytes(), fileName: 'test-$index.jpg'),
   ];
 }
+
+Uint8List _testImageBytes() => base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+);
 
 class _GrantedLocationGateway implements LocationGateway {
   @override
@@ -89,8 +89,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Create Profile'), findsOneWidget);
-      expect(find.text('Upload Image'), findsOneWidget);
+      expect(find.text('Create your Style Profile'), findsOneWidget);
+      expect(find.text('Add a photo'), findsOneWidget);
       expect(find.text('Upload Wardrobe'), findsNothing);
     },
   );
@@ -105,12 +105,13 @@ void main() {
           initialProfile: _analyzedProfile,
         ),
         imageService: _FakeImageService(),
+        locationService: LocationService(gateway: _DisabledLocationGateway()),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('What are you dressing for?'), findsOneWidget);
-    expect(find.text('Create Profile'), findsNothing);
+    expect(find.text('Create your Style Profile'), findsNothing);
   });
 
   testWidgets('shows local weather on the home screen', (tester) async {
@@ -139,6 +140,7 @@ void main() {
           initialProfile: _analyzedProfile,
         ),
         imageService: _FakeImageService(),
+        locationService: LocationService(gateway: _DisabledLocationGateway()),
       ),
     );
     await tester.pumpAndSettle();
@@ -174,6 +176,7 @@ void main() {
             initialProfile: _analyzedProfile,
           ),
           imageService: _FakeImageService(),
+          locationService: LocationService(gateway: _DisabledLocationGateway()),
         ),
       );
       await tester.pumpAndSettle();
@@ -219,6 +222,7 @@ void main() {
           initialProfile: _analyzedProfile,
         ),
         imageService: _FakeImageService(),
+        locationService: LocationService(gateway: _DisabledLocationGateway()),
       ),
     );
     await tester.pumpAndSettle();
@@ -241,37 +245,39 @@ void main() {
     expect(find.text('Outerwear'), findsNWidgets(2));
   });
 
-  testWidgets('gallery uploads and saves every selected wardrobe image in one batch', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      NeraApp(
-        backend: MemoryNeraBackend(
-          authenticated: true,
-          initialProfile: _analyzedProfile,
+  testWidgets(
+    'gallery uploads and saves every selected wardrobe image in one batch',
+    (tester) async {
+      await tester.pumpWidget(
+        NeraApp(
+          backend: MemoryNeraBackend(
+            authenticated: true,
+            initialProfile: _analyzedProfile,
+          ),
+          imageService: _FakeImageService(wardrobeImages: 2),
+          locationService: LocationService(gateway: _DisabledLocationGateway()),
         ),
-        imageService: _FakeImageService(wardrobeImages: 2),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Wardrobe'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Upload Wardrobe'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Choose from gallery'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Wardrobe'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Upload Wardrobe'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Choose from gallery'));
+      await tester.pumpAndSettle();
 
-    // Both images are analyzed first and shown together on one review
-    // screen, not confirmed one at a time.
-    expect(find.text('Review 2 items'), findsOneWidget);
-    expect(find.text('Black Silk Blazer'), findsNWidgets(2));
+      // Both images are analyzed first and shown together on one review
+      // screen, not confirmed one at a time.
+      expect(find.text('Review 2 items'), findsOneWidget);
+      expect(find.text('Black Silk Blazer'), findsNWidgets(2));
 
-    await tester.tap(find.text('Save All (2)'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Save All (2)'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Black Silk Blazer'), findsNWidgets(2));
-  });
+      expect(find.text('Black Silk Blazer'), findsNWidgets(2));
+    },
+  );
 
   testWidgets(
     'new registration goes through OTP and profile creation before reaching home',
@@ -297,7 +303,7 @@ void main() {
 
       // A brand-new user has no style profile yet, so profile creation
       // comes before home — not straight to the wardrobe.
-      expect(find.text('Create Profile'), findsOneWidget);
+      expect(find.text('Create your Style Profile'), findsOneWidget);
       expect(find.text('Upload Wardrobe'), findsNothing);
 
       await backend.logout();
@@ -315,19 +321,25 @@ void main() {
         NeraApp(
           backend: MemoryNeraBackend(authenticated: true),
           imageService: _FakeImageService(),
+          locationService: LocationService(gateway: _DisabledLocationGateway()),
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Create Profile'), findsOneWidget);
-      await tester.tap(find.text('Upload Image'));
+      expect(find.text('Create your Style Profile'), findsOneWidget);
+      await tester.tap(find.text('Add a photo'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Choose from gallery'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Use this photo'));
+      await tester.pumpAndSettle();
+      expect(find.text('Your Style Profile is ready.'), findsOneWidget);
+      await tester.tap(find.text('Continue to NERA'));
       await tester.pumpAndSettle();
 
       // The profile is now analyzed, so the app has moved on to home.
       expect(find.text('What are you dressing for?'), findsOneWidget);
-      expect(find.text('Create Profile'), findsNothing);
+      expect(find.text('Create your Style Profile'), findsNothing);
 
       await tester.tap(find.text('Profile'));
       await tester.pumpAndSettle();
@@ -379,22 +391,37 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Wedding edit'), findsOneWidget);
+    expect(find.text('60%'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('WHY THIS WORKS'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(
       find.text('A polished, balanced look selected from your wardrobe.'),
       findsOneWidget,
     );
-    expect(find.text('60%'), findsOneWidget);
-    await tester.drag(find.byType(ListView).first, const Offset(0, -350));
+    await tester.scrollUntilVisible(
+      find.text('Try On Me'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 120));
+    await tester.pump();
+    expect(find.text('Try On Me'), findsOneWidget);
+    await tester.tap(find.text('Try On Me'));
     await tester.pumpAndSettle();
+    expect(find.text('Virtual try-on unavailable'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('FEEDBACK / WORN ACTIONS'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Love It'), findsOneWidget);
     expect(find.text('Would Wear'), findsOneWidget);
     expect(find.text('Not Sure'), findsOneWidget);
     expect(find.text('Not My Style'), findsOneWidget);
     expect(find.text('I Wore This'), findsOneWidget);
-    expect(find.text('Try On Me'), findsOneWidget);
-
-    await tester.tap(find.text('Try On Me'));
-    await tester.pumpAndSettle();
-    expect(find.text('Virtual try-on unavailable'), findsOneWidget);
   });
 }

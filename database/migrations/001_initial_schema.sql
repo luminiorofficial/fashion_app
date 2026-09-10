@@ -265,7 +265,7 @@ CREATE TABLE outfits (
   event_type varchar(100) NOT NULL,
   status outfit_status NOT NULL DEFAULT 'queued',
   rationale text,
-  suggested_purchase jsonb CHECK (suggested_purchase IS NULL OR jsonb_typeof(suggested_purchase) = 'object'),
+  suggested_purchase jsonb CHECK (suggested_purchase IS NULL OR jsonb_typeof(suggested_purchase) IN ('object', 'array')),
   analysis_context jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(analysis_context) = 'object'),
   created_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz,

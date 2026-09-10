@@ -4,6 +4,7 @@ import '../../core/errors/friendly_error.dart';
 import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
+import '../../services/complete_look_provider.dart';
 import '../../services/image_service.dart';
 import '../../services/nera_backend.dart';
 import '../profile/full_body_photo_flow.dart';
@@ -17,18 +18,21 @@ class OutfitResultScreen extends StatefulWidget {
     required this.imageService,
     required this.outfit,
     required this.wardrobe,
+    this.completeLookProvider = const PlaceholderCompleteLookProvider(),
   });
 
   final NeraBackend backend;
   final NeraImageService imageService;
   final OutfitPlan outfit;
   final List<WardrobeItem> wardrobe;
+  final CompleteLookProvider completeLookProvider;
 
   @override
   State<OutfitResultScreen> createState() => _OutfitResultScreenState();
 }
 
 class _OutfitResultScreenState extends State<OutfitResultScreen> {
+  late final Future<CompleteLookVisual> _completeLookVisual;
   late OutfitFeedback? _feedback = widget.outfit.feedback;
   OutfitReaction? _savingReaction;
   bool _markingWorn = false;
@@ -36,6 +40,15 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
   bool _updatingProfilePhoto = false;
   String? _tryOnError;
   bool _profileAssetUnavailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _completeLookVisual = widget.completeLookProvider.createVisual(
+      outfit: widget.outfit,
+      wardrobeItems: _items,
+    );
+  }
 
   List<WardrobeItem> get _items => widget.wardrobe
       .where((item) => widget.outfit.wardrobeItemIds.contains(item.id))
@@ -52,7 +65,12 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
   // summary, since the individual reasons may differ.
   String _tryOnExclusionMessage() {
     final missing = _itemsMissingImages;
-    if (missing.length == 1) return missing.first.tryOnBlockedReason!;
+    if (missing.length == 1) {
+      final item = missing.first;
+      return item.containsPerson
+          ? item.tryOnBlockedReason!
+          : 'Re-upload photo for ${item.name} to use Virtual Try-On.';
+    }
     final names = missing.map((item) => item.name).join(', ');
     return missing.every((item) => item.containsPerson)
         ? '$names will be excluded from Virtual Try-On. Items showing a '
@@ -182,26 +200,50 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Your Look')),
+    appBar: AppBar(title: const Text('NERA Edit')),
     body: SafeArea(
       child: ListView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(20, 10, 20, 40),
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  '${widget.outfit.eventType} edit',
-                  style: NeraTheme.display(34),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.outfit.eventType.toUpperCase(),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: NeraColors.textSecondary,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.8,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${widget.outfit.eventType} edit',
+                      style: NeraTheme.display(34),
+                    ),
+                  ],
                 ),
               ),
               if (widget.outfit.matchScore != null)
                 _MatchScore(score: widget.outfit.matchScore!),
             ],
           ),
-          const SizedBox(height: NeraSpacing.xxl),
+          const SizedBox(height: NeraSpacing.xxxl),
+          const _EditorialSectionTitle('COMPLETE LOOK'),
+          const SizedBox(height: NeraSpacing.md),
+          _CompleteLookComposition(
+            visual: _completeLookVisual,
+            wardrobeItems: _items,
+            suggestedItems: widget.outfit.suggestedItems,
+          ),
+          const SizedBox(height: NeraSpacing.xxxl),
+          const _EditorialSectionTitle('FROM YOUR WARDROBE'),
+          const SizedBox(height: NeraSpacing.md),
           if (_items.isEmpty)
             const NeraCard(
               child: NeraEmptyState(
@@ -213,7 +255,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
             )
           else
             SizedBox(
-              height: 270,
+              height: 248,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _items.length,
@@ -221,7 +263,7 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
                 itemBuilder: (context, index) {
                   final item = _items[index];
                   return SizedBox(
-                    width: 190,
+                    width: 174,
                     child: NeraCard(
                       padding: const EdgeInsets.all(10),
                       child: Column(
@@ -239,6 +281,15 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
                             item.category,
                             style: Theme.of(context).textTheme.labelSmall,
                           ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'From Your Wardrobe',
+                            style: TextStyle(
+                              color: NeraColors.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -246,26 +297,28 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
                 },
               ),
             ),
-          const SizedBox(height: NeraSpacing.xxl),
+          if (widget.outfit.suggestedItems.isNotEmpty) ...[
+            const SizedBox(height: NeraSpacing.xxxl),
+            const _EditorialSectionTitle('NERA SUGGESTS'),
+            const SizedBox(height: NeraSpacing.md),
+            for (
+              var index = 0;
+              index < widget.outfit.suggestedItems.length;
+              index++
+            ) ...[
+              _SuggestedItemCard(item: widget.outfit.suggestedItems[index]),
+              if (index < widget.outfit.suggestedItems.length - 1)
+                const SizedBox(height: NeraSpacing.sm),
+            ],
+          ],
+          const SizedBox(height: NeraSpacing.xxxl),
+          const _EditorialSectionTitle('WHY THIS WORKS'),
+          const SizedBox(height: NeraSpacing.md),
           NeraCard(
             highlighted: true,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
-                  children: [
-                    Icon(Icons.auto_awesome_rounded, color: NeraColors.ink),
-                    SizedBox(width: 10),
-                    Text(
-                      'Why it works',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 17,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: NeraSpacing.md),
                 Text(
                   widget.outfit.rationale.isEmpty
                       ? 'A balanced look selected for your style profile.'
@@ -274,7 +327,9 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
               ],
             ),
           ),
-          const SizedBox(height: NeraSpacing.xxl),
+          const SizedBox(height: NeraSpacing.xxxl),
+          const _EditorialSectionTitle('TRY ON ME'),
+          const SizedBox(height: NeraSpacing.md),
           if (_itemsMissingImages.isNotEmpty) ...[
             NeraCard(
               child: Row(
@@ -313,9 +368,11 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
                   : _tryOn,
             ),
           ],
-          const SizedBox(height: NeraSpacing.xxl),
+          const SizedBox(height: NeraSpacing.xxxl),
+          const _EditorialSectionTitle('FEEDBACK / WORN ACTIONS'),
+          const SizedBox(height: NeraSpacing.md),
           const NeraSectionHeader(
-            'How does this feel?',
+            'How does this look feel?',
             subtitle: 'Your feedback makes future matches more personal.',
           ),
           const SizedBox(height: NeraSpacing.md),
@@ -362,6 +419,328 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
       ),
     ),
   );
+}
+
+class _EditorialSectionTitle extends StatelessWidget {
+  const _EditorialSectionTitle(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+      fontWeight: FontWeight.w800,
+      letterSpacing: 1.7,
+    ),
+  );
+}
+
+class _CompleteLookComposition extends StatelessWidget {
+  const _CompleteLookComposition({
+    required this.visual,
+    required this.wardrobeItems,
+    required this.suggestedItems,
+  });
+
+  final Future<CompleteLookVisual> visual;
+  final List<WardrobeItem> wardrobeItems;
+  final List<SuggestedItem> suggestedItems;
+
+  @override
+  Widget build(BuildContext context) {
+    final leftItems = wardrobeItems.take(2).toList();
+    final remainingWardrobe = wardrobeItems.skip(2).take(2).toList();
+
+    return NeraCard(
+      padding: const EdgeInsets.all(NeraSpacing.md),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 322,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final cardWidth = ((constraints.maxWidth - 132) / 2)
+                    .clamp(72.0, 104.0)
+                    .toDouble();
+                return Stack(
+                  children: [
+                    Positioned.fill(
+                      left: cardWidth + 8,
+                      right: cardWidth + 8,
+                      top: 28,
+                      bottom: 18,
+                      child: FutureBuilder<CompleteLookVisual>(
+                        future: visual,
+                        builder: (context, snapshot) {
+                          final result = snapshot.data;
+                          if (result != null && !result.isPlaceholder) {
+                            return NeraNetworkImage(
+                              url: result.imageUrl!,
+                              radius: NeraRadius.lg,
+                            );
+                          }
+                          return const _NeutralFigurePlaceholder();
+                        },
+                      ),
+                    ),
+                    for (var index = 0; index < leftItems.length; index++)
+                      Positioned(
+                        left: 0,
+                        top: index == 0 ? 12 : null,
+                        bottom: index == 1 ? 12 : null,
+                        child: _FloatingWardrobeCard(
+                          item: leftItems[index],
+                          width: cardWidth,
+                        ),
+                      ),
+                    if (suggestedItems.isNotEmpty)
+                      for (
+                        var index = 0;
+                        index < suggestedItems.take(2).length;
+                        index++
+                      )
+                        Positioned(
+                          right: 0,
+                          top: index == 0 ? 12 : null,
+                          bottom: index == 1 ? 12 : null,
+                          child: _FloatingSuggestionCard(
+                            item: suggestedItems[index],
+                            width: cardWidth,
+                          ),
+                        )
+                    else
+                      for (
+                        var index = 0;
+                        index < remainingWardrobe.length;
+                        index++
+                      )
+                        Positioned(
+                          right: 0,
+                          top: index == 0 ? 12 : null,
+                          bottom: index == 1 ? 12 : null,
+                          child: _FloatingWardrobeCard(
+                            item: remainingWardrobe[index],
+                            width: cardWidth,
+                          ),
+                        ),
+                  ],
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: NeraSpacing.sm),
+          const Text(
+            'A visual layout preview using your selected pieces.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: NeraColors.textSecondary, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NeutralFigurePlaceholder extends StatelessWidget {
+  const _NeutralFigurePlaceholder();
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: NeraColors.surfaceElevated,
+      borderRadius: BorderRadius.circular(NeraRadius.lg),
+    ),
+    child: const CustomPaint(painter: _NeutralFigurePainter()),
+  );
+}
+
+class _NeutralFigurePainter extends CustomPainter {
+  const _NeutralFigurePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = NeraColors.muted.withValues(alpha: .46);
+    final center = Offset(size.width / 2, size.height * .18);
+    canvas.drawCircle(center, size.width * .16, paint);
+    final body = Path()
+      ..moveTo(size.width * .34, size.height * .35)
+      ..quadraticBezierTo(
+        size.width * .5,
+        size.height * .27,
+        size.width * .66,
+        size.height * .35,
+      )
+      ..lineTo(size.width * .77, size.height * .78)
+      ..lineTo(size.width * .61, size.height * .82)
+      ..lineTo(size.width * .57, size.height)
+      ..lineTo(size.width * .43, size.height)
+      ..lineTo(size.width * .39, size.height * .82)
+      ..lineTo(size.width * .23, size.height * .78)
+      ..close();
+    canvas.drawPath(body, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _FloatingWardrobeCard extends StatelessWidget {
+  const _FloatingWardrobeCard({required this.item, required this.width});
+
+  final WardrobeItem item;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: width,
+    height: 126,
+    padding: const EdgeInsets.all(6),
+    decoration: BoxDecoration(
+      color: NeraColors.surface,
+      border: Border.all(color: NeraColors.surfaceBorder),
+      borderRadius: BorderRadius.circular(NeraRadius.md),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x12000000),
+          blurRadius: 16,
+          offset: Offset(0, 6),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: WardrobeItemImage(item: item, radius: NeraRadius.sm),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          item.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+        ),
+        const Text(
+          'YOUR WARDROBE',
+          maxLines: 1,
+          style: TextStyle(
+            color: NeraColors.textSecondary,
+            fontSize: 7,
+            fontWeight: FontWeight.w700,
+            letterSpacing: .4,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _FloatingSuggestionCard extends StatelessWidget {
+  const _FloatingSuggestionCard({required this.item, required this.width});
+
+  final SuggestedItem item;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: width,
+    height: 126,
+    padding: const EdgeInsets.all(8),
+    decoration: BoxDecoration(
+      color: NeraColors.ink,
+      borderRadius: BorderRadius.circular(NeraRadius.md),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x1F000000),
+          blurRadius: 16,
+          offset: Offset(0, 6),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.auto_awesome_rounded, color: NeraColors.onInk),
+        const Spacer(),
+        Text(
+          item.name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: NeraColors.onInk,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        Text(
+          'NERA · ${item.type.toUpperCase()}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: NeraColors.onInk.withValues(alpha: .7),
+            fontSize: 7,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SuggestedItemCard extends StatelessWidget {
+  const _SuggestedItemCard({required this.item});
+
+  final SuggestedItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final roleCopy = switch (item.role) {
+      'essential' => 'Completes the look',
+      'accessory' => 'Optional finishing touch',
+      _ => null,
+    };
+    return NeraCard(
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: NeraColors.surfaceElevated,
+              borderRadius: BorderRadius.circular(NeraRadius.sm),
+            ),
+            child: const Icon(Icons.auto_awesome_rounded),
+          ),
+          const SizedBox(width: NeraSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(item.name, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  item.type,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: NeraColors.textSecondary,
+                  ),
+                ),
+                if (roleCopy != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    roleCopy,
+                    style: const TextStyle(
+                      color: NeraColors.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 void _validateTryOn(TryOnResult result) {

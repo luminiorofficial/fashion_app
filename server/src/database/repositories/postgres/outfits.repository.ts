@@ -1,7 +1,8 @@
 import type {Pool} from "pg";
 import {iso, withTransaction} from "../../postgres";
 import type {OutfitsRepository} from "../../../types/repositories";
-import type {Outfit, CreateOutfitInput, OutfitFeedback, UpsertOutfitFeedbackInput, WardrobeAffinity, SuggestedPurchaseItem} from "../../../types/outfit.types";
+import type {Outfit, CreateOutfitInput, OutfitFeedback, UpsertOutfitFeedbackInput, WardrobeAffinity} from "../../../types/outfit.types";
+import {normalizeSuggestedItems} from "../../../utils/suggested-items";
 
 interface OutfitRow {
   id: string;
@@ -9,7 +10,7 @@ interface OutfitRow {
   event_type: string;
   status: string;
   rationale: string;
-  suggested_purchase: SuggestedPurchaseItem | null;
+  suggested_purchase: unknown;
   created_at: string | Date;
   completed_at: string | Date | null;
 }
@@ -22,7 +23,9 @@ function outfitFromRow(row: OutfitRow | undefined, wardrobeItemIds: string[]): O
     eventType: row.event_type,
     status: row.status,
     rationale: row.rationale,
-    suggestedPurchaseItem: row.suggested_purchase || null,
+    // The unchanged JSONB column can contain an old object, null, or the new
+    // array. Normalize all three shapes without rewriting outfit history.
+    suggestedItems: normalizeSuggestedItems(row.suggested_purchase),
     wardrobeItemIds,
     createdAt: iso(row.created_at) as string,
     completedAt: iso(row.completed_at),
@@ -32,13 +35,13 @@ function outfitFromRow(row: OutfitRow | undefined, wardrobeItemIds: string[]): O
 export class PostgresOutfitsRepository implements OutfitsRepository {
   constructor(private readonly pool: Pool) {}
 
-  async createOutfit(userId: string, {eventType, rationale, wardrobeItemIds, suggestedPurchaseItem, analysisContext}: CreateOutfitInput): Promise<Outfit> {
+  async createOutfit(userId: string, {eventType, rationale, wardrobeItemIds, suggestedItems, analysisContext}: CreateOutfitInput): Promise<Outfit> {
     return withTransaction(this.pool, async (client) => {
       const inserted = await client.query<OutfitRow>(
         `INSERT INTO outfits (user_id, event_type, status, rationale, suggested_purchase, analysis_context, completed_at)
          VALUES ($1, $2, 'completed', $3, $4, $5, now())
          RETURNING *`,
-        [userId, eventType, rationale, suggestedPurchaseItem ? JSON.stringify(suggestedPurchaseItem) : null, JSON.stringify(analysisContext || {})],
+        [userId, eventType, rationale, JSON.stringify(suggestedItems), JSON.stringify(analysisContext || {})],
       );
       const outfit = inserted.rows[0] as OutfitRow;
       let position = 0;

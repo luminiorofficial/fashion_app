@@ -3,9 +3,10 @@ import {outfitEventType, outfitReaction} from "../validators/outfit.validators";
 import type {WeatherService} from "./weather.service";
 import type {OutfitsRepository, WardrobeRepository, ProfilesRepository} from "../types/repositories";
 import type {TextAnalysisProvider} from "../types/provider.types";
-import type {Outfit, PublicOutfit, PublicFeedback, SuggestedPurchaseItem, WardrobeAffinity, AffinityNote} from "../types/outfit.types";
+import type {Outfit, PublicOutfit, PublicFeedback, WardrobeAffinity, AffinityNote} from "../types/outfit.types";
 import type {WardrobeItem} from "../types/wardrobe.types";
 import type {WeatherSummary} from "../types/weather.types";
+import {normalizeSuggestedItems} from "../utils/suggested-items";
 
 export interface GeneratedOutfit extends PublicOutfit {
   matchScore: number | null;
@@ -16,7 +17,7 @@ export interface ListedOutfit extends PublicOutfit {
 }
 
 function toPublicOutfit(outfit: Outfit): PublicOutfit {
-  return {id: outfit.id, eventType: outfit.eventType, wardrobeItemIds: outfit.wardrobeItemIds, rationale: outfit.rationale, suggestedPurchaseItem: outfit.suggestedPurchaseItem || null, createdAt: outfit.createdAt};
+  return {id: outfit.id, eventType: outfit.eventType, wardrobeItemIds: outfit.wardrobeItemIds, rationale: outfit.rationale, suggestedItems: outfit.suggestedItems, createdAt: outfit.createdAt};
 }
 
 function toPublicFeedback(feedback: {outfitId: string; reaction: string | null; wornAt: string | null; updatedAt: string}): PublicFeedback {
@@ -45,17 +46,6 @@ function computeMatchScore(wardrobeItemIds: string[], affinity: WardrobeAffinity
   const neutral = 60;
   const scores = wardrobeItemIds.map((id) => Math.max(0, Math.min(100, neutral + (affinity[id] || 0) * 8)));
   return Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length);
-}
-
-// The suggested purchase comes from the styling AI, not a trusted product
-// catalog: keep only a plain name/type pair (never a URL) so nothing it
-// hallucinates can be surfaced as a clickable link to the client.
-function sanitizeSuggestedPurchase(value: unknown): SuggestedPurchaseItem | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as {name?: unknown; type?: unknown};
-  const name = typeof candidate.name === "string" ? candidate.name.trim().slice(0, 160) : "";
-  const type = typeof candidate.type === "string" ? candidate.type.trim().slice(0, 80) : "";
-  return name && type ? {name, type} : null;
 }
 
 // A single compact line (not the full JSON object) so the styling prompt
@@ -92,12 +82,14 @@ export class OutfitService {
     const wardrobeIds = new Set(wardrobe.map((item) => item.id));
     const wardrobeItemIds = [...new Set(suggestion.wardrobe_item_ids || [])].filter((id) => wardrobeIds.has(id));
     assert(wardrobeItemIds.length > 0, 502, "INVALID_OUTFIT_SELECTION", "The styling AI did not return a valid outfit from your wardrobe.");
-    const suggestedPurchaseItem = sanitizeSuggestedPurchase(suggestion.suggested_purchase_item);
+    // Suggestions are AI-authored rather than catalog products. Normalize the
+    // array, cap it at three, and discard any untrusted URL/price fields.
+    const suggestedItems = normalizeSuggestedItems(suggestion.suggested_items);
     const outfit = await this.outfits.createOutfit(userId, {
       eventType,
       rationale: suggestion.rationale,
       wardrobeItemIds,
-      suggestedPurchaseItem,
+      suggestedItems,
       analysisContext: {wardrobeItemCount: wardrobe.length},
     });
     return {...toPublicOutfit(outfit), matchScore: computeMatchScore(wardrobeItemIds, affinity)};

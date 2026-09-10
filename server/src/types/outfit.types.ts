@@ -100,5 +100,5 @@ export interface SuggestOutfitInput {
 export interface OutfitSuggestion {
   wardrobe_item_ids: string[];
   rationale: string;
-  suggested_purchase_item: SuggestedPurchaseItem | null;
+  suggested_items: SuggestedPurchaseItem[];
 }
