@@ -7,6 +7,11 @@ export type OutfitReaction = "love_it" | "would_wear" | "not_sure" | "not_my_sty
 export interface SuggestedPurchaseItem {
   name: string;
   type: string;
+  // "essential" = the outfit is genuinely incomplete without something in
+  // this category (e.g. no shoes at all); "accessory" = optional polish
+  // (bag, jewelry, belt) that isn't required to wear the look. Absent on
+  // legacy rows persisted before this field existed.
+  role?: "essential" | "accessory";
 }
 
 export interface OutfitFeedback {
@@ -36,7 +41,7 @@ export interface Outfit {
   eventType: string;
   status?: string;
   rationale: string;
-  suggestedPurchaseItem: SuggestedPurchaseItem | null;
+  suggestedItems: SuggestedPurchaseItem[];
   wardrobeItemIds: string[];
   createdAt: string;
   completedAt?: string | null;
@@ -47,7 +52,7 @@ export interface CreateOutfitInput {
   eventType: string;
   rationale: string;
   wardrobeItemIds: string[];
-  suggestedPurchaseItem: SuggestedPurchaseItem | null;
+  suggestedItems: SuggestedPurchaseItem[];
   analysisContext: Record<string, unknown>;
 }
 
@@ -61,7 +66,7 @@ export interface PublicOutfit {
   eventType: string;
   wardrobeItemIds: string[];
   rationale: string;
-  suggestedPurchaseItem: SuggestedPurchaseItem | null;
+  suggestedItems: SuggestedPurchaseItem[];
   createdAt: string;
 }
 
