@@ -8,6 +8,17 @@ export function wardrobeCategory(value: unknown): string {
   return clean;
 }
 
+// Free text, unlike category: the useful subcategories under "Shoes" or
+// "Top" vary too much for a fixed enum. Optional — absent/empty means the
+// caller (AI analysis or the user) did not identify a more specific type.
+export function wardrobeSubcategory(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  assert(typeof value === "string", 400, "VALIDATION_ERROR", "subcategory must be a string.");
+  const clean = value.trim();
+  assert(clean.length <= 60, 400, "VALIDATION_ERROR", "subcategory must be at most 60 characters.");
+  return clean.length ? clean : null;
+}
+
 export function productUrl(value: unknown): string {
   const clean = text(value, "productUrl", {max: 2048});
   let parsed: URL | null;

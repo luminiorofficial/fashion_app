@@ -1,7 +1,7 @@
 import {assert} from "../utils/api-error";
 import {createId, createOtp, createToken, hashOtp, safeEqual, sha256} from "../utils/crypto";
 import {text} from "../validators/common.validators";
-import {birthDate} from "../validators/auth.validators";
+import {birthDate, fullName} from "../validators/auth.validators";
 import type {AppConfig} from "../config/env";
 import type {UsersRepository, SessionsRepository, OtpRepository} from "../types/repositories";
 import type {SmsProvider} from "../types/provider.types";
@@ -62,7 +62,7 @@ export class AuthService {
     const purpose: OtpPurpose = existingUser ? "login" : "registration";
     const registration = existingUser
       ? null
-      : {name: text(name, "name", {min: 2, max: 120}), dateOfBirth: birthDate(dateOfBirth)};
+      : {name: fullName(name), dateOfBirth: birthDate(dateOfBirth)};
 
     const challengeId = createId();
     const otp = createOtp();

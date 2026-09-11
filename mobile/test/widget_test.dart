@@ -6,6 +6,7 @@ import 'package:fashion_app/models/nera_models.dart';
 import 'package:fashion_app/services/image_service.dart';
 import 'package:fashion_app/services/location_service.dart';
 import 'package:fashion_app/services/memory_nera_backend.dart';
+import 'package:fashion_app/services/nera_backend.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
@@ -57,6 +58,41 @@ const _analyzedProfile = StyleProfile(
   skinTone: 'Warm golden undertones',
 );
 
+/// A [MemoryNeraBackend] that can be told to fail its next OTP
+/// request/verify call, used to exercise the auth screen's error banner and
+/// its clearing behavior without a real network dependency.
+class _FlakyOtpBackend extends MemoryNeraBackend {
+  bool failRequest = false;
+  bool failVerify = false;
+
+  @override
+  Future<OtpChallenge> requestOtp({
+    String? name,
+    String? dateOfBirth,
+    required String phoneNumber,
+  }) async {
+    if (failRequest) {
+      throw const NeraException('Simulated OTP request failure.');
+    }
+    return super.requestOtp(
+      name: name,
+      dateOfBirth: dateOfBirth,
+      phoneNumber: phoneNumber,
+    );
+  }
+
+  @override
+  Future<void> verifyOtp({
+    required String challengeId,
+    required String otp,
+  }) async {
+    if (failVerify) {
+      throw const NeraException('Simulated OTP verify failure.');
+    }
+    return super.verifyOtp(challengeId: challengeId, otp: otp);
+  }
+}
+
 void main() {
   testWidgets('shows login and register choices before the form', (
     tester,
@@ -77,6 +113,127 @@ void main() {
     expect(find.text('Date of birth'), findsOneWidget);
     expect(find.text('Mobile number'), findsOneWidget);
   });
+
+  testWidgets(
+    'shows a validation error for an invalid mobile number and never calls the OTP API',
+    (tester) async {
+      final backend = _FlakyOtpBackend()..failRequest = true;
+      await tester.pumpWidget(
+        NeraApp(backend: backend, imageService: _FakeImageService()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Login'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, '0000000000');
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      // Local validation must block the request before the (failing) OTP
+      // API is ever called, so the API-failure message must never appear.
+      expect(
+        find.text('Please enter a valid 10-digit mobile number.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text("We couldn't send the code. Try again."),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    "shows the OTP-failure message only when the OTP API actually fails, and clears it when the phone number changes",
+    (tester) async {
+      final backend = _FlakyOtpBackend()..failRequest = true;
+      await tester.pumpWidget(
+        NeraApp(backend: backend, imageService: _FakeImageService()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Login'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, '9876543210');
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text("We couldn't send the code. Try again."),
+        findsOneWidget,
+      );
+
+      // The stale error must not survive an edit to the input that produced
+      // it.
+      await tester.enterText(find.byType(TextFormField).first, '9876543211');
+      await tester.pump();
+      expect(
+        find.text("We couldn't send the code. Try again."),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'pressing Back after a failed attempt clears the stale error from a fresh form',
+    (tester) async {
+      final backend = _FlakyOtpBackend()..failRequest = true;
+      await tester.pumpWidget(
+        NeraApp(backend: backend, imageService: _FakeImageService()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Login'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, '9876543210');
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text("We couldn't send the code. Try again."),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Login'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text("We couldn't send the code. Try again."),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'changing phone number after a failed OTP verification clears the stale error',
+    (tester) async {
+      final backend = _FlakyOtpBackend()..failVerify = true;
+      await tester.pumpWidget(
+        NeraApp(backend: backend, imageService: _FakeImageService()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Login'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, '9876543210');
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enter verification code'), findsOneWidget);
+      await tester.tap(find.text('Verify'));
+      await tester.pumpAndSettle();
+      expect(find.text('Something went wrong. Please try again.'), findsOneWidget);
+
+      await tester.tap(find.text('Change phone number'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Something went wrong. Please try again.'),
+        findsNothing,
+      );
+      expect(find.text('Mobile number'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'existing user without an analyzed profile lands on profile creation',
@@ -292,8 +449,16 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextFormField).at(0), 'Ada Lovelace');
-      await tester.enterText(find.byType(TextFormField).at(1), '1815-12-10');
-      await tester.enterText(find.byType(TextFormField).at(2), '9876543210');
+
+      // Date of birth is now a date picker rather than free text. Opening
+      // it and confirming immediately accepts the picker's own default
+      // initial date (well in the past), which is all this flow needs.
+      await tester.tap(find.byKey(const Key('dateOfBirthField')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField).at(1), '9876543210');
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
 

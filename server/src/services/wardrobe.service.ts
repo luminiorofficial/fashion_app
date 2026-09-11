@@ -4,7 +4,7 @@ import {processUploadedFile, normalizeUploadedFile} from "../utils/image-process
 import {resolveVirtualTryOnEligibility} from "../utils/wardrobe-eligibility";
 import {garmentVisibilityLevels} from "../config/constants";
 import {text} from "../validators/common.validators";
-import {wardrobeCategory, productUrl} from "../validators/wardrobe.validators";
+import {wardrobeCategory, wardrobeSubcategory, productUrl} from "../validators/wardrobe.validators";
 import type {AppConfig} from "../config/env";
 import type {AssetsRepository, WardrobeRepository} from "../types/repositories";
 import type {AssetStore, TextAnalysisProvider, UploadedFile} from "../types/provider.types";
@@ -18,12 +18,14 @@ export interface WardrobeItemDraftPayload {
   analysisJobId: unknown;
   name: unknown;
   category: unknown;
+  subcategory?: unknown;
   tags?: unknown;
 }
 
 export interface WardrobeLinkPayload {
   name: unknown;
   category: unknown;
+  subcategory?: unknown;
   productUrl: unknown;
   tags?: unknown;
 }
@@ -55,6 +57,7 @@ export async function toPublicWardrobeItem(assetStore: AssetStore, item: Wardrob
     id: item.id,
     name: item.name,
     category: item.category,
+    subcategory: item.subcategory || null,
     sourceType: item.sourceType,
     imageUrl: await assetStore.signedUrl(item.imageStorageKey),
     imageStorageProvider: item.imageStorageProvider || null,
@@ -126,6 +129,7 @@ export class WardrobeService {
         imageUrl: await this.assetStore.signedUrl(createdAsset.storageKey),
         name: result.item_name,
         category: result.category,
+        subcategory: result.subcategory ?? null,
         tags: result.tags,
         color: result.color ?? null,
         material: result.material ?? null,
@@ -189,6 +193,7 @@ export class WardrobeService {
       sourceType: "product_link",
       name: text(raw?.name, "name", {max: 160}),
       category: wardrobeCategory(raw?.category),
+      subcategory: wardrobeSubcategory(raw?.subcategory),
       tags: cleanTags(raw?.tags),
       mediaAssetId: null,
       imageStorageKey: null,
@@ -245,12 +250,19 @@ export class WardrobeService {
     assert(!inUseAssetIds.has(asset.id), 409, "ASSET_IN_USE", "The image already belongs to a wardrobe item.");
     inUseAssetIds.add(asset.id);
     const metadata = (analysisJob.result || {}) as Record<string, unknown>;
+    // A client normally echoes back whatever subcategory the draft analysis
+    // produced (possibly hand-corrected in the review UI). When it's omitted
+    // entirely — e.g. PurchaseImportService.addToWardrobe, which only ever
+    // forwards {assetId, analysisJobId, name, category, tags} — fall back to
+    // the AI's own metadata so the classification isn't silently dropped.
+    const metadataSubcategory = typeof metadata.subcategory === "string" ? metadata.subcategory.trim().slice(0, 60) || null : null;
     return {
       analysisJobId: analysisJob.id,
       payload: {
         sourceType: "upload",
         name: text(raw?.name, "name", {max: 160}),
         category: wardrobeCategory(raw?.category),
+        subcategory: raw?.subcategory === undefined ? metadataSubcategory : wardrobeSubcategory(raw?.subcategory),
         tags: cleanTags(raw?.tags),
         mediaAssetId: asset.id,
         analysisJobId: analysisJob.id,

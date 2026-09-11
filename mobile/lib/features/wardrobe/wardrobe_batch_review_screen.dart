@@ -49,6 +49,10 @@ class _WardrobeBatchReviewScreenState
           ? draft.category
           : 'Accessory',
   ];
+  late final List<TextEditingController> _subcategories = [
+    for (final draft in widget.drafts)
+      TextEditingController(text: draft.subcategory ?? ''),
+  ];
   final Set<int> _removedIndexes = {};
 
   int get _keptCount => widget.drafts.length - _removedIndexes.length;
@@ -56,6 +60,9 @@ class _WardrobeBatchReviewScreenState
   @override
   void dispose() {
     for (final controller in _names) {
+      controller.dispose();
+    }
+    for (final controller in _subcategories) {
       controller.dispose();
     }
     super.dispose();
@@ -70,6 +77,7 @@ class _WardrobeBatchReviewScreenState
                 ? widget.drafts[index].name
                 : _names[index].text.trim(),
             category: _categories[index],
+            subcategory: _subcategories[index].text.trim(),
           ),
     ];
     Navigator.of(context).pop(result);
@@ -139,6 +147,16 @@ class _WardrobeBatchReviewScreenState
                                         () => _categories[index] =
                                             value ?? _categories[index],
                                       ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: _subcategories[index],
+                                enabled: !removed,
+                                decoration: const InputDecoration(
+                                  labelText: 'Subcategory (optional)',
+                                  hintText: 'e.g. Sneakers, Heels',
+                                  isDense: true,
+                                ),
                               ),
                               if (draft.containsPerson && !removed) ...[
                                 const SizedBox(height: 8),

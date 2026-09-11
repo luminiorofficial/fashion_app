@@ -12,6 +12,7 @@ class WardrobeItem {
     required this.id,
     required this.name,
     required this.category,
+    this.subcategory,
     required this.imageUrl,
     required this.imagePath,
     this.productUrl,
@@ -29,6 +30,12 @@ class WardrobeItem {
   final String id;
   final String name;
   final String category;
+
+  /// A more specific type within [category] (e.g. category "Shoes",
+  /// subcategory "Sneakers"), set by AI classification or corrected by the
+  /// user. Purely supplementary — category filtering only ever reads
+  /// [category], never this field.
+  final String? subcategory;
   final String imageUrl;
   final String imagePath;
   final String? productUrl;
@@ -95,6 +102,7 @@ class WardrobeItem {
     id: json['id'] as String,
     name: json['name'] as String? ?? 'Wardrobe item',
     category: json['category'] as String? ?? 'Accessory',
+    subcategory: json['subcategory'] as String?,
     imageUrl: json['imageUrl'] as String? ?? '',
     imagePath: '',
     productUrl: json['productUrl'] as String?,
@@ -114,6 +122,7 @@ class WardrobeItem {
     id: id,
     name: name,
     category: category,
+    subcategory: subcategory,
     imageUrl: imageUrl,
     imagePath: imagePath,
     productUrl: productUrl,
@@ -135,6 +144,7 @@ class WardrobeDraft {
     required this.id,
     required this.name,
     required this.category,
+    this.subcategory,
     required this.imageUrl,
     required this.imagePath,
     this.tags = const [],
@@ -146,6 +156,9 @@ class WardrobeDraft {
   final String id;
   final String name;
   final String category;
+
+  /// See WardrobeItem.subcategory.
+  final String? subcategory;
   final String imageUrl;
   final String imagePath;
   final List<String> tags;
@@ -167,16 +180,18 @@ class WardrobeDraft {
         'to use it for Virtual Try-On.';
   }
 
-  WardrobeDraft copyWith({String? name, String? category}) => WardrobeDraft(
-    id: id,
-    name: name ?? this.name,
-    category: category ?? this.category,
-    imageUrl: imageUrl,
-    imagePath: imagePath,
-    tags: tags,
-    containsPerson: containsPerson,
-    garmentVisibility: garmentVisibility,
-    virtualTryOnEligible: virtualTryOnEligible,
-    analysisJobId: analysisJobId,
-  );
+  WardrobeDraft copyWith({String? name, String? category, String? subcategory}) =>
+      WardrobeDraft(
+        id: id,
+        name: name ?? this.name,
+        category: category ?? this.category,
+        subcategory: subcategory ?? this.subcategory,
+        imageUrl: imageUrl,
+        imagePath: imagePath,
+        tags: tags,
+        containsPerson: containsPerson,
+        garmentVisibility: garmentVisibility,
+        virtualTryOnEligible: virtualTryOnEligible,
+        analysisJobId: analysisJobId,
+      );
 }

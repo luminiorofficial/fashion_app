@@ -37,7 +37,7 @@ class NeraNetworkImage extends StatelessWidget {
               height: double.infinity,
               radius: 0,
             ),
-            errorBuilder: (context, url, error) => _placeholder(),
+            errorBuilder: (context, error, stackTrace) => _placeholder(),
           ),
   );
 

@@ -53,24 +53,19 @@ class HomeScreen extends StatelessWidget {
               children: [
                 const NeraWordmark(size: 30),
                 const Spacer(),
-                CircleAvatar(
-                  radius: 21,
-                  backgroundColor: NeraColors.surfaceElevated,
-                  foregroundImage:
-                      (profile.profileImageUrl?.isNotEmpty ?? false)
-                      ? NetworkImage(profile.profileImageUrl!)
-                      : null,
-                  // A broken/expired signed URL must fall back to the
-                  // person icon below instead of the framework's default
-                  // unhandled-image-error report.
-                  onForegroundImageError:
-                      (profile.profileImageUrl?.isNotEmpty ?? false)
-                      ? (_, _) {}
-                      : null,
-                  child: const Icon(
-                    Icons.person_outline_rounded,
-                    color: NeraColors.textSecondary,
-                    size: 21,
+                // NeraNetworkImage already covers every avatar state: the
+                // real photo when it loads, a neutral shimmer placeholder
+                // while it's loading, and a neutral icon on a light cream
+                // background (never a solid black circle) if the URL is
+                // missing or the image fails to load.
+                ClipOval(
+                  child: SizedBox.square(
+                    dimension: 42,
+                    child: NeraNetworkImage(
+                      url: profile.profileImageUrl ?? '',
+                      radius: 0,
+                      placeholderIcon: Icons.person_rounded,
+                    ),
                   ),
                 ),
               ],

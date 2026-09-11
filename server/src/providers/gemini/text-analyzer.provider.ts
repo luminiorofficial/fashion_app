@@ -58,7 +58,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
   async analyzeWardrobe(file: UploadedFile): Promise<WardrobeDraftAnalysis> {
     if (!this.apiKey) {
       return {
-        item_name: "Wardrobe item", category: "Accessory", tags: ["pending-ai-review"], color: null, material: null, pattern: null,
+        item_name: "Wardrobe item", category: "Accessory", subcategory: null, tags: ["pending-ai-review"], color: null, material: null, pattern: null,
         season: [], occasion: [], style: [], contains_person: false, garment_visibility: "full", virtual_tryon_eligible: true,
       };
     }
@@ -66,6 +66,7 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
       "Analyze this fashion item photo, which may show the garment alone (flat lay, hanger, mannequin, product shot) or worn by a person/model. Either is valid wardrobe input.",
       "Always identify the actual clothing item itself, not the person wearing it: return an accurate concise catalog name, one allowed category, up to six styling tags, and structured attributes for that garment.",
       `Allowed categories: ${wardrobeCategories.join(", ")}.`,
+      "subcategory is a more specific type within the chosen category when clearly identifiable (e.g. category 'Shoes' -> 'Sneakers', 'Heels', or 'Sandals'; category 'Top' -> 'T-Shirt' or 'Blouse'), or null when not clearly identifiable. Never let this override or contradict the chosen category.",
       "color is the single dominant color as a common color name (e.g. 'Black', 'Navy Blue'), or null if unclear.",
       "material is the primary fabric or material if visually identifiable (e.g. 'Cotton', 'Leather', 'Denim'), or null if unclear.",
       "pattern is the visible pattern (e.g. 'Solid', 'Striped', 'Floral', 'Plaid'), or null if unclear.",
@@ -78,12 +79,12 @@ export class GeminiTextAnalyzerProvider implements TextAnalysisProvider {
     ].join("\n"), file, {
       type: "object",
       properties: {
-        item_name: {type: "string"}, category: {type: "string", enum: wardrobeCategories}, tags: {type: "array", items: {type: "string"}, maxItems: 6},
+        item_name: {type: "string"}, category: {type: "string", enum: wardrobeCategories}, subcategory: {type: ["string", "null"]}, tags: {type: "array", items: {type: "string"}, maxItems: 6},
         color: {type: ["string", "null"]}, material: {type: ["string", "null"]}, pattern: {type: ["string", "null"]},
         season: {type: "array", items: {type: "string"}, maxItems: 4}, occasion: {type: "array", items: {type: "string"}, maxItems: 6}, style: {type: "array", items: {type: "string"}, maxItems: 4},
         contains_person: {type: "boolean"}, garment_visibility: {type: "string", enum: garmentVisibilityLevels}, virtual_tryon_eligible: {type: "boolean"},
       },
-      required: ["item_name", "category", "tags", "color", "material", "pattern", "season", "occasion", "style", "contains_person", "garment_visibility", "virtual_tryon_eligible"],
+      required: ["item_name", "category", "subcategory", "tags", "color", "material", "pattern", "season", "occasion", "style", "contains_person", "garment_visibility", "virtual_tryon_eligible"],
       additionalProperties: false,
     }, "wardrobe_analysis");
   }

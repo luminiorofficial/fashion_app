@@ -59,18 +59,20 @@ class _ProfileCreationScreenState extends State<ProfileCreationScreen> {
     return 'We couldn\'t finish your Style Profile. Please try again.';
   }
 
+  // The AI's raw observations (e.g. an exact skin-tone/undertone read like
+  // "Medium tan") stay on the StyleProfile object — they're still sent to
+  // and used by the backend for outfit/color recommendations — but are
+  // deliberately never shown verbatim here. Uncertain, granular AI reads are
+  // presented as soft, simplified summaries instead of absolute facts, with
+  // an explicit way to correct them below.
   Future<void> _showProfileReady(StyleProfile profile) async {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         final highlights = <({String label, String value})>[
-          if (_hasText(profile.bodyType))
-            (label: 'Body profile', value: profile.bodyType!.trim()),
-          if (_hasText(profile.skinTone))
-            (label: 'Skin tone', value: profile.skinTone!.trim()),
-          if (_hasText(profile.skinUndertone))
-            (label: 'Undertone', value: profile.skinUndertone!.trim()),
+          (label: 'Fit profile', value: fitProfileLabel(profile)),
+          (label: 'Colour profile', value: colourProfileLabel(profile)),
         ];
         return AlertDialog(
           title: Text(
@@ -82,24 +84,30 @@ class _ProfileCreationScreenState extends State<ProfileCreationScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Here is the foundation for your personalized recommendations.',
+                "We've analyzed your photo to personalize fits, colours and "
+                'styling recommendations.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
-              if (highlights.isNotEmpty) ...[
-                const SizedBox(height: NeraSpacing.lg),
-                const Divider(),
+              const SizedBox(height: NeraSpacing.lg),
+              const Divider(),
+              const SizedBox(height: NeraSpacing.sm),
+              for (final highlight in highlights) ...[
+                _ProfileHighlight(
+                  label: highlight.label,
+                  value: highlight.value,
+                ),
                 const SizedBox(height: NeraSpacing.sm),
-                for (final highlight in highlights) ...[
-                  _ProfileHighlight(
-                    label: highlight.label,
-                    value: highlight.value,
-                  ),
-                  const SizedBox(height: NeraSpacing.sm),
-                ],
               ],
             ],
           ),
           actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _upload();
+              },
+              child: const Text('Not quite right? Edit profile'),
+            ),
             FilledButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Continue to NERA'),
@@ -109,8 +117,6 @@ class _ProfileCreationScreenState extends State<ProfileCreationScreen> {
       },
     );
   }
-
-  bool _hasText(String? value) => value?.trim().isNotEmpty == true;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -282,4 +288,36 @@ class _CreatingProfileState extends StatelessWidget {
       ),
     ],
   );
+}
+
+/// A soft, simplified summary of [StyleProfile.bodyType] for the "Style
+/// Profile is ready" modal — never the raw AI string, which is an uncertain
+/// single-photo read and shouldn't be presented as an absolute fact. The
+/// underlying value is still kept on the profile and used internally for
+/// outfit-fit logic.
+String fitProfileLabel(StyleProfile profile) {
+  final raw = (profile.bodyType ?? '').toLowerCase();
+  if (raw.contains('hourglass')) return 'Curved, balanced proportions';
+  if (raw.contains('inverted triangle')) {
+    return 'Broader shoulders, balanced frame';
+  }
+  if (raw.contains('pear') || raw.contains('triangle')) {
+    return 'Fuller hip, balanced frame';
+  }
+  if (raw.contains('apple') || raw.contains('round') || raw.contains('oval')) {
+    return 'Fuller midsection, balanced frame';
+  }
+  return 'Balanced proportions';
+}
+
+/// A soft, simplified summary of [StyleProfile.skinUndertone]/[skinTone] for
+/// the "Style Profile is ready" modal — see [fitProfileLabel]. Falls back to
+/// a neutral label rather than guessing when the undertone isn't clearly
+/// warm or cool.
+String colourProfileLabel(StyleProfile profile) {
+  final raw = '${profile.skinUndertone ?? ''} ${profile.skinTone ?? ''}'
+      .toLowerCase();
+  if (raw.contains('cool')) return 'Cool palette';
+  if (raw.contains('warm')) return 'Warm palette';
+  return 'Neutral palette';
 }

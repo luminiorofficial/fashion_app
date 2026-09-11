@@ -13,6 +13,11 @@ export interface WardrobeItem {
   userId: string;
   name: string;
   category: string;
+  // A more specific type within the category (e.g. category "Shoes",
+  // subcategory "Sneakers"), when the AI classifier or the user identified
+  // one. Purely supplementary — category filtering and category-based logic
+  // never read this field, only `category`.
+  subcategory?: string | null;
   sourceType: WardrobeSourceType;
   imageStorageKey: string | null;
   imageStorageProvider: string | null;
@@ -48,6 +53,7 @@ export interface CreateWardrobeItemInput {
   sourceType: WardrobeSourceType;
   name: string;
   category: string;
+  subcategory?: string | null;
   tags: string[];
   mediaAssetId: string | null;
   analysisJobId?: string | null;
@@ -76,6 +82,7 @@ export interface PublicWardrobeItem {
   id: string;
   name: string;
   category: string;
+  subcategory: string | null;
   sourceType: WardrobeSourceType;
   imageUrl: string;
   imageStorageProvider: string | null;
@@ -100,6 +107,9 @@ export interface PublicWardrobeItem {
 export interface WardrobeDraftAnalysis {
   item_name: string;
   category: string;
+  // A more specific type within the category (e.g. "Sneakers" for category
+  // "Shoes"), or null when the AI could not confidently identify one.
+  subcategory?: string | null;
   tags: string[];
   color: string | null;
   material: string | null;
@@ -117,6 +127,7 @@ export interface PublicWardrobeDraft {
   imageUrl: string;
   name: string;
   category: string;
+  subcategory: string | null;
   tags: string[];
   color: string | null;
   material: string | null;

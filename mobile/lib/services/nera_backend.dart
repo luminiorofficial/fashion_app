@@ -35,6 +35,7 @@ abstract interface class NeraBackend {
     required String name,
     required String category,
     required String productUrl,
+    String? subcategory,
   });
   Future<void> deleteWardrobeItem(WardrobeItem item);
 

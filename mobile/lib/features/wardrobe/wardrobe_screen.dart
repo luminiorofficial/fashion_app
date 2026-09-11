@@ -15,6 +15,23 @@ import '../camera/camera_capture_screen.dart';
 import 'wardrobe_batch_review_screen.dart';
 import 'wardrobe_item_image.dart';
 
+/// Formats a raw wardrobe label ('shoes', 'ACCESSORY') into a clean,
+/// properly capitalized display form ('Shoes', 'Accessory') for snackbars
+/// and other short confirmations, so a lowercase/odd-cased user-entered
+/// name never reads awkwardly (e.g. "shoes was added.").
+String formatWardrobeLabel(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return trimmed;
+  return trimmed
+      .split(RegExp(r'\s+'))
+      .map(
+        (word) => word.isEmpty
+            ? word
+            : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+      )
+      .join(' ');
+}
+
 class WardrobeScreen extends StatefulWidget {
   const WardrobeScreen({
     super.key,
@@ -174,8 +191,9 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         if (mounted) {
           showNeraSnackBar(
             context,
-            '${reviewed.length} wardrobe '
-            '${reviewed.length == 1 ? 'item' : 'items'} added.',
+            reviewed.length == 1
+                ? '${formatWardrobeLabel(reviewed.single.name)} added to your wardrobe.'
+                : '${reviewed.length} items added to your wardrobe.',
           );
         }
       }
@@ -217,6 +235,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
 
   Future<void> _addLink() async {
     final name = TextEditingController();
+    final subcategory = TextEditingController();
     final url = TextEditingController();
     var category = 'Accessory';
     final save = await showDialog<bool>(
@@ -242,6 +261,14 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                 onChanged: (value) {
                   if (value != null) update(() => category = value);
                 },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: subcategory,
+                decoration: const InputDecoration(
+                  labelText: 'Subcategory (optional)',
+                  hintText: 'e.g. Sneakers, Heels',
+                ),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -278,16 +305,23 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         await widget.backend.addWardrobeLink(
           name: name.text.trim(),
           category: category,
+          subcategory: subcategory.text.trim().isEmpty
+              ? null
+              : subcategory.text.trim(),
           productUrl: url.text.trim(),
         );
         if (mounted) {
-          showNeraSnackBar(context, '${name.text.trim()} was added.');
+          showNeraSnackBar(
+            context,
+            '${formatWardrobeLabel(name.text.trim())} added to your wardrobe.',
+          );
         }
       }
     } catch (error) {
       if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
     } finally {
       name.dispose();
+      subcategory.dispose();
       url.dispose();
     }
   }
@@ -372,7 +406,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         );
         showNeraSnackBar(
           context,
-          '${purchase.productName} was added to your wardrobe.',
+          '${formatWardrobeLabel(purchase.productName)} added to your wardrobe.',
         );
       }
     } catch (error) {
@@ -815,7 +849,12 @@ class _WardrobeItemDetailSheet extends StatelessWidget {
             ),
           Text(item.name, style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 4),
-          Text(item.category, style: Theme.of(context).textTheme.bodyLarge),
+          Text(
+            (item.subcategory?.trim().isNotEmpty ?? false)
+                ? '${item.category} · ${item.subcategory}'
+                : item.category,
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
           if (item.tags.isNotEmpty) ...[
             const SizedBox(height: NeraSpacing.lg),
             Wrap(

@@ -25,21 +25,36 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
-  final _birthDate = TextEditingController();
   final _phone = TextEditingController();
   final _otp = TextEditingController();
   OtpChallenge? _challenge;
   _AuthMode _mode = _AuthMode.choice;
   bool _busy = false;
   String? _error;
+  DateTime? _selectedDob;
+
+  @override
+  void initState() {
+    super.initState();
+    // Any previous OTP/API error is stale the moment the user changes the
+    // input that produced it, so it must not linger on a form the user is
+    // actively editing again.
+    _phone.addListener(_clearErrorOnEdit);
+    _otp.addListener(_clearErrorOnEdit);
+  }
 
   @override
   void dispose() {
+    _phone.removeListener(_clearErrorOnEdit);
+    _otp.removeListener(_clearErrorOnEdit);
     _name.dispose();
-    _birthDate.dispose();
     _phone.dispose();
     _otp.dispose();
     super.dispose();
+  }
+
+  void _clearErrorOnEdit() {
+    if (_error != null) setState(() => _error = null);
   }
 
   void _selectMode(_AuthMode mode) => setState(() {
@@ -48,6 +63,27 @@ class _AuthScreenState extends State<AuthScreen> {
     _error = null;
     _otp.clear();
   });
+
+  void _changePhoneNumber() => setState(() {
+    _challenge = null;
+    _error = null;
+    _otp.clear();
+  });
+
+  Future<void> _pickBirthDate() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDob ?? DateTime(now.year - 18, now.month, now.day),
+      firstDate: DateTime(1900),
+      lastDate: today,
+      helpText: 'Select date of birth',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _selectedDob = DateTime(picked.year, picked.month, picked.day));
+    _formKey.currentState?.validate();
+  }
 
   Future<void> _submit() async {
     if (_challenge == null && !_formKey.currentState!.validate()) return;
@@ -62,9 +98,9 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       if (_challenge == null) {
         final challenge = await widget.backend.requestOtp(
-          name: _mode == _AuthMode.register ? _name.text.trim() : null,
-          dateOfBirth: _mode == _AuthMode.register
-              ? _birthDate.text.trim()
+          name: _mode == _AuthMode.register ? cleanFullName(_name.text) : null,
+          dateOfBirth: _mode == _AuthMode.register && _selectedDob != null
+              ? isoDate(_selectedDob!)
               : null,
           phoneNumber: '+91${_phone.text.trim()}',
         );
@@ -188,29 +224,35 @@ class _AuthScreenState extends State<AuthScreen> {
                             decoration: const InputDecoration(
                               labelText: 'Full name',
                             ),
-                            validator: (value) =>
-                                (value?.trim().length ?? 0) < 2
-                                ? 'Enter your full name.'
-                                : null,
+                            validator: validateFullName,
                           ),
                           const SizedBox(height: NeraSpacing.md),
-                          TextFormField(
-                            controller: _birthDate,
-                            keyboardType: TextInputType.number,
-                            textInputAction: TextInputAction.next,
-                            maxLength: 10,
-                            inputFormatters: [_BirthDateInputFormatter()],
-                            decoration: const InputDecoration(
-                              labelText: 'Date of birth',
-                              hintText: 'YYYY-MM-DD',
-                              counterText: '',
+                          FormField<DateTime>(
+                            validator: (_) => validateBirthDate(_selectedDob),
+                            builder: (field) => InkWell(
+                              key: const Key('dateOfBirthField'),
+                              borderRadius: BorderRadius.circular(
+                                NeraRadius.sm,
+                              ),
+                              onTap: _busy ? null : _pickBirthDate,
+                              child: InputDecorator(
+                                decoration: InputDecoration(
+                                  labelText: 'Date of birth',
+                                  hintText: 'Select date of birth',
+                                  errorText: field.errorText,
+                                  suffixIcon: const Icon(
+                                    Icons.calendar_today_outlined,
+                                    size: 20,
+                                  ),
+                                ),
+                                child: Text(
+                                  _selectedDob == null
+                                      ? ''
+                                      : displayDate(_selectedDob!),
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                              ),
                             ),
-                            validator: (value) =>
-                                RegExp(
-                                  r'^\d{4}-\d{2}-\d{2}$',
-                                ).hasMatch(value?.trim() ?? '')
-                                ? null
-                                : 'Use YYYY-MM-DD.',
                           ),
                           const SizedBox(height: NeraSpacing.md),
                         ],
@@ -228,10 +270,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             prefixText: '+91  ',
                             counterText: '',
                           ),
-                          validator: (value) =>
-                              RegExp(r'^\d{10}$').hasMatch(value?.trim() ?? '')
-                              ? null
-                              : 'Enter a 10-digit mobile number.',
+                          validator: validatePhoneNumber,
                           onFieldSubmitted: (_) => _submit(),
                         ),
                         const SizedBox(height: NeraSpacing.xl),
@@ -266,9 +305,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         NeraButton(
                           label: 'Change phone number',
                           style: NeraButtonStyleType.text,
-                          onPressed: _busy
-                              ? null
-                              : () => setState(() => _challenge = null),
+                          onPressed: _busy ? null : _changePhoneNumber,
                         ),
                       ],
                       if (_error != null) ...[
@@ -501,25 +538,59 @@ String _authErrorMessage(Object error, {required bool verifying}) {
       : "We couldn't send the code. Try again.";
 }
 
-class _BirthDateInputFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    var digits = newValue.text.replaceAll(RegExp(r'\D'), '');
-    if (digits.length > 8) digits = digits.substring(0, 8);
+/// Exactly 10 digits, with the first digit restricted to 6-9 as required for
+/// Indian mobile numbers (the fixed +91 prefix is not editable, so this is
+/// the entire number). Rejects incomplete numbers, letters/special
+/// characters (already filtered by the field's input formatter, but kept
+/// here so the validator is correct standalone), and placeholder values
+/// like 0000000000.
+final RegExp _indianMobileNumber = RegExp(r'^[6-9]\d{9}$');
 
-    final formatted = StringBuffer();
-    for (var index = 0; index < digits.length; index++) {
-      if (index == 4 || index == 6) formatted.write('-');
-      formatted.write(digits[index]);
-    }
+String? validatePhoneNumber(String? value) =>
+    _indianMobileNumber.hasMatch(value?.trim() ?? '')
+    ? null
+    : 'Please enter a valid 10-digit mobile number.';
 
-    final text = formatted.toString();
-    return TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
+/// Trims leading/trailing whitespace and collapses runs of internal
+/// whitespace (including newlines/tabs) to a single space, so "  Riya
+/// Sharma " becomes "Riya Sharma".
+String cleanFullName(String value) =>
+    value.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+/// Allows genuine multi-word names (e.g. "Riya Sharma") with common name
+/// punctuation (apostrophes, hyphens, periods for initials), while rejecting
+/// empty input, numbers-only input, and special-character-only input.
+/// Deliberately permissive otherwise — this should never overvalidate a
+/// real name.
+String? validateFullName(String? value) {
+  final clean = cleanFullName(value ?? '');
+  if (clean.length < 2) return 'Please enter your full name.';
+  if (!RegExp(r'^[A-Za-z][A-Za-z' "'" r'.-]*(?: [A-Za-z][A-Za-z' "'" r'.-]*)*$')
+      .hasMatch(clean)) {
+    return 'Please enter a valid name.';
   }
+  return null;
 }
+
+/// null means "no date picked yet" — required-field validation, since the
+/// date picker (not free text) is the only way to set a value. A picked date
+/// is always a real calendar date and never in the future (enforced by the
+/// picker's firstDate/lastDate bounds), so this only guards the empty case.
+String? validateBirthDate(DateTime? value) =>
+    value == null ? 'Please select your date of birth.' : null;
+
+/// ISO 8601 calendar date (YYYY-MM-DD), the format saved to the backend.
+String isoDate(DateTime value) =>
+    '${value.year.toString().padLeft(4, '0')}-'
+    '${value.month.toString().padLeft(2, '0')}-'
+    '${value.day.toString().padLeft(2, '0')}';
+
+const _monthNames = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// Friendly display form for the date picker field, e.g. "05 May 1995".
+String displayDate(DateTime value) =>
+    '${value.day.toString().padLeft(2, '0')} '
+    '${_monthNames[value.month - 1]} ${value.year}';

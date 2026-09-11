@@ -186,6 +186,7 @@ class RemoteNeraBackend implements NeraBackend {
       id: draft['assetId'] as String,
       name: draft['name'] as String? ?? 'Wardrobe item',
       category: draft['category'] as String? ?? 'Accessory',
+      subcategory: draft['subcategory'] as String?,
       imageUrl: draft['imageUrl'] as String? ?? '',
       imagePath: '',
       tags: List<String>.from(draft['tags'] as List? ?? const []),
@@ -202,6 +203,8 @@ class RemoteNeraBackend implements NeraBackend {
       'assetId': draft.id,
       'name': draft.name,
       'category': draft.category,
+      if ((draft.subcategory ?? '').trim().isNotEmpty)
+        'subcategory': draft.subcategory!.trim(),
       'tags': draft.tags,
       'analysisJobId': draft.analysisJobId,
     });
@@ -218,6 +221,8 @@ class RemoteNeraBackend implements NeraBackend {
               'assetId': draft.id,
               'name': draft.name,
               'category': draft.category,
+              if ((draft.subcategory ?? '').trim().isNotEmpty)
+                'subcategory': draft.subcategory!.trim(),
               'tags': draft.tags,
               'analysisJobId': draft.analysisJobId,
             },
@@ -235,10 +240,13 @@ class RemoteNeraBackend implements NeraBackend {
     required String name,
     required String category,
     required String productUrl,
+    String? subcategory,
   }) async {
     await _api.post('/wardrobe/links', {
       'name': name,
       'category': category,
+      if ((subcategory ?? '').trim().isNotEmpty)
+        'subcategory': subcategory!.trim(),
       'productUrl': productUrl,
     });
     await _refreshWardrobe();

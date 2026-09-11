@@ -21,7 +21,7 @@ interface WardrobeRow {
   pattern: string | null;
   season: string[] | null;
   occasion: string[] | null;
-  attributes: {style?: string[]} | null;
+  attributes: {style?: string[]; subcategory?: string} | null;
   contains_person: boolean;
   garment_visibility: string | null;
   virtual_tryon_eligible: boolean;
@@ -62,6 +62,7 @@ function wardrobeFromRow(row: WardrobeRow | undefined): WardrobeItem | null {
     userId: row.user_id,
     name: row.name,
     category: row.category,
+    subcategory: row.attributes?.subcategory || null,
     sourceType: row.source_type as WardrobeItem["sourceType"],
     imageStorageKey: row.image_storage_key || null,
     imageStorageProvider: row.image_storage_provider || null,
@@ -116,6 +117,9 @@ export class PostgresWardrobeRepository implements WardrobeRepository {
     const category = await client.query<{id: string}>("SELECT id FROM wardrobe_categories WHERE display_name = $1 AND is_active", [item.category]);
     if (!category.rows[0]) throw Object.assign(new Error(`Unknown wardrobe category: ${item.category}`), {code: "INVALID_CATEGORY"});
     const productDomain = item.productUrl ? new URL(item.productUrl).hostname : null;
+    const attributes: {style?: string[]; subcategory?: string} = {};
+    if (item.styleTags?.length) attributes.style = item.styleTags;
+    if (item.subcategory) attributes.subcategory = item.subcategory;
     const inserted = await client.query<{id: string}>(
       `INSERT INTO wardrobe_items
          (user_id, category_id, source_type, name, product_url, product_domain, analysis_job_id,
@@ -126,7 +130,7 @@ export class PostgresWardrobeRepository implements WardrobeRepository {
       [
         userId, category.rows[0].id, item.sourceType, item.name, item.productUrl, productDomain, item.analysisJobId || null,
         item.primaryColor || null, item.secondaryColors || [], item.material || null, item.pattern || null,
-        item.season || [], item.occasion || [], JSON.stringify(item.styleTags?.length ? {style: item.styleTags} : {}),
+        item.season || [], item.occasion || [], JSON.stringify(attributes),
         !!item.containsPerson, item.garmentVisibility || "full", item.virtualTryOnEligible !== false,
         item.sourceMarketplace || null, !!item.isNew,
       ],

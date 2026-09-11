@@ -16,6 +16,7 @@ export class MemoryWardrobeRepository implements WardrobeRepository {
     const value: WardrobeItem = {
       imageStorageProvider: null,
       analysisJobId: null,
+      subcategory: null,
       primaryColor: null,
       material: null,
       pattern: null,

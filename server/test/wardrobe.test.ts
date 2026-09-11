@@ -6,7 +6,7 @@ import {loadConfig} from "../src/config/env";
 import {createApiApp} from "../src/container";
 import {createMemoryRepositories} from "../src/database/repositories/memory";
 import {DevelopmentSmsProvider} from "../src/providers/sms";
-import type {AssetStore, StoredFileMetadata, UploadedFile, GmailApiClient} from "../src/types/provider.types";
+import type {AssetStore, StoredFileMetadata, UploadedFile, GmailApiClient, TextAnalysisProvider} from "../src/types/provider.types";
 
 const jpeg = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAEf/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9oADAMBAAIAAwAAABD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/EB//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/EB//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/EB//2Q==", "base64");
 
@@ -35,9 +35,9 @@ const noopGmailApiClient: GmailApiClient = {
   getMessage: async () => { throw new Error("not used in this suite"); },
 };
 
-function fixture(overrides: Parameters<typeof loadConfig>[0] = {}) {
+function fixture(overrides: Parameters<typeof loadConfig>[0] = {}, assetStoreOverride?: AssetStore, textAnalyzerOverrides: Partial<TextAnalysisProvider> = {}) {
   const repositories = createMemoryRepositories();
-  const assetStore = new PrivateStore();
+  const assetStore = assetStoreOverride ?? new PrivateStore();
   const config = loadConfig({
     env: "test",
     allowedOrigins: ["https://app.example.com"],
@@ -59,6 +59,7 @@ function fixture(overrides: Parameters<typeof loadConfig>[0] = {}) {
       validateFullLengthPhoto: async () => ({is_full_length: true, reasons: []}),
       analyzeProfile: async () => ({body_shape: "Rectangle", skin_tone: "Medium", skin_undertone: null, hair_color: null, facial_structure: null, style_attributes: [], styling_notes: ""}),
       suggestOutfit: async ({wardrobe}) => ({wardrobe_item_ids: wardrobe.slice(0, 2).map((item) => item.id), rationale: "Test outfit", suggested_items: []}),
+      ...textAnalyzerOverrides,
     },
     tryonProvider: {generate: async () => ({buffer: jpeg, mimeType: "image/jpeg"})},
     weatherProvider: {getCurrentWeather: async () => ({temperatureC: 24, feelsLikeC: 25, humidityPercent: 60, rainProbabilityPercent: 10, condition: "Partly cloudy", windKph: 8})},
@@ -189,4 +190,83 @@ test("marking a nonexistent wardrobe item as viewed returns 404", async () => {
   const {app} = fixture();
   const {token} = await register(app);
   await request(app).post("/api/v1/wardrobe/items/does-not-exist/viewed").set("authorization", `Bearer ${token}`).send().expect(404);
+});
+
+// The item name is a free-text label the user can set to anything; only the
+// `category` field (independently chosen from the AI analysis, or the
+// user's own dropdown pick) should ever determine which category tab an
+// item shows under.
+test("a shoe named 'Accessory' is still saved and filed under the Shoes category, not derived from its name", async () => {
+  const {app} = fixture({}, undefined, {
+    analyzeWardrobe: async () => ({item_name: "Running Shoe", category: "Shoes", subcategory: "Sneakers", tags: [], color: "White", material: "Mesh", pattern: "Solid", season: [], occasion: [], style: [], contains_person: false, garment_visibility: "full", virtual_tryon_eligible: true}),
+  });
+  const {token} = await register(app);
+  const analyze = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "shoe.jpg", contentType: "image/jpeg"}).expect(201);
+  const draft = analyze.body.draft as {assetId: string; analysisJobId: string; category: string};
+  const created = await request(app)
+    .post("/api/v1/wardrobe/items")
+    .set("authorization", `Bearer ${token}`)
+    .send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: "Accessory", category: draft.category, tags: []})
+    .expect(201);
+  assert.equal(created.body.item.name, "Accessory");
+  assert.equal(created.body.item.category, "Shoes");
+
+  const list = await request(app).get("/api/v1/wardrobe/items").set("authorization", `Bearer ${token}`).expect(200);
+  assert.equal(list.body.items[0].category, "Shoes");
+});
+
+test("a wardrobe draft carries the AI-detected subcategory through to the saved item", async () => {
+  const {app} = fixture({}, undefined, {
+    analyzeWardrobe: async () => ({item_name: "White Sneakers", category: "Shoes", subcategory: "Sneakers", tags: [], color: "White", material: "Canvas", pattern: "Solid", season: [], occasion: [], style: [], contains_person: false, garment_visibility: "full", virtual_tryon_eligible: true}),
+  });
+  const {token} = await register(app);
+  const analyze = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "shoe.jpg", contentType: "image/jpeg"}).expect(201);
+  const draft = analyze.body.draft as {assetId: string; analysisJobId: string; category: string; subcategory: string | null};
+  assert.equal(draft.subcategory, "Sneakers");
+
+  const created = await request(app)
+    .post("/api/v1/wardrobe/items")
+    .set("authorization", `Bearer ${token}`)
+    .send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: "White Sneakers", category: draft.category, tags: []})
+    .expect(201);
+  assert.equal(created.body.item.category, "Shoes");
+  assert.equal(created.body.item.subcategory, "Sneakers");
+});
+
+test("a client can manually correct the subcategory when saving a wardrobe item", async () => {
+  const {app} = fixture({}, undefined, {
+    analyzeWardrobe: async () => ({item_name: "Heels", category: "Shoes", subcategory: "Sneakers", tags: [], color: "Black", material: "Leather", pattern: "Solid", season: [], occasion: [], style: [], contains_person: false, garment_visibility: "full", virtual_tryon_eligible: true}),
+  });
+  const {token} = await register(app);
+  const analyze = await request(app).post("/api/v1/wardrobe/analyze").set("authorization", `Bearer ${token}`).attach("image", jpeg, {filename: "shoe.jpg", contentType: "image/jpeg"}).expect(201);
+  const draft = analyze.body.draft as {assetId: string; analysisJobId: string; category: string};
+  const created = await request(app)
+    .post("/api/v1/wardrobe/items")
+    .set("authorization", `Bearer ${token}`)
+    .send({assetId: draft.assetId, analysisJobId: draft.analysisJobId, name: "Heels", category: draft.category, subcategory: "Heels", tags: []})
+    .expect(201);
+  assert.equal(created.body.item.subcategory, "Heels");
+});
+
+test("a product-link item accepts an optional subcategory", async () => {
+  const {app} = fixture();
+  const {token} = await register(app);
+  const response = await request(app)
+    .post("/api/v1/wardrobe/links")
+    .set("authorization", `Bearer ${token}`)
+    .send({name: "White Sneakers", category: "Shoes", subcategory: "Sneakers", productUrl: "https://example.com/sneakers"})
+    .expect(201);
+  assert.equal(response.body.item.category, "Shoes");
+  assert.equal(response.body.item.subcategory, "Sneakers");
+});
+
+test("subcategory defaults to null when never provided", async () => {
+  const {app} = fixture();
+  const {token} = await register(app);
+  const response = await request(app)
+    .post("/api/v1/wardrobe/links")
+    .set("authorization", `Bearer ${token}`)
+    .send({name: "Silk Scarf", category: "Accessory", productUrl: "https://example.com/scarf"})
+    .expect(201);
+  assert.equal(response.body.item.subcategory, null);
 });

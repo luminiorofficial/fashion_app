@@ -51,4 +51,84 @@ void main() {
     expect(viewed.category, item.category);
     expect(viewed.imageUrl, item.imageUrl);
   });
+
+  test('WardrobeItem.fromJson parses an AI-detected subcategory', () {
+    final item = WardrobeItem.fromJson({
+      'id': 'item-1',
+      'name': 'White Sneakers',
+      'category': 'Shoes',
+      'subcategory': 'Sneakers',
+      'imageUrl': 'https://example.test/sneakers.jpg',
+    });
+
+    expect(item.category, 'Shoes');
+    expect(item.subcategory, 'Sneakers');
+  });
+
+  test('WardrobeItem.fromJson defaults subcategory to null when absent', () {
+    final item = WardrobeItem.fromJson({
+      'id': 'item-1',
+      'name': 'Silk Scarf',
+      'category': 'Accessory',
+      'imageUrl': '',
+    });
+
+    expect(item.subcategory, isNull);
+  });
+
+  test(
+    "a wardrobe item's category is unaffected by an unrelated or misleading name",
+    () {
+      const shoeNamedAccessory = WardrobeItem(
+        id: 'item-1',
+        name: 'Accessory',
+        category: 'Shoes',
+        imageUrl: '',
+        imagePath: '',
+      );
+
+      expect(shoeNamedAccessory.category, 'Shoes');
+    },
+  );
+
+  test(
+    'category filtering (mirroring the wardrobe screen chips) reads only the '
+    'category field, never the name',
+    () {
+      const items = [
+        WardrobeItem(
+          id: '1',
+          name: 'Accessory', // deliberately misleading name
+          category: 'Shoes',
+          imageUrl: '',
+          imagePath: '',
+        ),
+        WardrobeItem(
+          id: '2',
+          name: 'Shoes', // deliberately misleading name
+          category: 'Accessory',
+          imageUrl: '',
+          imagePath: '',
+        ),
+        WardrobeItem(
+          id: '3',
+          name: 'White Sneakers',
+          category: 'Shoes',
+          imageUrl: '',
+          imagePath: '',
+        ),
+      ];
+
+      List<WardrobeItem> visibleFor(String filter) => filter == 'All'
+          ? items
+          : items.where((item) => item.category == filter).toList();
+
+      expect(
+        visibleFor('Shoes').map((item) => item.id),
+        containsAll(['1', '3']),
+      );
+      expect(visibleFor('Shoes'), hasLength(2));
+      expect(visibleFor('Accessory').single.id, '2');
+    },
+  );
 }
