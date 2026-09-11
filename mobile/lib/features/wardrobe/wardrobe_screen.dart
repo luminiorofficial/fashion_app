@@ -161,7 +161,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
           );
         } catch (error) {
           if (mounted) {
-            showNeraSnackBar(context, friendlyError(error), error: true);
+            showNeraSnackBar(context, friendlyError(error, feature: ErrorFeature.wardrobeUpload), error: true);
           }
         } finally {
           completed += 1;
@@ -198,7 +198,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         }
       }
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) showNeraSnackBar(context, friendlyError(error, feature: ErrorFeature.wardrobeUpload), error: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -318,7 +318,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         }
       }
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) showNeraSnackBar(context, friendlyError(error, feature: ErrorFeature.wardrobeUpload), error: true);
     } finally {
       name.dispose();
       subcategory.dispose();
@@ -370,7 +370,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       await widget.backend.deleteWardrobeItem(item);
       if (mounted) showNeraSnackBar(context, '${item.name} was removed.');
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) showNeraSnackBar(context, friendlyError(error, fallback: 'We couldn’t remove this item right now. Please try again.'), error: true);
     }
   }
 
@@ -390,7 +390,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       final purchases = await widget.backend.listPurchaseCandidates();
       if (mounted) setState(() => _purchases = purchases);
     } catch (error) {
-      if (mounted) setState(() => _purchasesError = friendlyError(error));
+      if (mounted) setState(() => _purchasesError = friendlyError(error, feature: ErrorFeature.purchases));
     } finally {
       if (mounted) setState(() => _purchasesLoading = false);
     }
@@ -410,7 +410,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         );
       }
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) showNeraSnackBar(context, friendlyError(error, feature: ErrorFeature.purchases), error: true);
     } finally {
       if (mounted) setState(() => _busyPurchaseIds.remove(purchase.id));
     }
@@ -447,7 +447,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         );
       }
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) showNeraSnackBar(context, friendlyError(error, feature: ErrorFeature.purchases), error: true);
     } finally {
       if (mounted) setState(() => _busyPurchaseIds.remove(purchase.id));
     }

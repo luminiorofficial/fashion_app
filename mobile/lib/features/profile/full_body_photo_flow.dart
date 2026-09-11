@@ -126,6 +126,9 @@ class _PhotoPreviewSheet extends StatelessWidget {
                   width: double.infinity,
                   fit: BoxFit.contain,
                   filterQuality: FilterQuality.medium,
+                  errorBuilder: (context, error, stackTrace) => const Center(
+                    child: Text('We couldn’t open this photo. Please choose another photo.'),
+                  ),
                 ),
               ),
             ),

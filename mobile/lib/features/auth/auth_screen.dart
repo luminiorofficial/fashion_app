@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/errors/friendly_error.dart';
 import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
@@ -520,23 +521,10 @@ String _maskedPhone(String phone) {
   return '+91 ••••••${digits.substring(digits.length - 4)}';
 }
 
-String _authErrorMessage(Object error, {required bool verifying}) {
-  if (error is NeraException) {
-    final code = (error.code ?? '').toUpperCase();
-    final message = error.message.toLowerCase();
-    if (verifying &&
-        (code.contains('INVALID_OTP') ||
-            code.contains('OTP_INVALID') ||
-            message.contains('incorrect') ||
-            message.contains('invalid code') ||
-            message.contains('invalid otp'))) {
-      return 'Invalid code. Please try again.';
-    }
-  }
-  return verifying
-      ? 'Something went wrong. Please try again.'
-      : "We couldn't send the code. Try again.";
-}
+String _authErrorMessage(Object error, {required bool verifying}) => friendlyError(
+  error,
+  fallback: verifying ? 'Something went wrong. Please try again.' : "We couldn't send the code. Try again.",
+);
 
 /// Exactly 10 digits, with the first digit restricted to 6-9 as required for
 /// Indian mobile numbers (the fixed +91 prefix is not editable, so this is

@@ -48,16 +48,7 @@ class _ProfileCreationScreenState extends State<ProfileCreationScreen> {
     }
   }
 
-  String _photoError(Object error) {
-    final message = friendlyError(error).toLowerCase();
-    if (message.contains('network') || message.contains('connection')) {
-      return 'Upload didn\'t finish. Please check your connection and try again.';
-    }
-    if (message.contains('photo') || message.contains('image')) {
-      return 'We couldn\'t use this photo. Try a clearer full-length image.';
-    }
-    return 'We couldn\'t finish your Style Profile. Please try again.';
-  }
+  String _photoError(Object error) => friendlyError(error, feature: ErrorFeature.imageAnalysis);
 
   // The AI's raw observations (e.g. an exact skin-tone/undertone read like
   // "Medium tan") stay on the StyleProfile object — they're still sent to

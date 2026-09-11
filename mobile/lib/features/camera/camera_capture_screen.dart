@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/theme.dart';
+import '../../core/errors/friendly_error.dart';
 
 enum _CameraState { loading, ready, permissionDenied, unavailable, failed }
 
@@ -141,7 +142,8 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
     try {
       final image = await controller.takePicture();
       if (mounted) Navigator.pop(context, image);
-    } on CameraException {
+    } catch (error, stackTrace) {
+      logDeveloperError(error, stackTrace);
       if (mounted) {
         setState(() {
           _capturing = false;
@@ -149,6 +151,8 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
               'The photo could not be captured. Hold steady and try again.';
         });
       }
+    } finally {
+      if (mounted) setState(() => _capturing = false);
     }
   }
 
@@ -166,7 +170,11 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
   Future<void> _disposeController() async {
     final controller = _controller;
     _controller = null;
-    if (controller != null) await controller.dispose();
+    try {
+      if (controller != null) await controller.dispose();
+    } catch (error, stackTrace) {
+      logDeveloperError(error, stackTrace);
+    }
   }
 
   @override

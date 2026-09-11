@@ -55,7 +55,14 @@ class _WardrobeItemImageState extends State<WardrobeItemImage> {
               future: _localBytes,
               builder: (context, snapshot) {
                 if (snapshot.hasData) {
-                  return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                  return Image.memory(
+                    snapshot.data!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => const ColoredBox(
+                      color: NeraColors.surfaceElevated,
+                      child: Icon(Icons.broken_image_outlined, color: NeraColors.muted),
+                    ),
+                  );
                 }
                 if (snapshot.hasError) {
                   return const ColoredBox(

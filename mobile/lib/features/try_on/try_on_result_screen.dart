@@ -69,7 +69,7 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _error = friendlyError(error));
+      if (mounted) setState(() => _error = friendlyError(error, feature: ErrorFeature.tryOn));
     } finally {
       if (mounted) setState(() => _regenerating = false);
     }
@@ -87,7 +87,7 @@ class _TryOnResultScreenState extends State<TryOnResultScreen> {
         showNeraSnackBar(context, wasSaved ? 'Look removed.' : 'Look saved.');
       }
     } catch (error) {
-      if (mounted) showNeraSnackBar(context, friendlyError(error), error: true);
+      if (mounted) showNeraSnackBar(context, friendlyError(error, feature: ErrorFeature.tryOn), error: true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
