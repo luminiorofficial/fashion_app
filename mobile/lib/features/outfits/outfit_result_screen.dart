@@ -153,7 +153,22 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
     }
   }
 
-  String _tryOnUnavailableMessage(Object error) => friendlyError(error, feature: ErrorFeature.tryOn);
+  String _tryOnUnavailableMessage(Object error) {
+    if (error is NeraException) {
+      const unavailableCodes = {
+        'TRYON_SERVICE_UNAVAILABLE',
+        'TRYON_BILLING_REQUIRED',
+        'INVALID_TRYON_RESULT',
+        'WARDROBE_ITEM_HAS_NO_IMAGE',
+        'WARDROBE_ASSET_UNAVAILABLE',
+        'WARDROBE_ASSET_FETCH_FAILED',
+      };
+      if (unavailableCodes.contains(error.code)) {
+        return 'Not available yet, will start soon.';
+      }
+    }
+    return friendlyError(error);
+  }
 
   Future<void> _updateFullBodyPhoto() async {
     try {
@@ -177,8 +192,8 @@ class _OutfitResultScreenState extends State<OutfitResultScreen> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() => _tryOnError = friendlyError(error, feature: ErrorFeature.imageAnalysis));
-        showNeraSnackBar(context, friendlyError(error, feature: ErrorFeature.imageAnalysis), error: true);
+        setState(() => _tryOnError = friendlyError(error));
+        showNeraSnackBar(context, friendlyError(error), error: true);
       }
     }
   }

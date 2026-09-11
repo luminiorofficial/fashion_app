@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/nera_models.dart';
-import '../core/errors/friendly_error.dart';
 import 'nera_api_client.dart';
 import 'nera_backend.dart';
 
@@ -11,9 +10,7 @@ class RemoteNeraBackend implements NeraBackend {
     : _api = api ?? NeraApiClient(),
       _storage = secureStorage ?? const FlutterSecureStorage() {
     _api.onUnauthorized = () {
-      unawaited(_clearLocalSession().catchError((Object error, StackTrace stack) {
-        logDeveloperError(error, stack);
-      }));
+      unawaited(_clearLocalSession());
     };
   }
 
@@ -32,8 +29,6 @@ class RemoteNeraBackend implements NeraBackend {
   final ValueNotifier<NeraUser?> _currentUser = ValueNotifier(null);
   final ValueNotifier<StyleProfile?> _profileValue = ValueNotifier(null);
   NeraUser? _lastKnownUser;
-  String? _pendingLoginChallengeId;
-  NeraUser? _pendingLoginUser;
   final _wardrobe = StreamController<List<WardrobeItem>>.broadcast();
   final _profile = StreamController<StyleProfile>.broadcast();
   List<WardrobeItem> _wardrobeCache = const [];
@@ -54,16 +49,11 @@ class RemoteNeraBackend implements NeraBackend {
     if (_api.accessToken == null) return;
     try {
       final response = await _api.get('/me');
-      final user = NeraUser.fromJson(response['user'] as Map<String, dynamic>);
+      _setUser(NeraUser.fromJson(response['user'] as Map<String, dynamic>));
       await _refresh();
-      _setUser(user);
-    } catch (error, stackTrace) {
-      logDeveloperError(error, stackTrace);
-      if (error is NeraException && error.statusCode == 401) {
-        await _clearLocalSession();
-      } else {
-        rethrow;
-      }
+    } on Object {
+      await _storage.delete(key: _tokenKey);
+      _api.accessToken = null;
     }
   }
 
@@ -105,35 +95,14 @@ class RemoteNeraBackend implements NeraBackend {
     required String challengeId,
     required String otp,
   }) async {
-    // The OTP is consumed once verification succeeds. Retry only local session
-    // persistence/data loading if that later step failed, using the issued token.
-    if (_pendingLoginChallengeId == challengeId &&
-        _pendingLoginUser != null && _api.accessToken != null) {
-      await _finishLogin();
-      return;
-    }
     final response = await _api.post('/auth/otp/verify', {
       'challengeId': challengeId,
       'otp': otp,
     });
     _api.accessToken = response['accessToken'] as String;
-    _pendingLoginUser = NeraUser.fromJson(response['user'] as Map<String, dynamic>);
-    _pendingLoginChallengeId = challengeId;
-    await _finishLogin();
-  }
-
-  Future<void> _finishLogin() async {
-    final user = _pendingLoginUser!;
-    final token = _api.accessToken;
-    await _storage.write(key: _tokenKey, value: token);
+    await _storage.write(key: _tokenKey, value: _api.accessToken);
+    _setUser(NeraUser.fromJson(response['user'] as Map<String, dynamic>));
     await _refresh();
-    // A concurrent unauthorized response may have invalidated this session.
-    if (_api.accessToken != token || _pendingLoginUser == null) {
-      throw const NeraException('Session expired during login', statusCode: 401);
-    }
-    _setUser(user);
-    _pendingLoginChallengeId = null;
-    _pendingLoginUser = null;
   }
 
   void _setUser(NeraUser user) {
@@ -152,7 +121,7 @@ class RemoteNeraBackend implements NeraBackend {
 
   Future<void> _refreshWardrobe() async {
     final response = await _api.get('/wardrobe/items');
-    _wardrobeCache = (response['items'] as List)
+    _wardrobeCache = (response['items'] as List? ?? const [])
         .map((item) => WardrobeItem.fromJson(item as Map<String, dynamic>))
         .toList();
     _wardrobe.add(_wardrobeCache);
@@ -160,9 +129,6 @@ class RemoteNeraBackend implements NeraBackend {
 
   Future<void> _refreshProfile() async {
     final response = await _api.get('/profile');
-    if (!response.containsKey('profile')) {
-      throw const NeraException('Missing profile response field', code: 'MALFORMED_RESPONSE');
-    }
     final fetchedProfile = StyleProfile.fromJson(
       response['profile'] as Map<String, dynamic>?,
     );
@@ -196,23 +162,17 @@ class RemoteNeraBackend implements NeraBackend {
   // gone), and the API client's onUnauthorized hook (session already
   // invalid server-side, so there's nothing left to revoke).
   Future<void> _clearLocalSession({bool forgetUser = false}) async {
+    await _storage.delete(key: _tokenKey);
     _api.accessToken = null;
-    _pendingLoginChallengeId = null;
-    _pendingLoginUser = null;
-    try {
-      await _storage.delete(key: _tokenKey);
-    } finally {
-      _api.accessToken = null;
-      _userId.value = null;
-      _authenticated.value = false;
-      if (forgetUser) _lastKnownUser = null;
-      _currentUser.value = _lastKnownUser;
-      _wardrobe.add(const []);
-      _profile.add(const StyleProfile());
-      _wardrobeCache = const [];
-      _profileCache = const StyleProfile();
-      _profileValue.value = null;
-    }
+    _userId.value = null;
+    _authenticated.value = false;
+    if (forgetUser) _lastKnownUser = null;
+    _currentUser.value = _lastKnownUser;
+    _wardrobe.add(const []);
+    _profile.add(const StyleProfile());
+    _wardrobeCache = const [];
+    _profileCache = const StyleProfile();
+    _profileValue.value = null;
   }
 
   @override
@@ -357,7 +317,7 @@ class RemoteNeraBackend implements NeraBackend {
   @override
   Future<List<OutfitPlan>> listOutfitHistory() async {
     final response = await _api.get('/outfits');
-    return (response['outfits'] as List)
+    return (response['outfits'] as List? ?? const [])
         .map((outfit) => OutfitPlan.fromJson(outfit as Map<String, dynamic>))
         .toList();
   }
@@ -426,7 +386,7 @@ class RemoteNeraBackend implements NeraBackend {
   @override
   Future<List<TryOnResult>> listSavedLooks() async {
     final response = await _api.get('/tryon/saved');
-    return (response['tryOns'] as List)
+    return (response['tryOns'] as List? ?? const [])
         .map((tryOn) => TryOnResult.fromJson(tryOn as Map<String, dynamic>))
         .toList();
   }
@@ -446,18 +406,12 @@ class RemoteNeraBackend implements NeraBackend {
   @override
   Future<GmailConnectionStatus> getGmailStatus() async {
     final response = await _api.get('/commerce/gmail/status');
-    if (response['connected'] is! bool) {
-      throw const NeraException('Invalid connection status response', code: 'MALFORMED_RESPONSE');
-    }
     return GmailConnectionStatus.fromJson(response);
   }
 
   @override
   Future<GmailSyncSummary> syncGmail() async {
     final response = await _api.post('/commerce/gmail/sync', const {});
-    if (response['processed'] is! int || response['hasMore'] is! bool) {
-      throw const NeraException('Invalid sync response', code: 'MALFORMED_RESPONSE');
-    }
     return GmailSyncSummary.fromJson(response);
   }
 
@@ -467,7 +421,7 @@ class RemoteNeraBackend implements NeraBackend {
   @override
   Future<List<PurchaseCandidate>> listPurchaseCandidates() async {
     final response = await _api.get('/commerce/purchases');
-    return (response['purchases'] as List)
+    return (response['purchases'] as List? ?? const [])
         .map(
           (purchase) =>
               PurchaseCandidate.fromJson(purchase as Map<String, dynamic>),

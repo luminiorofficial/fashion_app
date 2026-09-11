@@ -11,7 +11,6 @@ class NeraApiClient {
   NeraApiClient({
     http.Client? client,
     this.requestTimeout = const Duration(seconds: 30),
-    this.uploadTimeout = const Duration(seconds: 90),
   }) : _client = client ?? http.Client();
 
   /// Set at build time via `--dart-define=NERA_API_BASE_URL=...`. There is
@@ -49,7 +48,6 @@ class NeraApiClient {
 
   final http.Client _client;
   final Duration requestTimeout;
-  final Duration uploadTimeout;
   String? accessToken;
 
   /// Invoked whenever a request that carried a bearer token comes back 401
@@ -92,10 +90,10 @@ class NeraApiClient {
     try {
       final streamed = await _client
           .send(request)
-          .timeout(uploadTimeout);
+          .timeout(const Duration(seconds: 90));
       return _decode(
         streamed.statusCode,
-        await streamed.stream.bytesToString().timeout(uploadTimeout),
+        await streamed.stream.bytesToString(),
         hadToken: hadToken,
       );
     } on TimeoutException {
@@ -106,7 +104,6 @@ class NeraApiClient {
     } on http.ClientException catch (error) {
       throw NeraException(
         'The NERA server could not be reached: ${error.message}',
-        code: 'NETWORK_ERROR',
       );
     }
   }
@@ -160,7 +157,7 @@ class NeraApiClient {
       if (body != null) request.body = jsonEncode(body);
       final response = await http.Response.fromStream(
         await _client.send(request).timeout(timeout ?? requestTimeout),
-      ).timeout(timeout ?? requestTimeout);
+      );
       if (response.statusCode == 204) return const {};
       return _decode(response.statusCode, response.body, hadToken: hadToken);
     } on TimeoutException {
@@ -171,7 +168,6 @@ class NeraApiClient {
     } on http.ClientException catch (error) {
       throw NeraException(
         'The NERA server could not be reached: ${error.message}',
-        code: 'NETWORK_ERROR',
       );
     }
   }
@@ -184,28 +180,20 @@ class NeraApiClient {
     Map<String, dynamic> json;
     try {
       json = jsonDecode(body) as Map<String, dynamic>;
-    } catch (error, stackTrace) {
-      if (kDebugMode) {
-        debugPrint('Invalid API response: $error');
-        debugPrintStack(stackTrace: stackTrace);
-      }
-      if (statusCode >= 200 && statusCode < 300) {
-        throw NeraException(body, code: 'MALFORMED_RESPONSE', statusCode: statusCode);
-      }
+    } catch (_) {
       json = {};
     }
     if (statusCode < 200 || statusCode >= 300) {
       final error = json['error'];
-      final errorCode = error is Map && error['code'] is String ? error['code'] as String : null;
-      final errorMessage = error is Map && error['message'] is String
-          ? error['message'] as String
+      final errorCode = error is Map ? error['code'] as String? : null;
+      final errorMessage = error is Map
+          ? error['message'] as String? ?? 'Request failed ($statusCode).'
           : 'Request failed ($statusCode).';
       if (kDebugMode) {
         debugPrint(
           'NERA API error: status=$statusCode '
           'code=${errorCode ?? 'UNKNOWN'} message=$errorMessage',
         );
-        debugPrint('NERA API response body: $body');
       }
       // Only a 401 on a request that actually carried a bearer token means
       // "the session was revoked/expired" — an unauthenticated endpoint
@@ -217,9 +205,6 @@ class NeraApiClient {
         code: errorCode,
         statusCode: statusCode,
       );
-    }
-    if (json['error'] != null) {
-      throw NeraException(body, code: 'MALFORMED_RESPONSE', statusCode: statusCode);
     }
     return json;
   }

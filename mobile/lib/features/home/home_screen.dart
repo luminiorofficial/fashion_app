@@ -18,7 +18,6 @@ class HomeScreen extends StatelessWidget {
     required this.onOpenWardrobe,
     required this.weatherLoading,
     this.weather,
-    this.weatherError,
     this.locationStatus,
     this.onRetryWeather,
     this.error,
@@ -33,7 +32,6 @@ class HomeScreen extends StatelessWidget {
   final ValueChanged<OccasionType> onOccasion;
   final VoidCallback onOpenWardrobe;
   final WeatherSummary? weather;
-  final String? weatherError;
   final bool weatherLoading;
   final LocationAccessStatus? locationStatus;
   final VoidCallback? onRetryWeather;
@@ -82,7 +80,6 @@ class HomeScreen extends StatelessWidget {
             const SizedBox(height: NeraSpacing.sm),
             _WeatherDisplay(
               weather: weather,
-              weatherError: weatherError,
               loading: weatherLoading,
               locationStatus: locationStatus,
               onRetry: onRetryWeather,
@@ -251,14 +248,12 @@ class _WardrobePreview extends StatelessWidget {
 class _WeatherDisplay extends StatelessWidget {
   const _WeatherDisplay({
     required this.weather,
-    this.weatherError,
     required this.loading,
     this.locationStatus,
     this.onRetry,
   });
 
   final WeatherSummary? weather;
-  final String? weatherError;
   final bool loading;
   final LocationAccessStatus? locationStatus;
   final VoidCallback? onRetry;
@@ -282,7 +277,7 @@ class _WeatherDisplay extends StatelessWidget {
   Widget build(BuildContext context) {
     final weather = this.weather;
     final canRetry = weather == null && !loading && onRetry != null;
-    final message = loading ? 'Checking local weather…' : (weatherError ?? _unavailableMessage());
+    final message = loading ? 'Checking local weather…' : _unavailableMessage();
 
     final content = DecoratedBox(
       decoration: BoxDecoration(

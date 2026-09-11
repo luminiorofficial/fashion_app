@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/errors/friendly_error.dart';
 import '../../core/theme/theme.dart';
 import '../../core/widgets/widgets.dart';
 import '../../models/nera_models.dart';
@@ -43,8 +42,6 @@ class _ProfileScreenState extends State<ProfileScreen>
   bool _analyzing = false;
   GmailConnectionStatus _gmailStatus = GmailConnectionStatus.disconnected;
   bool _gmailStatusLoading = true;
-  String? _gmailError;
-  bool _gmailNeedsReconnect = false;
   bool _gmailBusy = false;
   bool _signingOut = false;
   bool _deletingAccount = false;
@@ -82,30 +79,17 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Future<void> _loadGmailStatus() async {
-    if (!mounted) return;
-    setState(() {
-      _gmailStatusLoading = true;
-      _gmailError = null;
-      _gmailNeedsReconnect = false;
-    });
     try {
       final status = await widget.backend.getGmailStatus();
-      if (mounted) setState(() {
-        _gmailStatus = status;
-        _gmailNeedsReconnect = !status.connected && (status.syncError?.isNotEmpty ?? false);
-        if (status.syncStatus == 'error' || status.syncStatus == 'failed' || (status.syncError?.isNotEmpty ?? false)) {
-          _gmailError = friendlyError(status.syncError, feature: ErrorFeature.purchases);
-        }
-      });
-    } catch (error) {
-      if (mounted) setState(() => _gmailError = friendlyError(error, feature: ErrorFeature.purchases));
+      if (mounted) setState(() => _gmailStatus = status);
+    } catch (_) {
+      // An unavailable Gmail integration is presented as disconnected.
     } finally {
       if (mounted) setState(() => _gmailStatusLoading = false);
     }
   }
 
   Future<void> _connectGmail() async {
-    if (!mounted || _gmailBusy) return;
     setState(() => _gmailBusy = true);
     try {
       final authUrl = await widget.backend.beginGmailConnect();
@@ -134,7 +118,6 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Future<void> _syncGmail() async {
-    if (!mounted || _gmailBusy) return;
     setState(() => _gmailBusy = true);
     try {
       // A sync reports whether more work remains. Keep the existing capped
@@ -146,15 +129,8 @@ class _ProfileScreenState extends State<ProfileScreen>
         if (!hasMore) break;
       }
       final status = await widget.backend.getGmailStatus();
-      if (status.syncStatus == 'error' || status.syncStatus == 'failed' || (status.syncError?.isNotEmpty ?? false)) {
-        throw NeraException(status.syncError ?? 'Gmail sync failed');
-      }
       if (mounted) {
-        setState(() {
-          _gmailStatus = status;
-          _gmailError = null;
-          _gmailNeedsReconnect = false;
-        });
+        setState(() => _gmailStatus = status);
         showNeraSnackBar(
           context,
           hasMore
@@ -169,12 +145,6 @@ class _ProfileScreenState extends State<ProfileScreen>
           _actionError(error, "We couldn't sync Gmail. Please try again."),
           error: true,
         );
-        if (error is NeraException && error.code == 'GMAIL_RECONNECT_REQUIRED') {
-          setState(() {
-            _gmailNeedsReconnect = true;
-            _gmailError = friendlyError(error, feature: ErrorFeature.purchases);
-          });
-        }
       }
     } finally {
       if (mounted) setState(() => _gmailBusy = false);
@@ -325,7 +295,16 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  String _actionError(Object error, String fallback) => friendlyError(error, fallback: fallback);
+  String _actionError(Object error, String fallback) {
+    if (error is NeraImageException) return error.message;
+    final text = error.toString().toLowerCase();
+    if (text.contains('network') ||
+        text.contains('socket') ||
+        text.contains('could not be reached')) {
+      return 'No network connection. Please reconnect and try again.';
+    }
+    return fallback;
+  }
 
   Widget _buildGmailConnection(BuildContext context) {
     if (_gmailStatusLoading) {
@@ -335,14 +314,6 @@ class _ProfileScreenState extends State<ProfileScreen>
           width: 72,
           child: NeraSkeleton(height: 14, radius: NeraRadius.sm),
         ),
-      );
-    }
-    if (_gmailError != null) {
-      return NeraErrorState(
-        message: _gmailError!,
-        retrying: _gmailBusy,
-        retryLabel: _gmailNeedsReconnect ? 'Reconnect Gmail' : 'Try again',
-        onRetry: _gmailBusy ? null : _gmailNeedsReconnect ? _connectGmail : _gmailStatus.connected ? _syncGmail : _loadGmailStatus,
       );
     }
     if (!_gmailStatus.connected) {

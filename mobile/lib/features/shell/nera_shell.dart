@@ -39,7 +39,6 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
   Timer? _generationProgressTimer;
   bool _weatherLoading = true;
   WeatherSummary? _weather;
-  String? _weatherError;
   LocationAccessStatus? _locationStatus;
 
   @override
@@ -79,27 +78,22 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
   }
 
   Future<void> _loadWeather() async {
+    final location = await widget.locationService.getCurrentLocation();
     WeatherSummary? weather;
-    LocationAccessStatus? status;
-    String? errorMessage;
-    try {
-      final location = await widget.locationService.getCurrentLocation();
-      status = location.status;
-      if (location.coordinates != null) {
+    if (location.coordinates != null) {
+      try {
         weather = await widget.backend.getWeather(location.coordinates!);
-      }
-    } catch (error) {
-      errorMessage = friendlyError(error, feature: ErrorFeature.weather);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _weather = weather;
-          _weatherError = errorMessage;
-          _weatherLoading = false;
-          _locationStatus = status;
-        });
+      } on Object {
+        // Weather is optional; the rest of home and outfit generation stays
+        // available when the endpoint or upstream provider cannot respond.
       }
     }
+    if (!mounted) return;
+    setState(() {
+      _weather = weather;
+      _weatherLoading = false;
+      _locationStatus = location.status;
+    });
   }
 
   void _resetStreams() {
@@ -211,7 +205,7 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Could not create your look'),
-            content: Text(friendlyError(error, feature: ErrorFeature.outfit)),
+            content: Text(friendlyError(error)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
@@ -273,7 +267,6 @@ class _NeraShellState extends State<NeraShell> with WidgetsBindingObserver {
             onOccasion: (occasion) => _generate(occasion, wardrobe, profile),
             onOpenWardrobe: () => setState(() => _tab = 1),
             weather: _weather,
-            weatherError: _weatherError,
             weatherLoading: _weatherLoading,
             locationStatus: _locationStatus,
             onRetryWeather: _retryWeather,
